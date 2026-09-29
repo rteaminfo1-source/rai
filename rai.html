@@ -2445,6 +2445,9 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
   }
   const SOURCES = () => [
     {lib: new URL("ocr/", location.href).href, core: new URL("ocr/core/", location.href).href, lang: new URL("ocr/lang/", location.href).href},
+    // те же языки под именем .wasm — для хостингов, которые не отдают .gz (например, просмотр в claude.ai)
+    {lib: new URL("ocr/", location.href).href, core: new URL("ocr/core/", location.href).href,
+     files: {rus: new URL("ocr/lang/rus.traineddata.wasm", location.href).href, eng: new URL("ocr/lang/eng.traineddata.wasm", location.href).href}},
     // запасной вариант — CDN; языки Tesseract тогда берёт сам (у каждого языка свой пакет)
     {lib: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/", core: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/"}
   ];
@@ -2457,8 +2460,20 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
         if (!window.Tesseract) await loadScript(src.lib + "tesseract.min.js");
         const opts = {workerPath: src.lib + "worker.min.js", corePath: src.core, cacheMethod: "none",
                       logger: (m) => { if (progressCb && m && typeof m.progress === "number") progressCb(m.status, m.progress); }};
-        if (src.lang) opts.langPath = src.lang;
-        ocrWorker = await window.Tesseract.createWorker(["rus", "eng"], 1, opts);
+        if (src.lang) {
+          // Tesseract не сообщает об ошибке, если файла языка нет, а просто зависает — проверяем заранее
+          const head = await fetch(src.lang + "rus.traineddata.gz", {method: "HEAD"});
+          if (!head.ok) throw new Error("нет " + src.lang + "rus.traineddata.gz");
+          opts.langPath = src.lang;
+        }
+        if (src.files) {
+          // Кладём языки в кэш Tesseract (IndexedDB) — оттуда он читает их раньше, чем пытается скачать
+          for (const [code, url] of Object.entries(src.files)) await cachePut(`./${code}.traineddata`, await gunzipFetch(url));
+          opts.cacheMethod = "readOnly";
+          opts.langPath = src.lib;
+        }
+        ocrWorker = await Promise.race([window.Tesseract.createWorker(["rus", "eng"], 1, opts),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("распознавание не загрузилось за 90 с")), 90000))]);
         return ocrWorker;
       } catch (e) {
         problems.push((e && e.message) || String(e));
@@ -2466,6 +2481,29 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
       }
     }
     throw new Error("не удалось загрузить распознавание текста: " + problems.join("; "));
+  }
+  /** Записать в хранилище, которое читает Tesseract (idb-keyval: база «keyval-store», таблица «keyval»). */
+  function cachePut(key, value) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open("keyval-store");
+      open.onupgradeneeded = () => open.result.createObjectStore("keyval");
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction("keyval", "readwrite");
+        tx.objectStore("keyval").put(value, key);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+      };
+    });
+  }
+  /** Скачать сжатые данные языка и распаковать их в браузере. */
+  async function gunzipFetch(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(url + ": " + r.status);
+    const raw = new Uint8Array(await r.arrayBuffer());
+    if (raw[0] !== 0x1f || raw[1] !== 0x8b) return raw;  // уже распакован
+    if (!window.DecompressionStream) throw new Error("браузер не умеет распаковывать gzip");
+    return new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
   }
   async function recognize(dataUrl) {
     const img = await loadImage(dataUrl);
