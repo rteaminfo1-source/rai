@@ -529,7 +529,7 @@ class Brain:
         answers = []
         for n, t in enumerate(tasks[:12], 1):
             q = t["q"].replace("×", "*").replace("÷", "/") if t.get("math") else t["q"]
-            title = t.get("label") or t["q"]
+            title = (t.get("label") or t["q"]).replace("*", "×")  # «*» ломает жирный заголовок в markdown
             reply, intent = self._answer_one(version, q, dict(session), [])
             reply_text = re.sub(r"\s+", " ", re.sub(r"\*\*|`+|^#+\s*|^>\s*", "", reply, flags=re.M)).strip()
             unknown = intent in (None, "unknown") or reply_text.startswith("Я пока не знаю")
