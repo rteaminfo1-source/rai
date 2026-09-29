@@ -23,6 +23,9 @@ class Version:
     detailed: bool = False      # сразу даёт подробный ответ
     suggestions: bool = False   # предлагает похожие вопросы, если не понял
     threshold: float = 0.35     # минимальное сходство для ответа
+    code: bool = False          # режим для кода: лучше понимает код, объясняет, проверяет, пишет
+    enrich: bool = False        # дополняет короткие ответы фактами из интернета
+    slide_limit: int = 8        # сколько слайдов может быть в презентации
     features: list = field(default_factory=list)
 
     def public(self) -> dict:
@@ -36,7 +39,7 @@ class Version:
 
 ONLINE = {"weather", "currency", "translate"}
 ALL_SKILLS = frozenset({"calc", "time", "convert", "random", "password", "text", "table", "capital", "image", "slides",
-                        "web"} | ONLINE)
+                        "web", "code"} | ONLINE)
 
 VERSIONS = {
     "pro": Version(
@@ -46,6 +49,7 @@ VERSIONS = {
         search="tfidf",
         fuzzy=False,
         skills=frozenset({"calc", "time", "convert", "random", "table", "capital", "image", "web"} | ONLINE),
+        slide_limit=8,
         threshold=0.35,
         features=["поиск по смыслу", "погода", "валюты", "перевод", "поиск в интернете", "таблицы", "картинки"],
     ),
@@ -85,8 +89,30 @@ VERSIONS = {
         detailed=True,
         suggestions=True,
         threshold=0.27,
+        slide_limit=12,
         features=["всё из Pro Plus", "память фактов («запомни, что …»)",
                   "несколько вопросов сразу", "подробные ответы", "большие презентации"],
+    ),
+    "pro-quasar": Version(
+        id="pro-quasar",
+        name="Rai Pro Quasar",
+        description="Самая сильная версия: всё из Pro Sun, режим Code, ответы с фактами из интернета, "
+                    "презентации до 16 слайдов.",
+        search="tfidf",
+        fuzzy=True,
+        skills=ALL_SKILLS,
+        context=True,
+        memory=True,
+        multi=True,
+        detailed=True,
+        suggestions=True,
+        threshold=0.25,
+        code=True,
+        enrich=True,
+        slide_limit=16,
+        features=["всё из Pro Sun", "вкладка Code: запуск, проверка, объяснение и исправление кода",
+                  "ответы дополняются фактами из интернета", "презентации до 16 слайдов с фото",
+                  "архивы ZIP"],
     ),
 }
 
@@ -104,4 +130,4 @@ def resolve(version: Optional[str]) -> Optional[Version]:
     if key.startswith("rai"):
         key = key[3:]
     key = key.replace(" ", "").replace("_", "").replace("-", "")
-    return VERSIONS.get(_ALIASES.get(key, ""))
+    return VERSIONS.get(_ALIASES.get(key, "")) or VERSIONS.get(_ALIASES.get("pro" + key, ""))

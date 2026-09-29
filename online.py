@@ -473,12 +473,12 @@ def _first_sentences(text, limit=700):
     return cut[: end + 1] if end > 200 else cut.rstrip() + "…"
 
 
-def web_search(query: str):
-    """Найти ответ в Википедии: (ответ, вложения) или None."""
+def web_article(query: str, langs=("ru", "en")):
+    """Статья из Википедии: {"title", "text", "image", "link", "lang"} или None."""
     query = query.strip(" ?!.")
     if len(query) < 2:
         return None
-    for lang in ("ru", "en"):
+    for lang in langs:
         found = net.fetch_json(net.url(
             f"https://{lang}.wikipedia.org/w/api.php", action="query", list="search", srsearch=query,
             srlimit=1, format="json", origin="*", utf8=1), ttl=3600)
@@ -491,14 +491,24 @@ def web_search(query: str):
         extract = (page.get("extract") or "").strip()
         if not extract:
             continue
-        link = page.get("content_urls", {}).get("desktop", {}).get("page", "")
-        answer = f"**{page.get('title', title)}**\n\n{_first_sentences(extract)}"
-        if lang == "en":
-            answer += "\n\n*(нашёл только в английской Википедии)*"
-        answer += f"\n\nИсточник: [Википедия]({link})" if link else ""
-        attachments = []
-        thumb = page.get("thumbnail", {}).get("source") or page.get("originalimage", {}).get("source")
-        if thumb:
-            attachments.append({"type": "photo", "url": thumb, "title": page.get("title", title), "source": link})
-        return answer, attachments
+        return {
+            "title": page.get("title", title), "text": extract, "lang": lang,
+            "link": page.get("content_urls", {}).get("desktop", {}).get("page", ""),
+            "image": page.get("thumbnail", {}).get("source") or page.get("originalimage", {}).get("source"),
+        }
     return None
+
+
+def web_search(query: str):
+    """Найти ответ в Википедии: (ответ, вложения) или None."""
+    art = web_article(query)
+    if not art:
+        return None
+    answer = f"**{art['title']}**\n\n{_first_sentences(art['text'])}"
+    if art["lang"] == "en":
+        answer += "\n\n*(нашёл только в английской Википедии)*"
+    answer += f"\n\nИсточник: [Википедия]({art['link']})" if art["link"] else ""
+    attachments = []
+    if art["image"]:
+        attachments.append({"type": "photo", "url": art["image"], "title": art["title"], "source": art["link"]})
+    return answer, attachments

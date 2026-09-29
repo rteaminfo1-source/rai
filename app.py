@@ -14,6 +14,7 @@ from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
+import codeai
 from brain import Brain, RaiError
 from versions import DEFAULT_VERSION, VERSIONS, resolve
 
@@ -88,6 +89,19 @@ def chat(version_id=None):
         )
     except RaiError as e:
         return jsonify({"answer": str(e), "error": "rai_error", "version": version.id}), e.status
+
+
+@app.post("/api/code")
+def code():
+    """Вкладка Code: check | fix | explain | comment | generate. Код не выполняется на сервере."""
+    data = _payload() or {}
+    action = data.get("action")
+    source = data.get("code") or ""
+    if action not in ("check", "fix", "explain", "comment", "generate"):
+        return jsonify({"error": "action: check, fix, explain, comment или generate"}), 400
+    if len(source) > 200_000 or len(data.get("prompt") or "") > 4000:
+        return jsonify({"error": "Слишком большой код"}), 413
+    return jsonify(codeai.run_action(action, source, data.get("lang"), data.get("prompt") or ""))
 
 
 @app.post("/api/teach")

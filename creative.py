@@ -273,15 +273,22 @@ def _logo(c, name, accent):
 
 # ------------------------------------------------------------------ картинка
 
-def make_image(prompt: str, seed=None) -> dict:
-    """Нарисовать SVG по описанию. Возвращает {"type": "image", "svg", "title", "prompt"}."""
+def make_image(prompt: str, seed=None, theme=None) -> dict:
+    """Нарисовать SVG по описанию. Возвращает {"type": "image", "svg", "title", "prompt"}.
+
+    theme — цвета презентации ({"bg", "accent", "accent2", "fg"}): картинка рисуется в них.
+    """
     words = _words(prompt)
     rnd = random.Random(seed)
     c = _Canvas(rnd)
     found = [name for name, prefixes in SCENES if _has(words, prefixes)]
-    accent = next((col for p, col in COLORS.items() if _has(words, (p,))), None)
-    palette = [accent] if accent else []
-    palette += ["#e10600", "#ff2a2a", "#7a0000", "#f2f2f2", "#1a1a1a"]
+    accent = (theme or {}).get("accent") or next((col for p, col in COLORS.items() if _has(words, (p,))), None)
+    if theme:
+        a, a2, bg = theme["accent"], theme.get("accent2") or theme["accent"], theme["bg"]
+        palette = [a, a2, _mix(a, "#ffffff", 0.35), _mix(a, "#000000", 0.45), _mix(bg, a, 0.25)]
+    else:
+        palette = [accent] if accent else []
+        palette += ["#e10600", "#ff2a2a", "#7a0000", "#f2f2f2", "#1a1a1a"]
 
     if "logo" in found:
         m = re.search(r"(?:логотип\w*|лого|эмблем\w*|значок)\s+(?:для\s+|компании\s+|команды\s+)?(.+)", prompt, re.I)
@@ -290,7 +297,10 @@ def make_image(prompt: str, seed=None) -> dict:
         return {"type": "image", "svg": c.svg("Логотип " + name), "title": f"Логотип «{name}»", "prompt": prompt}
 
     if not found or found == ["abstract"]:
-        _sky(c, "dark", None)
+        if theme:
+            c.add(f'<rect width="{W}" height="{H}" fill="{c.gradient([("0", theme["bg"]), ("1", _mix(theme["bg"], theme["accent"], 0.22))])}"/>')
+        else:
+            _sky(c, "dark", None)
         _abstract(c, palette)
         # Есть сюжет, которого нет среди сцен (например «кот»)?
         rest = [w for w in words if len(w) > 2 and not _IMAGE_WORDS.search(w)
@@ -362,9 +372,89 @@ def is_slides_request(text: str) -> bool:
     return bool(_SLIDES_WORDS.search(text or "")) and not _QUESTION.search(text or "")
 
 
+# Цвета для презентаций: начало слова -> цвет. Длинные варианты раньше коротких.
+DECK_COLORS = [
+    ("темно-син", "#0b1f4d"), ("темно-зелен", "#0f3d2e"), ("темно-красн", "#7a0a16"), ("светло-син", "#93c5fd"),
+    ("светло-зелен", "#86efac"), ("черн", "#0b0b0c"), ("графит", "#1f2937"), ("бел", "#ffffff"),
+    ("красн", "#e10600"), ("алый", "#ff2a2a"), ("бордов", "#7a0a16"), ("малинов", "#be185d"),
+    ("розов", "#ec4899"), ("персик", "#fdba74"), ("оранж", "#f97316"), ("желт", "#facc15"),
+    ("золот", "#d4af37"), ("бежев", "#e8d9c0"), ("коричн", "#7c4a2d"), ("салатов", "#84cc16"),
+    ("мятн", "#34d399"), ("изумруд", "#10b981"), ("зелен", "#16a34a"), ("бирюз", "#14b8a6"),
+    ("голуб", "#38bdf8"), ("син", "#1e5bff"), ("индиго", "#4f46e5"), ("фиолет", "#7c3aed"),
+    ("лаванд", "#a78bfa"), ("сирен", "#a855f7"), ("серебр", "#c0c0c0"), ("сер", "#6b7280"),
+    ("неон", "#39ff14"),
+]
+_STYLE_WORDS = ("тонах", "тона", "тон", "цветах", "цвете", "цвета", "цвет", "цветом", "стиле", "стиль", "фоне", "фон",
+                "фоном", "акцент", "акцентом", "акцентами", "палитре", "палитра", "гамме", "оттенках", "оттенки",
+                "цветами", "светлая", "светлой", "светлом", "темная", "темной", "темном")
+
+
+def _color_of(word):
+    w = word.lower().replace("ё", "е")
+    if re.fullmatch(r"#(?:[0-9a-f]{6}|[0-9a-f]{3})", w):
+        return "#" + "".join(ch * 2 for ch in w[1:]) if len(w) == 4 else w
+    for prefix, hex_ in DECK_COLORS:
+        if w.startswith(prefix) and not w.startswith("серд") and not w.startswith("серв") and not w.startswith("сери"):
+            return hex_
+    return None
+
+
+def _lum(hex_):
+    r, g, b = (int(hex_[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
 def slides_topic(text: str) -> str:
-    topic = _SLIDES_FILLER.sub(" ", text or "")
-    return re.sub(r"\s+", " ", topic).strip(" .,!?:;«»\"'")
+    """Тема презентации без служебных слов и без цветов («про космос в синих тонах» -> «космос»)."""
+    words = re.findall(r"#[0-9a-fA-F]{3,6}|[\w-]+|[«»\"',.:;!?]", text or "")
+    drop = [False] * len(words)
+    for i, w in enumerate(words):
+        low = w.lower().replace("ё", "е")
+        parts = low.split("-")
+        if _color_of(low) or all(_color_of(p) for p in parts if p) and len(parts) > 1 or low in _STYLE_WORDS:
+            drop[i] = True
+    for i, w in enumerate(words):  # «в», «на», «с», «и» рядом с цветами тоже убираем
+        if w.lower() in ("в", "на", "с", "и", ",", "а") and (
+                (i + 1 < len(words) and drop[i + 1]) or (i > 0 and drop[i - 1] and i + 1 < len(words) and drop[i + 1])):
+            drop[i] = True
+    kept = " ".join(w for w, d in zip(words, drop) if not d)
+    topic = _SLIDES_FILLER.sub(" ", kept)
+    topic = re.sub(r"\s+([,.:;!?»])", r"\1", topic)
+    return re.sub(r"\s+", " ", topic).strip(" .,!?:;«»\"'-")
+
+
+def deck_theme(text: str) -> dict:
+    """Цвета презентации из слов пользователя: «в синих тонах», «чёрно-золотая», «фон белый, акцент фиолетовый»."""
+    low = (text or "").lower().replace("ё", "е")
+    tokens = re.findall(r"#[0-9a-f]{3,6}|[a-zа-я]+(?:-[a-zа-я]+)*", low)
+    colors = []  # (цвет, это фон?)
+    for i, tok in enumerate(tokens):
+        # «тёмно-синий» — один цвет, «чёрно-золотой» — два цвета
+        found = [_color_of(tok)] if _color_of(tok) and tok.startswith(("темно-", "светло-")) else \
+            [_color_of(p) for p in tok.split("-")] if "-" in tok else [_color_of(tok)]
+        near = tokens[max(0, i - 2):i] + tokens[i + 1:i + 2]
+        for col in found:
+            if col:
+                colors.append((col, any(t.startswith("фон") for t in near)))
+    bg = next((c for c, is_bg in colors if is_bg), None)
+    rest = [c for c, is_bg in colors if not is_bg and c != bg]
+    if not bg:
+        extreme = [c for c in rest if _lum(c) < 0.12 or _lum(c) > 0.85]
+        if extreme and (len(rest) > 1 or not re.search(r"акцент", low)):
+            bg = extreme[0]
+            rest.remove(bg)
+    if not bg:
+        bg = "#ffffff" if re.search(r"светл|бел", low) else "#0b0b0c"
+    accent = rest[0] if rest else ("#e10600" if _lum(bg) > 0.5 else "#ff2a2a")
+    accent2 = rest[1] if len(rest) > 1 else _mix(accent, "#ffffff" if _lum(bg) < 0.5 else "#000000", 0.35)
+    dark = _lum(bg) < 0.5
+    fg = "#f5f3f3" if dark else "#141414"
+    # акцент должен читаться на фоне: слишком близкий цвет чуть сдвигаем
+    if abs(_lum(accent) - _lum(bg)) < 0.18:
+        accent = _mix(accent, "#ffffff" if dark else "#000000", 0.45)
+    return {"bg": bg, "fg": fg, "accent": accent, "accent2": accent2,
+            "muted": _mix(fg, bg, 0.42), "surface": _mix(bg, fg, 0.07), "line": _mix(bg, fg, 0.16),
+            "on_accent": "#111111" if _lum(accent) > 0.6 else "#ffffff", "custom": bool(colors)}
 
 
 def _split_segments(text):
@@ -426,55 +516,108 @@ def _table(rows):
     return cells
 
 
-def make_slides(topic: str, intents: list, max_slides: int = 6) -> dict:
-    """Собрать презентацию по теме из статей базы знаний."""
-    title = topic[:1].upper() + topic[1:] if topic else "Презентация"
-    slides = [{"kind": "title", "title": title, "subtitle": "Rai · Rteam"}]
+def _sentences(text):
+    text = re.sub(r"\s+", " ", text or "").strip()
+    return [p.strip() for p in re.split(r"(?<=[.!?])\s+(?=[A-ZА-ЯЁ0-9«\"(])", text) if len(p.strip()) > 2]
 
-    for intent in intents:
-        text = intent["answers"][0].replace("{name}", "")
-        if intent.get("more"):
-            text += "\n\n" + intent["more"]
-        heading = intent.get("title", title)
-        for seg in _split_segments(text):
-            if len(slides) >= max_slides - 1:
+
+def _short(text, limit=110):
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0]
+    return cut.rstrip(",;:—- ") + "…"
+
+
+def _article_blocks(article):
+    """Разобрать статью на блоки для слайдов: факт, пункты, код, таблицы."""
+    text = article["answers"][0].replace("{name}", "")
+    if article.get("more"):
+        text += "\n\n" + article["more"]
+    heading = article.get("title") or "Главное"
+    blocks = []
+    first = True
+    for seg in _split_segments(text):
+        if seg[0] == "code" and seg[2].strip():
+            blocks.append({"kind": "code", "title": heading + ": пример", "lang": seg[1], "code": seg[2]})
+        elif seg[0] == "table":
+            cells = _table(seg[1])
+            if len(cells) > 1:
+                blocks.append({"kind": "table", "title": heading, "rows": cells[:8]})
+        else:
+            items = [b for b in _bullets(seg[1]) if not (b.endswith(":") and len(b) < 40)]
+            if first and items and 25 <= len(items[0]) <= 200 and not items[0].startswith("|"):
+                blocks.append({"kind": "fact", "title": heading, "text": items[0]})
+                items = items[1:]
+            first = False
+            for k in range(0, len(items), 4):
+                chunk = items[k:k + 4]
+                if chunk:
+                    blocks.append({"kind": "bullets", "title": heading, "bullets": chunk})
+    return blocks
+
+
+def make_slides(topic: str, articles: list, max_slides: int = 8, theme=None, photo=None) -> dict:
+    """Собрать презентацию: обложка, план, факты, пункты с картинками, код, таблицы, итоги, финал.
+
+    articles — статьи ({"title", "answers": [текст], "more"?}) из базы знаний, словаря или интернета.
+    theme — цвета (см. deck_theme). photo — адрес настоящей фотографии по теме (например, из Википедии).
+    Возвращает None, если материала нет: пустых «шаблонов для заполнения» Rai не делает.
+    """
+    if not articles:
+        return None
+    theme = theme or deck_theme("")
+    title = topic[:1].upper() + topic[1:] if topic else articles[0].get("title", "Презентация")
+    lead = next((s for a in articles for s in _sentences(a["answers"][0].replace("{name}", "").replace("**", ""))
+                 if 20 <= len(s) <= 160 and not s.startswith(("|", "`", "#"))), "")
+    slides = [{"kind": "title", "title": title, "subtitle": _short(lead, 120)}]
+
+    blocks_per_article = [_article_blocks(a) for a in articles]
+    headings = [a.get("title") for a, b in zip(articles, blocks_per_article) if b and a.get("title")]
+    if len(headings) >= 3:
+        slides.append({"kind": "agenda", "title": "План", "items": headings[:6]})
+    if photo:
+        slides.append({"kind": "photo", "title": title, "photo": photo, "caption": _short(lead, 140)})
+
+    # Берём блоки по очереди из каждой статьи, чтобы презентация не застревала на одной теме
+    budget = max_slides - len(slides) - 2  # оставляем место на итоги и финал
+    queues = [list(b) for b in blocks_per_article]
+    while budget > 0 and any(queues):
+        for q in queues:
+            if q and budget > 0:
+                slides.append(q.pop(0))
+                budget -= 1
+
+    takeaways = []
+    for blocks in blocks_per_article:
+        for b in blocks:
+            line = b.get("text") or (b.get("bullets") or [None])[0]
+            if line:
+                takeaways.append(_short(line.rstrip("."), 90))
                 break
-            if seg[0] == "code" and seg[2].strip():
-                slides.append({"kind": "code", "title": heading + ": пример", "lang": seg[1], "code": seg[2]})
-            elif seg[0] == "table":
-                cells = _table(seg[1])
-                if cells:
-                    slides.append({"kind": "table", "title": heading, "rows": cells})
-            elif seg[0] == "text":
-                items = [b for b in _bullets(seg[1]) if not b.endswith(":") or len(b) > 40]
-                for k in range(0, len(items), 5):
-                    if len(slides) >= max_slides - 1:
-                        break
-                    slides.append({"kind": "bullets", "title": heading, "bullets": items[k:k + 5]})
-
-    template = len(slides) == 1
-    if template:
-        # Нет знаний по теме — даём структуру, которую нужно заполнить своим текстом.
-        for head in ("Введение", "Главная идея", "Примеры", "Выводы"):
-            slides.append({"kind": "bullets", "title": head,
-                           "bullets": [f"Здесь будет ваш текст о теме «{title}».", "Замените этот пункт своим."]})
-    slides.append({"kind": "end", "title": "Спасибо за внимание!", "subtitle": "Вопросы?"})
-    _decorate(slides, topic or title)
-    return {"type": "slides", "title": title, "slides": slides, "template": template}
+    if len(takeaways) >= 2:
+        slides.append({"kind": "summary", "title": "Главное", "items": takeaways[:4]})
+    slides.append({"kind": "end", "title": "Спасибо за внимание!", "subtitle": title})
+    _decorate(slides, topic or title, theme)
+    return {"type": "slides", "title": title, "slides": slides, "theme": theme}
 
 
-TRANSITIONS = ["fade", "slide", "zoom", "wipe"]
+TRANSITIONS = ["fade", "slide", "zoom", "wipe", "rise"]
 
 
-def _decorate(slides, topic):
-    """Картинки на обложку и на слайды с текстом, переходы между слайдами."""
+def _decorate(slides, topic, theme):
+    """Картинки в цветах темы, чередование сторон, переходы между слайдами."""
     seed = zlib.crc32(topic.encode("utf-8"))
-    slides[0]["image"] = make_image(topic, seed=seed)["svg"]
-    with_text = [s for s in slides if s["kind"] == "bullets" and len(s["bullets"]) <= 4]
-    for k, slide in enumerate(with_text[:3]):
-        slide["image"] = make_image(f"{topic} {slide['title']}", seed=seed + k + 1)["svg"]
+    slides[0]["image"] = make_image(topic, seed=seed, theme=theme)["svg"]
+    side = 0
     for k, slide in enumerate(slides):
         slide["transition"] = TRANSITIONS[k % len(TRANSITIONS)]
+        if slide["kind"] == "bullets" and len(slide["bullets"]) <= 4 and side < 4:
+            slide["image"] = make_image(f"{topic} {slide['title']}", seed=seed + k, theme=theme)["svg"]
+            slide["side"] = "left" if side % 2 else "right"
+            side += 1
+        if slide["kind"] in ("fact", "end"):
+            slide["image"] = make_image(topic, seed=seed + 100 + k, theme=theme)["svg"]
 
 
 # ------------------------------------------------------------------ погода

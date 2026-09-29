@@ -1,0 +1,93 @@
+/* Rai Code — редактор, запуск и ИИ для кода. Цвета берутся из токенов index.html. */
+#codeView { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
+#codeView[hidden] { display: none; }
+
+.code-top { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.code-top .spacer { flex: 1; }
+.tb { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 9px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--fg); cursor: pointer; font: 500 13px/1 var(--font-body); white-space: nowrap; }
+.tb:hover { border-color: var(--red); }
+.tb.run { background: var(--ok-bg); border-color: var(--ok-bg); color: #fff; }
+.tb.run:hover { filter: brightness(1.1); }
+.tb.stop { background: var(--red); border-color: var(--red); color: #fff; }
+.tb:disabled { opacity: .5; cursor: default; }
+.tb svg.i { width: 15px; height: 15px; }
+.lang-pill { font: 500 12px/1 var(--font-mono); color: var(--muted); padding: 6px 9px; border: 1px dashed var(--line); border-radius: 8px; }
+
+.code-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); min-height: 0; }
+.editor-col { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; border-right: 1px solid var(--line); }
+
+/* вкладки файлов */
+.files { display: flex; align-items: stretch; gap: 2px; padding: 6px 8px 0; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--side); }
+.file-tab { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 8px 8px 0 0; border: 1px solid transparent;
+  border-bottom: 0; background: transparent; color: var(--muted); cursor: pointer; font: 500 13px/1 var(--font-mono); white-space: nowrap; }
+.file-tab.on { background: var(--bg); color: var(--fg); border-color: var(--line); }
+.file-tab .x { opacity: .5; padding: 0 2px; border-radius: 4px; }
+.file-tab .x:hover { opacity: 1; background: var(--panel-2); }
+.file-tab input { width: 120px; font: inherit; background: var(--panel); color: var(--fg); border: 1px solid var(--red); border-radius: 5px; padding: 2px 5px; }
+.file-add { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 6px 10px; font-size: 16px; }
+.file-add:hover { color: var(--fg); }
+
+/* редактор: textarea поверх подсвеченного pre */
+.editor { display: grid; grid-template-columns: auto minmax(0, 1fr); min-height: 0; background: var(--bg); position: relative; }
+.gutter { overflow: hidden; padding: 12px 8px 12px 12px; text-align: right; color: #56525a; user-select: none;
+  font: 13.5px/1.55 var(--font-mono); background: var(--side); border-right: 1px solid var(--line); min-width: 44px; }
+.gutter div { height: 1.55em; }
+.gutter .bad { color: #fff; background: var(--red); border-radius: 4px; padding: 0 4px; }
+.gutter .warn { color: #111; background: var(--warn); border-radius: 4px; padding: 0 4px; }
+.code-wrap { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.code-wrap pre, .code-wrap textarea { position: absolute; inset: 0; margin: 0; padding: 12px 14px; border: 0; overflow: auto;
+  font: 13.5px/1.55 var(--font-mono); tab-size: 4; white-space: pre; word-wrap: normal; letter-spacing: 0; }
+.code-wrap pre { pointer-events: none; color: #e8e3e6; background: transparent; }
+.code-wrap pre code { font: inherit; }
+.code-wrap textarea { color: transparent; background: transparent; caret-color: #fff; resize: none; outline: none; z-index: 1; }
+.code-wrap textarea::selection { background: rgba(255, 42, 42, .32); color: transparent; }
+.code-wrap textarea:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--red); }
+/* подсветка */
+.hl-k { color: #ff6b6b; font-weight: 500; }   /* ключевые слова */
+.hl-s { color: #9fe29a; }                     /* строки */
+.hl-c { color: #7d7682; font-style: italic; } /* комментарии */
+.hl-n { color: #ffb86b; }                     /* числа */
+.hl-f { color: #7cc7ff; }                     /* функции */
+.hl-b { color: #d2a8ff; }                     /* встроенные */
+.hl-d { color: #f0b23c; }                     /* декораторы, $переменные */
+.hl-t { color: #ff6b6b; }                     /* теги */
+.hl-a { color: #f0b23c; }                     /* атрибуты */
+.hl-p { color: #7cc7ff; }                     /* css-свойства */
+
+/* правая колонка: вывод и ИИ */
+.side-col { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
+.side-tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--side); }
+.side-tabs button { border: 0; background: transparent; color: var(--muted); padding: 7px 12px; border-radius: 8px; cursor: pointer; font: 600 13px/1 var(--font-body); }
+.side-tabs button[aria-selected="true"] { background: var(--red); color: #fff; }
+.pane { min-height: 0; display: grid; }
+.pane[hidden] { display: none; }
+#outPane { grid-template-rows: auto minmax(0, 1fr); }
+.stdin { padding: 8px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.stdin label { font-size: 12px; color: var(--muted); }
+.stdin textarea { min-height: 38px; height: 38px; max-height: 120px; resize: vertical; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--fg); font: 13px/1.4 var(--font-mono); }
+.console { overflow: auto; margin: 0; padding: 10px 12px; font: 13px/1.5 var(--font-mono); white-space: pre-wrap; word-break: break-word; background: #070708; color: #e8e3e6; }
+.console .err { color: #ff8080; }
+.console .sys { color: #7d7682; }
+.console .hint { color: #f0b23c; }
+.preview-frame { width: 100%; height: 100%; border: 0; background: #fff; }
+
+#aiPane { grid-template-rows: minmax(0, 1fr) auto; }
+.ai-log { overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.ai-msg { padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); min-width: 0; font-size: 14px; }
+.ai-msg.me { background: var(--red-soft); border-color: #4a1111; align-self: flex-end; max-width: 90%; white-space: pre-wrap; }
+.ai-msg .md table { font-size: 12.5px; }
+.ai-msg .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.jump { border: 0; background: none; color: var(--red-hi); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
+.ai-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--line); }
+.ai-form textarea { flex: 1; min-width: 0; resize: none; height: 40px; max-height: 120px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--fg); font: 14px/1.35 var(--font-body); }
+.ai-form textarea:focus { outline: none; border-color: var(--red); }
+
+@media (max-width: 860px) {
+  .code-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(260px, 1fr) minmax(260px, 1fr); }
+  .editor-col { border-right: 0; border-bottom: 1px solid var(--line); }
+  .code-top { padding-inline: 12px; }
+  .tb .lbl { display: none; }
+}

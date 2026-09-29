@@ -32,8 +32,13 @@ def tearDownModule():
 
 
 class VersionsTest(unittest.TestCase):
-    def test_four_versions(self):
-        self.assertEqual(list(VERSIONS), ["pro", "pro-fast", "pro-plus", "pro-sun"])
+    def test_versions(self):
+        self.assertEqual(list(VERSIONS), ["pro", "pro-fast", "pro-plus", "pro-sun", "pro-quasar"])
+        quasar = VERSIONS["pro-quasar"]
+        self.assertTrue(quasar.code and quasar.enrich and quasar.memory and quasar.multi)
+        self.assertGreater(quasar.slide_limit, VERSIONS["pro-sun"].slide_limit)
+        self.assertEqual(resolve("Quasar").id, "pro-quasar")
+        self.assertEqual(resolve("sun").id, "pro-sun")
 
     def test_aliases(self):
         for raw, expected in [
@@ -195,7 +200,35 @@ class CreativeTest(unittest.TestCase):
         self.assertTrue(deck["slides"][0].get("image"))
         self.assertTrue(all(s.get("transition") for s in deck["slides"]))
         glossary_deck = self.brain.answer(PLUS, "презентация про космос")["attachments"][0]
-        self.assertFalse(glossary_deck["template"])
+        self.assertGreaterEqual(len(glossary_deck["slides"]), 4)
+        # никаких «замените этот текст» — только настоящий материал
+        all_text = json.dumps(glossary_deck, ensure_ascii=False)
+        self.assertNotIn("Замените", all_text)
+        self.assertNotIn("ваш текст", all_text)
+        # нет материала — нет пустой презентации
+        r = self.brain.answer(PLUS, "презентация про абвгдейка")
+        self.assertEqual(r["attachments"], [])
+        self.assertIn("не нашёл материала", r["answer"])
+
+    def test_slide_colors(self):
+        import creative
+        deck = self.brain.answer(SUN, "сделай презентацию про python в фиолетовых тонах")["attachments"][0]
+        self.assertEqual(deck["title"], "Python")
+        self.assertEqual(deck["theme"]["accent"], "#7c3aed")
+        th = creative.deck_theme("презентация про море, фон белый, акцент зелёный")
+        self.assertEqual((th["bg"], th["accent"]), ("#ffffff", "#16a34a"))
+        th = creative.deck_theme("чёрно-золотая презентация")
+        self.assertEqual((th["bg"], th["accent"]), ("#0b0b0c", "#d4af37"))
+        th = creative.deck_theme("в тёмно-синих и оранжевых цветах")
+        self.assertEqual((th["bg"], th["accent"]), ("#0b1f4d", "#f97316"))
+        self.assertEqual(creative.deck_theme("презентация про #ff00aa кошек")["accent"], "#ff00aa")
+        self.assertEqual(creative.slides_topic("презентация про космос в синих тонах"), "космос")
+        # картинки рисуются в цветах темы
+        self.assertIn("#7c3aed", deck["slides"][0]["image"])
+
+    def test_archive(self):
+        r = self.brain.answer(PRO, "сделай архив")
+        self.assertEqual(r["attachments"][0]["type"], "archive")
         # «Как сделать презентацию?» — вопрос, а не просьба.
         self.assertEqual(self.brain.answer(PLUS, "как сделать презентацию")["attachments"], [])
 
@@ -406,3 +439,77 @@ class AuthTest(unittest.TestCase):
             r = self.client.get("/auth/google/start")
             self.assertIn("google_not_configured", r.headers["Location"])
             self.assertFalse(self.client.get("/auth/me").get_json()["google"])
+
+
+class CodeAITest(unittest.TestCase):
+    BUGGY = ('import os\nage = input("Возраст? ")\nif age > 18\n    print "взрослый"\n'
+             'for i in range(len(items)):\n    print(nme)\n')
+
+    def test_syntax_error_in_russian(self):
+        import codeai
+        issues = codeai.check_python(self.BUGGY)
+        self.assertEqual(issues[0]["severity"], "error")
+        self.assertIn("двоеточия", issues[0]["message"])
+        self.assertEqual(issues[0]["line"], 3)
+
+    def test_fix_then_deep_check(self):
+        import codeai
+        fixed, changes = codeai.fix_python(self.BUGGY)
+        self.assertIn("if age > 18:", fixed)
+        self.assertIn('print("взрослый")', fixed)
+        self.assertEqual(len(changes), 2)
+        messages = " ".join(i["message"] for i in codeai.check_python(fixed))
+        self.assertIn("input() возвращает строку", messages)
+        self.assertIn("«items» нигде не определено", messages)
+        self.assertIn("«os» импортировано, но не используется", messages)
+        hint = next(i["hint"] for i in codeai.check_python("name = 1\nprint(nme)") if "nme" in i["message"])
+        self.assertIn("«name»", hint)
+
+    def test_explain_and_comment(self):
+        import codeai
+        code = "def square(x):\n    return x * x\n\nfor i in range(3):\n    print(square(i))\n"
+        text = codeai.explain(code)
+        self.assertIn("объявляет функцию square(x)", text)
+        self.assertIn("перебирает числа от 0 до 3", text)
+        commented = codeai.comment_python(code)
+        self.assertIn("# Объявляет функцию square(x)", commented)
+        compile(commented, "x.py", "exec")  # комментарии не ломают код
+
+    def test_other_languages(self):
+        import codeai
+        lang, issues = codeai.check_code("function f() {\n  if (a == 1) {\n    return 1;\n}\n", None)
+        self.assertEqual(lang, "javascript")
+        self.assertTrue(any("не закрыта" in i["message"] for i in issues))
+        lang, issues = codeai.check_code("<!DOCTYPE html><html><body><div><p>x</body></html>", None)
+        self.assertTrue(any("<div> не закрыт" in i["message"] for i in issues))
+        lang, issues = codeai.check_code('{"a": 1,}', "json")
+        self.assertEqual(issues[0]["severity"], "error")
+
+    def test_generate(self):
+        import codeai
+        import codelib
+        r = codeai.chat("напиши игру змейка")
+        self.assertEqual((r["lang"], r["filename"]), ("html", "index.html"))
+        self.assertIn("<canvas", r["code"])
+        self.assertEqual(codeai.chat("калькулятор на c++")["lang"], "cpp")
+        self.assertEqual(codeai.chat("напиши сортировку")["filename"], "main.py")
+        self.assertIsNone(codeai.chat("что такое html?"))
+        self.assertIsNone(codeai.chat("как дела"))
+        for key, t in codelib.T.items():  # весь Python в библиотеке синтаксически верный
+            if "python" in t["codes"]:
+                compile(t["codes"]["python"], key, "exec")
+
+    def test_code_in_chat_and_api(self):
+        tmp = tempfile.TemporaryDirectory()
+        brain = Brain(learned_path=os.path.join(tmp.name, "l.json"))
+        quasar = VERSIONS["pro-quasar"]
+        r = brain.answer(quasar, "найди ошибку:\n```python\nfor i in range(3)\n    print(i)\n```")
+        self.assertEqual(r["intent"], "code")
+        self.assertIn("двоеточия", r["answer"])
+        r = brain.answer(quasar, "напиши игру крестики нолики")
+        self.assertEqual(r["attachments"][0]["type"], "code")
+        self.assertIn("Pro Quasar", brain.answer(PRO, "напиши игру змейка")["answer"])
+        client = rai_app.app.test_client()
+        data = client.post("/api/code", json={"action": "fix", "code": "if x == None\n    pass\n"}).get_json()
+        self.assertIn("if x is None:", data["code"])
+        tmp.cleanup()

@@ -16,6 +16,8 @@ import threading
 import time
 from collections import OrderedDict
 
+import codeai
+import codelib
 import creative
 import net
 import nlp
@@ -42,6 +44,8 @@ _MORE_RE = re.compile(r"^(а\s+)?(подробнее|ещ[её]|расскажи
 _REMEMBER_RE = re.compile(r"^\s*запомни(?:,)?\s*(?:что|:)?\s*(.+)$", re.I | re.S)
 _RECALL_RE = re.compile(r"что ты (?:помнишь|запомнил|знаешь обо мне)|что я тебе говорил", re.I)
 _FORGET_RE = re.compile(r"^\s*забудь (?:вс[её]|об? мне)", re.I)
+_ARCHIVE_RE = re.compile(r"(сделай|собери|скачай|создай|упакуй|сохрани)\w*\s+(?:мне\s+)?(?:весь\s+)?(?:чат\s+)?(?:в\s+)?(архив|zip)|"
+                         r"^\s*(архив|zip)(?:\s+чата)?\s*[.!?]*$", re.I)
 _DEFINE_RE = re.compile(
     r"^\s*(?:а\s+)?(?:что такое|что это(?: такое)?|кто такой|кто такая|кто такие|что значит|что означает|"
     r"что такое это|расскажи (?:про|о|об)|что ты знаешь (?:про|о|об)|что знаешь (?:про|о|об)|объясни(?: что такое)?)"
@@ -202,7 +206,7 @@ class Brain:
             session["name"] = _name_from_history(history)
 
         parts = [message]
-        if version.multi and not _REMEMBER_RE.match(message):
+        if version.multi and not _REMEMBER_RE.match(message) and not codeai.extract_code(message)[0]:
             parts = [p.strip() for p in re.split(r"(?<=\?)\s+|\n+", message) if p.strip()] or [message]
 
         answers, intents, attachments = [], [], []
@@ -286,8 +290,27 @@ class Brain:
                 return "Искать в интернете умеют Rai Pro, Pro Plus и Pro Sun.", "web"
             return self._web(query, attachments) or (f"В интернете ничего не нашёл про «{query}».", "web")
 
-        # ---- языки программирования: примеры кода и список
+        # ---- архив: собрать чат (картинки, презентации, код) в ZIP
+        if _ARCHIVE_RE.search(text):
+            attachments.append({"type": "archive", "scope": "chat", "title": "Архив чата"})
+            return ("Собрал архив: все ответы этого чата, картинки (SVG), презентации (HTML) и код — одним ZIP-файлом. "
+                    "Нажмите «Скачать архив»."), "archive"
+
+        # ---- код: проверка, объяснение, исправление, генерация программ
         code_answer = proglangs.answer(text)
+        if "code" not in version.skills and (codeai.extract_code(text)[0] or
+                                             (codelib.find_task(text) not in (None, "hello") and codeai.chat(text))):
+            return "Проверять и писать код умеют Rai Pro Plus, Pro Sun и Pro Quasar — переключите версию сверху.", "code"
+        if "code" in version.skills:
+            task = codelib.find_task(text)
+            if codeai.extract_code(text)[0] or (task and task != "hello") or not code_answer:
+                result = codeai.chat(text, version)
+                if result:
+                    if result.get("code"):
+                        attachments.append({"type": "code", "lang": result["lang"], "code": result["code"],
+                                            "filename": result.get("filename") or "main." + codeai.EXT_OF.get(result["lang"], "txt"),
+                                            "title": result.get("title") or "Код"})
+                    return result["answer"], "code"
         if code_answer and (proglangs._LIST_RE.search(text) or proglangs._CODE_RE.search(text)):
             return code_answer, "proglang"
 
@@ -299,7 +322,7 @@ class Brain:
         # Языки программирования отвечает справочник proglangs, а не словарь.
         definition = None if code_answer else self.define(version, text, exact_only=True)
         if definition:
-            return definition, "glossary"
+            return self._enrich(version, text, definition, attachments), "glossary"
 
         results = self.search(version, text)
         best = results[0][1] if results else 0.0
@@ -314,7 +337,7 @@ class Brain:
                 return code_answer, "proglang"
             definition = self.define(version, text)
             if definition:
-                return definition, "glossary"
+                return self._enrich(version, text, definition, attachments), "glossary"
 
         if best >= version.threshold:
             intent = self.intents[results[0][0]]
@@ -336,6 +359,24 @@ class Brain:
             if found:
                 return found
         return self._fallback(version, results, text) + note, None
+
+    def _enrich(self, version, text, answer, attachments):
+        """Quasar: дополнить короткое определение фактами из Википедии (если статья про то же самое)."""
+        subject = self._subject(text) or text
+        if not version.enrich or "web" not in version.skills:
+            return answer
+        try:
+            art = online.web_article(subject, langs=("ru",))
+        except net.NetError:
+            return answer
+        if not art or not set(nlp.tokens(subject)) & set(nlp.tokens(art["title"])):
+            return answer
+        extra = [s for s in creative._sentences(art["text"]) if s not in answer][:3]
+        if not extra:
+            return answer
+        if art["image"]:
+            attachments.append({"type": "photo", "url": art["image"], "title": art["title"], "source": art["link"]})
+        return answer + "\n\n**Из интернета:** " + " ".join(extra) + (f"\n\nИсточник: [Википедия]({art['link']})" if art["link"] else "")
 
     @staticmethod
     def _subject(text):
@@ -363,25 +404,44 @@ class Brain:
 
     def _slides(self, version, text, attachments):
         topic = creative.slides_topic(text)
+        theme = creative.deck_theme(text)
         results = self.search(version, topic, limit=4, correct=False) if topic else []
         found = [self.intents[k] for k, score in results if score >= version.threshold * 0.8]
-        found = found[:4] if version.detailed else found[:2]
+        big = version.detailed
+        found = found[:4] if big else found[:2]
         if len(found) < 2 and topic:
-            found += self._glossary_for(topic, limit=(6 if version.detailed else 3) - len(found))
+            found += self._glossary_for(topic, limit=(6 if big else 3) - len(found))
+        photo = None
+        if topic and "web" in version.skills and (len(found) < 2 or version.enrich):
+            # Материала мало — дополняем статьёй из интернета (и берём оттуда настоящую фотографию)
+            try:
+                art = online.web_article(topic, langs=("ru",))
+            except net.NetError:
+                art = None
+            if art:
+                photo = art["image"]
+                found.append({"title": art["title"], "answers": [art["text"]], "web": True})
+        web = next((a for a in found if a.get("web")), None)
+        if web and set(nlp.tokens(topic)) <= set(nlp.tokens(web["title"])):
+            topic = web["title"]  # «эйфелеву башню» -> «Эйфелева башня»
         title = topic or "Rteam"
         if re.fullmatch(r"[a-z0-9+#]{1,5}", title, re.I):
             title = title.upper()  # html -> HTML, php -> PHP
         elif found and found[0].get("key_match") and len(title.split()) == 1:
             title = found[0]["title"]  # «котов» -> «Кошка»
-        deck = creative.make_slides(title, found, max_slides=10 if version.detailed else 6)
+        limit = version.slide_limit
+        deck = creative.make_slides(title, found, max_slides=limit, theme=theme, photo=photo)
+        if not deck:
+            hint = "" if "web" in version.skills else " Rai Pro, Pro Plus и Pro Sun ещё и ищут материал в интернете."
+            return (f"Про «{topic or text}» я пока не нашёл материала, поэтому презентацию не сделал — "
+                    f"не хочу показывать пустые слайды.{hint} Попробуйте другую тему, например «презентация про космос».")
         attachments.append(deck)
         n = len(deck["slides"])
         count = f"{n} " + ("слайд" if n % 10 == 1 and n % 100 != 11 else
                           "слайда" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "слайдов")
-        if deck["template"]:
-            return (f"В моей базе нет материала про «{deck['title']}», поэтому я сделал **шаблон**: "
-                    f"{count}. Замените текст на свой.")
-        return f"Готово: презентация **«{deck['title']}»**, {count}. Её можно смотреть на весь экран и скачать."
+        colors = " в ваших цветах" if theme["custom"] else ""
+        return (f"Готово: презентация **«{deck['title']}»**{colors}, {count}. "
+                "Смотрите на весь экран, скачивайте файлом или ZIP-архивом.")
 
     def _glossary_for(self, topic, limit=3):
         """Понятия из словаря, связанные с темой, в виде статей для слайдов."""
