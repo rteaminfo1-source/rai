@@ -12,6 +12,8 @@ Rai работает **полностью на своём движке**: без
 | **Rai Pro Plus** | `pro-plus` | Всё из Pro, а ещё исправляет опечатки и раскладку (`ghbdtn` → «привет»), даёт все навыки (пароли, работа с текстом), помнит имя, отвечает на «подробнее/ещё» и подсказывает похожие вопросы |
 | **Rai Pro Sun** | `pro-sun` | Всё из Plus, а ещё запоминает факты («запомни, что …»), отвечает на несколько вопросов в одном сообщении и сразу даёт подробные ответы |
 
+> **Как разложить по хостингам** (сайт на виртуальном PHP-хостинге, чат Rai на GitHub Pages) — см. [HOSTING.md](HOSTING.md).
+
 ## Что умеет Rai
 
 - **Отвечает на вопросы**: своя база знаний (`knowledge.json`) + словарь из 100+ понятий (`glossary.json`):
@@ -146,8 +148,8 @@ Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8`.
 | GET | `/auth/google/callback` | Возврат от Google (также `/google_callback.php`) |
 | GET / PUT | `/api/chats` | Чаты аккаунта |
 
-Для PHP-сайта Rteam в папке `php/` лежат `google_start.php`, `google_callback.php` и пример настроек
-`config.google.example.php`.
+Для PHP-сайта Rteam в папке `php/` лежат `chat.php` (переход в чат Rai), `google_start.php`,
+`google_callback.php` и пример настроек `config.google.example.php`.
 
 ## API
 

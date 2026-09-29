@@ -117,6 +117,9 @@
   .account .who-am span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #loginBtn { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--red); background: transparent; color: var(--fg); cursor: pointer; font-weight: 600; }
   #loginBtn:hover { background: var(--red-soft); }
+  .back-link { display: block; text-align: center; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--red);
+    color: var(--fg); text-decoration: none; font-weight: 600; }
+  .back-link:hover { background: var(--red-soft); }
 
   /* окно входа */
   dialog#authDialog { border: 1px solid var(--line); border-radius: 16px; padding: 0; background: var(--panel); color: var(--fg); width: min(420px, calc(100vw - 32px)); }
@@ -440,6 +443,16 @@
   if (params.get("api")) CFG.api = params.get("api");
   if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
   if (params.get("py")) CFG.pyBase = params.get("py");
+  // Ссылка «назад на сайт»: chat.php на хостинге передаёт ?back=https://ваш-сайт/
+  let backUrl = null;
+  try {
+    const b = params.get("back");
+    if (b && /^https?:\/\/[^\s]+$/i.test(b)) localStorage.setItem("rai_back", b);
+    backUrl = localStorage.getItem("rai_back");
+  } catch (e) {
+    const b = params.get("back");
+    backUrl = b && /^https?:\/\/[^\s]+$/i.test(b) ? b : null;
+  }
 
   const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py", "brain.py",
                     "knowledge.json", "glossary.json"];
@@ -1183,6 +1196,13 @@ def rai_versions():
       $("storeNote").textContent = "Чаты сохраняются в вашем аккаунте.";
     } else {
       box.className = "";
+      if (backUrl && !authAvailable) {
+        // Пришли с сайта Rteam: вход уже был там, показываем дорогу назад.
+        box.className = "";
+        box.innerHTML = `<a class="back-link" href="${esc(backUrl)}">← На сайт Rteam</a>`;
+        $("storeNote").textContent = "Чаты хранятся в этом браузере.";
+        return;
+      }
       box.innerHTML = `<button id="loginBtn" type="button">Войти или зарегистрироваться</button>`;
       $("loginBtn").addEventListener("click", () => openAuth("login"));
       $("storeNote").textContent = "Чаты хранятся в этом браузере.";
