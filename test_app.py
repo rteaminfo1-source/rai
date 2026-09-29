@@ -347,6 +347,11 @@ class HttpTest(unittest.TestCase):
         files = json.loads(payload)
         self.assertIn("codeai.py", files)
         self.assertIn("codelib.py", files)
+        # сборка для хостинга только с PHP и HTML: Python и распознавание — с CDN
+        cdn = build_standalone.build(cdn=True)
+        self.assertNotIn('"pyodide/",', cdn)
+        self.assertIn("window.RAI_OCR_LOCAL = false", cdn)
+        self.assertIn("webgen.py", cdn)
 
     def test_versions_endpoint(self):
         data = self.client.get("/api/versions").get_json()

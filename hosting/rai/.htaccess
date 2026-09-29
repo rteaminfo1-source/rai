@@ -1,32 +1,4 @@
-# Rai (Apache)
+# Rai (Apache) — необязательно: данные и так защищены (data/*.php)
 Options -Indexes
 DirectoryIndex index.html
-
-# Типы файлов для Python в браузере и распознавания текста
-AddType application/wasm .wasm
-AddType text/javascript .mjs .js
-AddType application/json .json
-AddType text/plain .py
-AddType application/gzip .gz
-<IfModule mod_mime.c>
-  RemoveHandler .py
-  RemoveEncoding .gz
-</IfModule>
-
-# Данные закрыты
 RedirectMatch 404 ^/data(/|$)
-<FilesMatch "\.(lock|tmp)$">
-  <IfModule mod_authz_core.c>
-    Require all denied
-  </IfModule>
-  <IfModule !mod_authz_core.c>
-    Deny from all
-  </IfModule>
-</FilesMatch>
-
-# Большие неизменные файлы кэшируются браузером
-<IfModule mod_expires.c>
-  ExpiresActive On
-  ExpiresByType application/wasm "access plus 30 days"
-  ExpiresByType application/gzip "access plus 30 days"
-</IfModule>

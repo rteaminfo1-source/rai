@@ -18,7 +18,7 @@ FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs
          "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "brain.py", "knowledge.json", "glossary.json"]
 
 
-def build(pyodide=None, fragment=False, stdlib=None):
+def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
     with open(os.path.join(BASE_DIR, "index.html"), encoding="utf-8") as f:
         html = f.read()
 
@@ -43,6 +43,10 @@ def build(pyodide=None, fragment=False, stdlib=None):
     embedded = f'<script type="application/json" id="rai-files">{payload}</script>\n'
     html = html.replace("<script>\n(function () {", embedded + "<script>\n(function () {", 1)
 
+    if cdn:
+        # Хостинг только с PHP и HTML: рядом нет папок pyodide/ и ocr/ — Python и распознавание текста берём с CDN
+        html = html.replace('    "pyodide/",\n', "", 1)
+        html = html.replace("window.RAI_PYODIDE_SOURCES = [", "window.RAI_OCR_LOCAL = false;\n  window.RAI_PYODIDE_SOURCES = [", 1)
     if pyodide:
         html = re.sub(r'pyodide: (null|"[^"]*")', f'pyodide: "{pyodide}"', html, count=1)
     if stdlib:
@@ -61,9 +65,10 @@ def main():
     parser.add_argument("--pyodide", help="адрес Pyodide (по умолчанию — CDN jsdelivr)")
     parser.add_argument("--stdlib", help="свой адрес python_stdlib.zip")
     parser.add_argument("--fragment", action="store_true", help="без <html>/<head>/<body>")
+    parser.add_argument("--cdn", action="store_true", help="Python и распознавание текста только с CDN (для хостинга без папок pyodide/ и ocr/)")
     args = parser.parse_args()
     with open(args.output, "w", encoding="utf-8") as f:
-        f.write(build(args.pyodide, args.fragment, args.stdlib))
+        f.write(build(args.pyodide, args.fragment, args.stdlib, args.cdn))
     print("Готово:", args.output)
 
 

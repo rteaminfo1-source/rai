@@ -19,7 +19,7 @@ $error = $errors[$_GET['error'] ?? ''] ?? null;
 <meta name="description" content="Опишите сайт словами — ИИ соберёт его и опубликует. API-ключи и хостинг для проектов Rteam.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Onest:wght@400;500;600&family=JetBrains+Mono&display=swap">
-<link rel="stylesheet" href="assets/studio.css">
+<?php include __DIR__ . '/assets/style.php'; ?>
 </head>
 <body>
 <header class="topbar">

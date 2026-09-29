@@ -1,3 +1,5 @@
+<?php /* Стили rteam.info (чёрно-красные). Подключается в страницы через include. */ ?>
+<style>
 /* Rteam — чёрно-красный стиль, как у Rai и AI Studio */
 :root {
   --bg: #0b0b0c; --panel: #141416; --panel-2: #1c1c1f; --line: #2a2a2e; --fg: #f3f1f1; --muted: #9b9599;
@@ -117,3 +119,4 @@ tr.top td:first-child { color: var(--gold); }
   main { padding: 20px 16px 36px; }
 }
 @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
+</style>

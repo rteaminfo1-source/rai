@@ -1,3 +1,5 @@
+<?php /* Стили AI Studio. Подключается в страницы через include. */ ?>
+<style>
 /* AI Studio Rteam — чёрно-красный стиль, как у Rai */
 :root {
   --bg: #0b0b0c; --panel: #141416; --panel-2: #1c1c1f; --line: #2a2a2e; --fg: #f3f1f1; --muted: #9b9599;
@@ -91,3 +93,4 @@ footer.foot { padding: 20px; color: var(--muted); font-size: 13px; border-top: 1
   .chat { position: static; height: 640px; }
   .preview { height: 460px; }
 }
+</style>

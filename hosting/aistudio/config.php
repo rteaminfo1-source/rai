@@ -55,31 +55,40 @@ function redirect($url) {
     exit;
 }
 
+// Данные хранятся в .php-файлах: первая строка останавливает PHP, поэтому из браузера их не прочитать
+// даже на хостинге, где не работает .htaccess. Внутри — обычный JSON.
+const DATA_GUARD = "<?php http_response_code(404); exit; ?>\n";
+
+function read_data_file($path) {
+    $raw = (string)file_get_contents($path);
+    if (strpos($raw, '<?php') === 0) $raw = (string)substr($raw, strpos($raw, "\n") + 1);
+    return $raw;
+}
+
 function json_path($name) {
-    if (!is_dir(DATA_DIR)) {
-        mkdir(DATA_DIR, 0750, true);
-    }
-    return DATA_DIR . '/' . $name;
+    $path = DATA_DIR . '/' . $name . '.php';
+    if (!is_dir(dirname($path))) mkdir(dirname($path), 0750, true);
+    return $path;
 }
 
 function load_json($name, $default = []) {
     $path = json_path($name);
     if (!is_file($path)) {
-        return $default;
+        $old = DATA_DIR . '/' . $name;  // файл старого формата (до .php) — читаем его
+        if (!is_file($old)) return $default;
+        $path = $old;
     }
-    $data = json_decode((string)file_get_contents($path), true);
+    $data = json_decode(read_data_file($path), true);
     return is_array($data) ? $data : $default;
 }
 
 function save_json($name, $data) {
     $path = json_path($name);
-    $dir = dirname($path);
-    if (!is_dir($dir)) {
-        mkdir($dir, 0750, true);
-    }
-    $tmp = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
-    file_put_contents($tmp, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+    $tmp = substr($path, 0, -4) . '.' . bin2hex(random_bytes(4)) . '.tmp.php';
+    file_put_contents($tmp, DATA_GUARD . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
     rename($tmp, $path);
+    $old = DATA_DIR . '/' . $name;
+    if (is_file($old)) @unlink($old);  // старый .json больше не нужен
 }
 
 /** Изменить JSON-файл под блокировкой: $fn получает данные по ссылке. */

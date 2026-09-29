@@ -16,7 +16,7 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
 <meta name="csrf" content="<?= h($csrf) ?>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Onest:wght@400;500;600&family=JetBrains+Mono&display=swap">
-<link rel="stylesheet" href="assets/studio.css">
+<?php include __DIR__ . '/assets/style.php'; ?>
 </head>
 <body>
 <header class="topbar">
@@ -114,6 +114,6 @@ curl "<?= h(STUDIO_URL) ?>/api.php?a=site" -H "Authorization: Bearer ВАШ_КЛ
   </aside>
 </main>
 <footer class="foot"><span>© <?= date('Y') ?> Rteam</span><a href="<?= h(RAI_URL) ?>">rai.rteam.info</a><a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a></footer>
-<script src="assets/studio.js"></script>
+<?php include __DIR__ . '/assets/script.php'; ?>
 </body>
 </html>

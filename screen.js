@@ -149,7 +149,9 @@
   async function getWorker() {
     if (ocrWorker) return ocrWorker;
     const problems = [];
-    for (const src of (H.ocrBase ? [H.ocrBase] : []).concat(SOURCES())) {
+    // RAI_OCR_LOCAL = false — рядом со страницей нет папки ocr/ (хостинг только с PHP и HTML), сразу CDN
+    const sources = SOURCES().filter((src) => window.RAI_OCR_LOCAL !== false || /^https:\/\/cdn\./.test(src.lib));
+    for (const src of (H.ocrBase ? [H.ocrBase] : []).concat(sources)) {
       try {
         if (!window.Tesseract) await loadScript(src.lib + "tesseract.min.js");
         const opts = {workerPath: src.lib + "worker.min.js", corePath: src.core, cacheMethod: "none",

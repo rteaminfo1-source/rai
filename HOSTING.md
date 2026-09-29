@@ -1,6 +1,8 @@
 # Rteam: что положить на виртуальный хостинг
 
-Три адреса, Python на хостинге не нужен (нужен только PHP 7.4+).
+Три адреса. **На хостинге только PHP и HTML** — Python не нужен: Rai работает в браузере посетителя,
+а Python для браузера и распознавание текста страница скачивает с CDN (jsdelivr) при первом запуске.
+В сборке для хостинга все файлы — `.php` и `.html` (плюс необязательные `.htaccess` / `web.config`).
 
 **Быстрее всего:** `python make_hosting.py dist/hosting --zip rteam.zip` соберёт три готовые папки с названиями
 доменов (и ZIP). Если перед этим задать переменные `GOOGLE_CLIENT_SECRET` и `RTEAM_SSO_SECRET`, секреты
@@ -9,7 +11,7 @@
 | Адрес | Что это | Откуда файлы |
 |---|---|---|
 | **rteam.info** | главный сайт: регистрация, вход (и через Google), личный кабинет, единый вход | `hosting/rteam.info/` |
-| **rai.rteam.info** | Rai целиком: чат, Code, Слайды, скриншоты; вход через аккаунт Rteam, чаты в аккаунте | страница Rai из корня репозитория + `pyodide/`, `ocr/` + `hosting/rai/` |
+| **rai.rteam.info** | Rai целиком в одном `index.html`: чат, Code, Слайды, скриншоты; вход через аккаунт Rteam, чаты в аккаунте | `build_standalone.py --cdn` + `hosting/rai/` |
 | **aistudio.rteam.info** | AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов | `hosting/aistudio/` |
 
 ```
@@ -62,29 +64,28 @@ github.com/rteaminfo1-source/rai → **Settings → Pages** → Source: *Deploy 
 | `sso.php` | единый вход: выдаёт Rai и AI Studio подписанный пропуск (действует 2 минуты, один раз) |
 | `chat.php` | старые ссылки на чат ведут на rai.rteam.info |
 | `config.php` | настройки — **впишите секрет Google и SSO_SECRET** |
-| `assets/site.css` | стиль (чёрно-красный) |
-| `data/` | аккаунты (пароли — только хеши). Закрыта от посетителей, нужны права на запись |
-| `.htaccess` / `web.config` | защита для Apache / IIS |
+| `assets/style.php` | стиль (чёрно-красный), подключается в страницы |
+| `data/` | аккаунты (пароли — только хеши) в файлах `*.php` — из браузера не читаются. Нужны права на запись |
+| `.htaccess` / `web.config` | необязательные настройки для Apache / IIS |
 
 Логин — латиница в нижнем регистре, цифры и дефис (3–20 символов); он же адрес сайта в студии.
 Старые аккаунты прежнего сайта сами не переносятся.
 
 ## 4. rai.rteam.info — основной ИИ
 
-Загрузите **всю папку `rai.rteam.info/`** из сборки (`make_hosting.py`):
+Загрузите **всю папку `rai.rteam.info/`** из сборки (`make_hosting.py`) — там только `.html` и `.php`:
 
-| Файл / папка | Зачем |
+| Файл | Зачем |
 |---|---|
-| `index.html`, `code.js`, `code.css`, `slides.js`, `slides.css`, `screen.js` | страница Rai: чат, Code, Слайды, скриншоты и запись экрана |
-| `*.py`, `knowledge.json`, `glossary.json` | движок Rai (Python выполняется в браузере) |
-| `pyodide/` | Python для браузера (≈ 13 МБ) |
-| `ocr/` | распознавание текста на скриншотах, русский и английский (≈ 14 МБ) |
+| `index.html` | весь Rai: чат, Code, Слайды, скриншоты и запись экрана; движок и база знаний встроены внутрь |
 | `config.php` | настройки — **впишите SSO_SECRET** |
 | `sso_start.php`, `sso_callback.php` | вход через аккаунт Rteam |
 | `me.php`, `chats.php`, `logout.php` | кто вошёл, чаты в аккаунте, выход |
 | `sync.php` | принимает изменения профиля и удаление аккаунта от rteam.info |
-| `data/` | пользователи и чаты (закрыта от посетителей, нужны права на запись) |
-| `.htaccess` / `web.config` | типы файлов (.wasm, .mjs) и защита для Apache / IIS |
+| `data/` | пользователи и чаты (`*.php` — из браузера не читаются), нужны права на запись |
+
+Python для браузера (Pyodide, ≈ 13 МБ) и распознавание текста (≈ 8 МБ) страница скачивает с CDN один раз,
+дальше браузер берёт их из кэша.
 
 Ссылки: `https://rai.rteam.info/#code` — сразу Code, `#slides` — сразу Слайды.
 Копия на GitHub Pages (`rteaminfo1-source.github.io/rai/`) тоже работает, но без входа — чаты в браузере.
@@ -104,10 +105,10 @@ github.com/rteaminfo1-source/rai → **Settings → Pages** → Source: *Deploy 
 | `api.php` | API по ключу (`Authorization: Bearer rai_…`) |
 | `auth.php` | выход |
 | `config.php` | настройки — **впишите SSO_SECRET** |
-| `assets/` | стили и скрипт студии |
+| `assets/style.php`, `assets/script.php` | стили и скрипт студии, подключаются в страницы |
 | `data/` | пользователи студии и черновики (закрыта от посетителей). Нужны права на запись |
 | `sites/` | сайты пользователей: `sites/<логин>/index.html`. Нужны права на запись, PHP здесь отключён |
-| `.htaccess` / `web.config` | защита для Apache / IIS |
+| `.htaccess` / `web.config` | необязательные настройки для Apache / IIS |
 
 Если раньше на студии были файлы `google_start.php` и `google_callback.php` — удалите их, вход теперь через rteam.info.
 

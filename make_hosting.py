@@ -12,13 +12,12 @@ import os
 import shutil
 import zipfile
 
+import build_standalone
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 
-# Файлы самого Rai: страница, вкладки, Python-движок, база знаний, Python для браузера, распознавание текста
-RAI_APP = ["index.html", "code.js", "code.css", "slides.js", "slides.css", "screen.js",
-           "versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py", "codeai.py",
-           "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "brain.py", "knowledge.json", "glossary.json"]
-RAI_DIRS = ["pyodide", "ocr"]
+# На хостинге только PHP и HTML: весь Rai — один index.html (движок, база знаний, вкладки встроены внутрь),
+# а Python для браузера и распознавание текста страница берёт с CDN (jsdelivr).
 
 DOMAINS = {
     "rteam.info": "hosting/rteam.info",
@@ -38,13 +37,19 @@ README = """RTEAM — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГ�
 Каждая папка — содержимое одного сайта (загрузите ВСЁ из папки в корень этого домена):
 
   rteam.info/            главный сайт: регистрация, вход (и через Google), личный кабинет, единый вход
-  rai.rteam.info/        Rai целиком: чат, Code, Слайды, скриншоты; вход через аккаунт Rteam, чаты в аккаунте
+  rai.rteam.info/        Rai целиком в одном index.html: чат, Code, Слайды, скриншоты;
+                         вход через аккаунт Rteam, чаты в аккаунте
   aistudio.rteam.info/   AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов
 
 {secrets}
 
+На хостинге нужны только PHP 7.4+ (curl желателен) и HTML — Python не нужен: Rai работает в браузере
+посетителя, а Python и распознавание текста браузер скачивает с CDN (jsdelivr) при первом запуске.
+Все файлы — .php и .html. Файлы .htaccess и web.config — настройки для Apache/IIS: загрузите их, если
+хостинг позволяет (для AI Studio .htaccess передаёт API-ключ в api.php); без них сайты тоже работают.
+
 Права на запись для PHP (755 или 775): папки data/ на всех трёх сайтах и sites/ в AI Studio.
-Нужен PHP 7.4+ (curl желателен). HTTPS включите для всех трёх адресов.
+Данные пользователей хранятся в data/*.php — из браузера их прочитать нельзя. HTTPS включите для всех трёх адресов.
 
 Google Cloud Console → Credentials → клиент 40211315152-…
   Authorized redirect URIs:      https://rteam.info/google_callback.php
@@ -84,11 +89,8 @@ def build(out):
         shutil.rmtree(out)
     for domain, src in DOMAINS.items():
         copy_tree(os.path.join(BASE, src), os.path.join(out, domain))
-    rai = os.path.join(out, "rai.rteam.info")
-    for name in RAI_APP:
-        shutil.copy2(os.path.join(BASE, name), os.path.join(rai, name))
-    for d in RAI_DIRS:
-        copy_tree(os.path.join(BASE, d), os.path.join(rai, d))
+    with open(os.path.join(out, "rai.rteam.info", "index.html"), "w", encoding="utf-8") as f:
+        f.write(build_standalone.build(cdn=True))
 
     filled = []
     for domain in DOMAINS:
@@ -111,10 +113,7 @@ def build(out):
             for name in files:
                 names.append(os.path.relpath(os.path.join(r, name), root))
         names.sort()
-        big = [n for n in names if n.startswith(("pyodide", "ocr"))]
-        shown = [n for n in names if n not in big]
-        listing.append(f"\n  {domain}/\n" + "\n".join("    " + n for n in shown) +
-                       (f"\n    pyodide/ и ocr/ — {len(big)} файлов Python и распознавания текста (загрузите папки целиком)" if big else ""))
+        listing.append(f"\n  {domain}/\n" + "\n".join("    " + n for n in names))
     secrets = ("Секреты УЖЕ вписаны в config.php (" + ", ".join(filled) + ").\n"
                "НЕ выкладывайте эти config.php в GitHub и никому не пересылайте.") if filled else (
                "Впишите секреты в config.php: GOOGLE_CLIENT_SECRET (только rteam.info) и одинаковый\n"

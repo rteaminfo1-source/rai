@@ -63,23 +63,40 @@ function redirect($url) {
     exit;
 }
 
+// Данные хранятся в .php-файлах: первая строка останавливает PHP, поэтому из браузера их не прочитать
+// даже на хостинге, где не работает .htaccess. Внутри — обычный JSON.
+const DATA_GUARD = "<?php http_response_code(404); exit; ?>\n";
+
+function read_data_file($path) {
+    $raw = (string)file_get_contents($path);
+    if (strpos($raw, '<?php') === 0) $raw = (string)substr($raw, strpos($raw, "\n") + 1);
+    return $raw;
+}
+
 function json_path($name) {
-    if (!is_dir(DATA_DIR)) mkdir(DATA_DIR, 0750, true);
-    return DATA_DIR . '/' . $name;
+    $path = DATA_DIR . '/' . $name . '.php';
+    if (!is_dir(dirname($path))) mkdir(dirname($path), 0750, true);
+    return $path;
 }
 
 function load_json($name, $default = []) {
     $path = json_path($name);
-    if (!is_file($path)) return $default;
-    $data = json_decode((string)file_get_contents($path), true);
+    if (!is_file($path)) {
+        $old = DATA_DIR . '/' . $name;  // файл старого формата (до .php) — читаем его
+        if (!is_file($old)) return $default;
+        $path = $old;
+    }
+    $data = json_decode(read_data_file($path), true);
     return is_array($data) ? $data : $default;
 }
 
 function save_json($name, $data) {
     $path = json_path($name);
-    $tmp = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
-    file_put_contents($tmp, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+    $tmp = substr($path, 0, -4) . '.' . bin2hex(random_bytes(4)) . '.tmp.php';
+    file_put_contents($tmp, DATA_GUARD . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
     rename($tmp, $path);
+    $old = DATA_DIR . '/' . $name;
+    if (is_file($old)) @unlink($old);  // старый .json больше не нужен
 }
 
 /** Изменить JSON-файл под блокировкой: $fn получает данные по ссылке. */
@@ -255,7 +272,7 @@ function page_head($title, $user = null) {
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23e10600'/%3E%3Ctext x='16' y='23' font-size='19' font-family='Arial' font-weight='900' text-anchor='middle' fill='white'%3ER%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Onest:wght@400;500;600;700&family=JetBrains+Mono&display=swap">
-<link rel="stylesheet" href="assets/site.css">
+<?php include __DIR__ . '/assets/style.php'; ?>
 </head>
 <body>
 <header class="topbar">

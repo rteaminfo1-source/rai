@@ -1,3 +1,5 @@
+<?php /* Скрипт студии: кнопки, предпросмотр, API-ключи. Подключается в страницы через include. */ ?>
+<script>
 /* AI Studio: кнопки студии -> actions.php */
 (function () {
   "use strict";
@@ -111,3 +113,4 @@
   }
   load();
 })();
+</script>
