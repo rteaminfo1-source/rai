@@ -227,6 +227,7 @@
   .code-att .codeblock pre { max-height: 440px; overflow: auto; }
   .code-att .codehead { gap: 8px; flex-wrap: wrap; }
   .code-att .codehead .acts { display: flex; gap: 2px; flex-wrap: wrap; }
+  .code-preview { display: block; width: 100%; height: min(560px, 70vh); border: 0; background: #fff; }
   .code-att .open-code { color: var(--fg); background: var(--red); }
   .code-att .open-code:hover { background: var(--red-hi); color: var(--ink); }
   .archive { margin-top: 4px; max-width: 520px; display: flex; gap: 14px; align-items: center; padding: 14px 16px;
@@ -478,7 +479,7 @@
   }
 
   const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py",
-                    "codeai.py", "codelib.py", "brain.py", "knowledge.json", "glossary.json"];
+                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -1081,11 +1082,29 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     const lang = a.lang || "text";
     const name = a.filename || "main." + (EXT_OF[lang] || "txt");
     box.innerHTML = `<div class="codeblock"><div class="codehead"><span>${esc(name)} · ${esc(LANG_NAME[lang] || lang)}</span><span class="acts">` +
+      (lang === "html" ? `<button class="icon-btn view" type="button">${icon("play")}Просмотр</button>` : "") +
       `<button class="icon-btn open-code" type="button">${icon("code")}Открыть в Code</button>` +
       `<button class="icon-btn dl" type="button">${icon("down")}Скачать</button>` +
       `<button class="icon-btn cp" type="button">${icon("copy")}Копировать</button></span></div>` +
       `<pre><code>${hl(a.code, lang)}</code></pre></div>`;
     box.querySelector(".open-code").addEventListener("click", () => openInCode(name, a.code));
+    const view = box.querySelector(".view");
+    if (view) {
+      const toggle = () => {
+        const old = box.querySelector(".code-preview");
+        if (old) { old.remove(); box.querySelector("pre").hidden = false; view.innerHTML = icon("play") + "Просмотр"; return; }
+        const frame = document.createElement("iframe");
+        frame.className = "code-preview";
+        frame.title = "Просмотр: " + name;
+        frame.setAttribute("sandbox", "allow-scripts allow-forms allow-modals allow-popups");
+        frame.srcdoc = a.code;
+        box.querySelector("pre").hidden = true;
+        box.querySelector(".codeblock").append(frame);
+        view.innerHTML = icon("code") + "Код";
+      };
+      view.addEventListener("click", toggle);
+      if (a.site) toggle();  // сайт сразу показываем, а не код
+    }
     box.querySelector(".dl").addEventListener("click", () => download(name, new Blob([a.code], {type: "text/plain;charset=utf-8"})));
     box.querySelector(".cp").addEventListener("click", () => copyRich(a.code, "<pre>" + esc(a.code) + "</pre>", box.querySelector("code")));
     return box;

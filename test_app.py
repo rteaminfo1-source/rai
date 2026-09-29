@@ -458,5 +458,80 @@ class CodeAITest(unittest.TestCase):
         tmp.cleanup()
 
 
+
+class BuildersTest(unittest.TestCase):
+    """Сайты по описанию, новые программы и функции."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "l.json"))
+        self.q = VERSIONS["pro-quasar"]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def code_of(self, text, session="b1"):
+        r = self.brain.answer(self.q, text, session)
+        att = [a for a in r["attachments"] if a["type"] == "code"]
+        return r, (att[0] if att else None)
+
+    def test_site_spec(self):
+        import webgen
+        spec = webgen.new_spec("сайт кофейни зерно в тёмных тонах, меню: капучино 190, латте 220. почта z@z.ru")
+        self.assertEqual((spec["type"], spec["title"], spec["theme"]), ("cafe", "Зерно", "dark"))
+        menu = next(s for s in spec["sections"] if s["kind"] == "menu")
+        self.assertEqual(menu["items"][1], {"title": "Латте", "price": "220 ₽", "text": ""})
+        self.assertEqual(spec["contacts"]["email"], "z@z.ru")
+        # «сервис» — не серый цвет, «работы» — не бот
+        self.assertEqual(webgen.new_spec("сайт автосервиса «Мотор»")["accent"], "#e10600")
+        self.assertEqual(webgen.new_spec("сайт с разделами: о нас, наши работы")["type"], "business")
+        html = webgen.render(spec)
+        self.assertEqual(webgen.spec_from_html(html)["title"], "Зерно")
+        spec2, done = webgen.edit_spec(spec, "добавь раздел цены")
+        self.assertIn("Цены", [s["title"] for s in spec2["sections"]])
+        self.assertIsNone(webgen.edit_spec(spec, "непонятная просьба")[1])
+
+    def test_site_in_chat_and_edits(self):
+        r, att = self.code_of("сделай сайт кофейни зерно")
+        self.assertTrue(att and att["site"] and att["filename"] == "index.html")
+        r, att = self.code_of("добавь раздел цены")
+        self.assertIn("Сделано", r["answer"])
+        self.assertIn("Цены", att["code"])
+        r, att = self.code_of("сделай синим")
+        self.assertIn("#1e5bff", att["code"])
+
+    def test_site_about_topic_uses_knowledge(self):
+        r, att = self.code_of("сделай сайт про python", "b2")
+        self.assertIn("Python", att["code"])
+        self.assertNotIn("Оставьте заявку", att["code"])
+
+    def test_programs(self):
+        for text, title in [("напиши игру тетрис", "Тетрис"), ("сделай приложение погоды", "Приложение погоды"),
+                            ("сделай конвертер валют", "Конвертер валют"), ("калькулятор ИМТ", "Калькулятор ИМТ"),
+                            ("напиши функцию которая считает среднее списка", "Среднее арифметическое"),
+                            ("шифр цезаря на javascript", "Шифр Цезаря"), ("напиши бота для дискорда", "Discord-бот")]:
+            r, att = self.code_of(text, "p-" + text)
+            self.assertTrue(att, text)
+            self.assertEqual(att["title"], title)
+        # вопросы остаются вопросами
+        self.assertEqual(self.brain.answer(self.q, "таблица умножения на 7", "x")["intent"], "skill")
+        self.assertNotEqual(self.brain.answer(self.q, "прогноз погоды", "x")["intent"], "code")
+
+    def test_generated_functions_run(self):
+        import contextlib
+        import io
+        import funcgen
+        for _, title, python, _ in funcgen.F:
+            with contextlib.redirect_stdout(io.StringIO()):
+                exec(compile(python, title, "exec"), {"__name__": "__main__"})
+
+    def test_code_api_edit(self):
+        import webgen
+        html = webgen.render(webgen.new_spec("сайт пекарни"))
+        data = rai_app.app.test_client().post("/api/code", json={"action": "edit", "code": html, "prompt": "убери отзывы"}).get_json()
+        self.assertIn("убрал раздел", data["answer"])
+        self.assertNotIn(">Отзывы<", data["code"])
+
+
 if __name__ == "__main__":
     unittest.main()

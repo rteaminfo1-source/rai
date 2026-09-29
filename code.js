@@ -195,7 +195,7 @@
       </div>
       <div class="ai-log" id="cAiLog"></div>
       <form class="ai-form" id="cAiForm">
-        <textarea id="cAiInput" rows="1" placeholder="Что написать? Например: игра змейка, калькулятор на C++, телеграм-бот…"></textarea>
+        <textarea id="cAiInput" rows="1" placeholder="Что написать? Сайт кофейни в тёмных тонах, игра тетрис, погода, функция среднего… Для сайта: «добавь раздел цены»"></textarea>
         <button class="round" type="submit" aria-label="Отправить">${ICON("send")}</button>
       </form>
     </div>
@@ -944,7 +944,7 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
   }
 
   // ================================================================ ИИ-помощник
-  const ACT_LABEL = {check: "Проверь код", fix: "Исправь ошибки", explain: "Объясни код", comment: "Добавь комментарии"};
+  const ACT_LABEL = {check: "Проверь код", fix: "Исправь ошибки", explain: "Объясни код", comment: "Добавь комментарии", edit: "Правка сайта"};
   function aiMsg(cls, html) {
     const m = document.createElement("div");
     m.className = "ai-msg " + cls;
@@ -959,7 +959,22 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     if (/коммент/.test(low)) return "comment";
     if (/объясн|что делает|как работает|разбери|поясни/.test(low)) return "explain";
     if (/провер|найди ошиб|есть ли ошиб|почему не работает|\bбаг/.test(low)) return "check";
+    // Открыт сайт, собранный Rai: «добавь раздел цены», «сделай синим» правят его
+    if (lang() === "html" && active().text.includes('id="rai-site"') && SITE_EDIT.test(low) && !/сделай (?:новый )?сайт|создай сайт/.test(low)) return "edit";
     return "generate";
+  }
+  const SITE_EDIT = /^\s*(?:а\s+)?(?:теперь\s+)?(?:добавь|убери|удали|скрой|переименуй|назови|измени|поменяй|замени|сделай|цвет|другие картинки|новые картинки|слоган|почт|телефон)/;
+  function applyCode(target, code) {
+    const file = project.files.find((x) => x.name === target);
+    if (!file) return false;
+    if (project.active !== target) openTab(target);
+    el.ta.focus();
+    el.ta.setSelectionRange(0, el.ta.value.length);
+    insert(code);  // одним действием: Ctrl+Z вернёт как было
+    el.ta.setSelectionRange(0, 0);
+    el.ta.scrollTop = 0;
+    scheduleCheck();
+    return true;
   }
   async function ai(action, prompt) {
     const f = active();
@@ -967,6 +982,7 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     showPane("ai");
     const me = aiMsg("me");
     me.textContent = prompt || ACT_LABEL[action] + " · " + f.name;
+    const sitePane = action === "edit";
     const pend = aiMsg("rai", `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`);
     const target = f.name, source = f.text;
     let r;
@@ -1004,26 +1020,23 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
         row.append(b);
         return b;
       };
-      if (action === "generate") {
+      if (sitePane) {
+        // Правка сайта применяется сразу и видна в «Просмотре»; Ctrl+Z в редакторе вернёт как было
+        if (applyCode(target, r.code)) { run(); showPane("ai"); }
+        btn("Показать сайт", () => run(), true);
+      } else if (action === "generate") {
         btn("Создать файл " + (r.filename || "main." + (r.lang || "txt")), (e) => {
           const name = addFile(r.filename || "main.py", r.code);
           e.currentTarget.textContent = "Создан: " + name;
           e.currentTarget.disabled = true;
-          if (["python", "javascript", "html"].includes(langOf(name))) H.toast("Готово — нажмите «Запустить»");
+          if (langOf(name) === "html") run();  // сайт или игру сразу видно в «Просмотре»
+          else if (["python", "javascript"].includes(langOf(name))) H.toast("Готово — нажмите «Запустить»");
         }, true);
       } else if (r.changed !== false) {
         btn("Применить к " + target, (e) => {
-          const file = project.files.find((x) => x.name === target);
-          if (!file) return;
-          if (project.active !== target) openTab(target);
-          el.ta.focus();
-          el.ta.setSelectionRange(0, el.ta.value.length);
-          insert(r.code);  // одним действием: Ctrl+Z вернёт как было
-          el.ta.setSelectionRange(0, 0);
-          el.ta.scrollTop = 0;
+          if (!applyCode(target, r.code)) return;
           e.currentTarget.textContent = "Применено";
           e.currentTarget.disabled = true;
-          scheduleCheck();
         }, true);
       }
       btn("Копировать", () => H.copy(r.code));

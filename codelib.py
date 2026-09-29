@@ -60,7 +60,8 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const size = 20, cells = canvas.width / size;
 let snake, dir, nextDir, food, score, paused = false;
-let best = Number(localStorage.getItem("snake-best") || 0);
+let best = 0;
+try { best = Number(localStorage.getItem("snake-best") || 0); } catch (e) { /* рекорд не сохранится */ }
 document.getElementById("best").textContent = best;
 
 function reset() {
@@ -82,7 +83,7 @@ function step() {
   dir = nextDir;
   const head = {x: (snake[0].x + dir.x + cells) % cells, y: (snake[0].y + dir.y + cells) % cells};
   if (snake.some(p => p.x === head.x && p.y === head.y)) {
-    if (score > best) { best = score; localStorage.setItem("snake-best", best); document.getElementById("best").textContent = best; }
+    if (score > best) { best = score; try { localStorage.setItem("snake-best", best); } catch (e) { /* без сохранения */ } document.getElementById("best").textContent = best; }
     alert("Игра окончена! Счёт: " + score);
     reset();
     return;
@@ -946,9 +947,10 @@ task("todo", r"todo|туду|список дел|задач", "Список де
   <ul id="list"></ul>
 </div>
 <script>
-let todos = JSON.parse(localStorage.getItem("todos") || "[]");
+let todos = [];
+try { todos = JSON.parse(localStorage.getItem("todos") || "[]"); } catch (e) { /* начнём с пустого списка */ }
 
-function save() { localStorage.setItem("todos", JSON.stringify(todos)); }
+function save() { try { localStorage.setItem("todos", JSON.stringify(todos)); } catch (e) { /* список живёт до перезагрузки */ } }
 
 function render() {
   const list = document.getElementById("list");
@@ -1375,7 +1377,12 @@ task("hello", r"hello|привет,? мир|перв\w* программ", "Hell
      cpp='#include <iostream>\n\nint main() {\n    std::cout << "Привет, мир!" << std::endl;\n}\n',
      java='public class Main {\n    public static void main(String[] args) {\n        System.out.println("Привет, мир!");\n    }\n}\n')
 
-ORDER = ["snake", "tictactoe", "guess", "rps", "quiz", "calculator", "fizzbuzz", "fibonacci", "factorial", "prime",
+import codeapps  # noqa: E402  игры и приложения: тетрис, 2048, пианино, погода, конвертер валют…
+import funcgen  # noqa: E402  небольшие функции по описанию: «функция, которая считает среднее»
+
+codeapps.register(task)
+
+ORDER = codeapps.ORDER_FIRST + ["snake", "tictactoe", "guess", "rps", "quiz", "calculator", "fizzbuzz", "fibonacci", "factorial", "prime",
          "binary_search", "sort", "telegram", "todo", "timer", "password", "temperature", "palindrome", "wordcount",
          "csv", "json", "http", "server", "files", "form", "dice", "class", "hello", "page"]
 
@@ -1392,11 +1399,11 @@ def generate(prompt, lang=None):
     """Код по описанию: {"code", "lang", "filename", "title", "about"} или None."""
     key = find_task(prompt)
     if not key:
-        return None
+        return funcgen.generate(prompt, lang_from_text(prompt) or lang)
     t = T[key]
     explicit = lang_from_text(prompt)
     # Игры и страницы по умолчанию делаем для браузера — их сразу видно в предпросмотре
-    browser_first = key in ("snake", "tictactoe", "todo", "timer", "form", "page")
+    browser_first = key in ("snake", "tictactoe", "todo", "timer", "form", "page") + codeapps.HTML_FIRST
     wanted = explicit or ("html" if browser_first else lang) or "python"
     if wanted == "typescript":
         wanted = "javascript"
@@ -1416,6 +1423,12 @@ def generate(prompt, lang=None):
 
 
 def help_text():
-    names = ", ".join(T[k]["title"].lower() for k in ORDER[:18])
-    return ("Напишу рабочую программу по описанию. Сейчас умею: " + names +
-            " и другие. Напишите, например: «напиши игру змейка» или «калькулятор на c++».")
+    games = "змейка, тетрис, 2048, пинг-понг, арканоид, крестики-нолики, «найди пару», угадай число"
+    apps = "погода, конвертер валют, калькулятор, ИМТ, пианино, рисовалка, галерея, список дел, часы и секундомер"
+    return ("Такую программу я пока не знаю. Вот что напишу сразу:\n\n"
+            f"- **сайты** по описанию: «сайт кофейни «Зерно» в тёмных тонах с меню и отзывами», «сайт про космос»;\n"
+            f"- **игры**: {games};\n- **приложения**: {apps};\n"
+            "- **боты и сервер**: Telegram-бот, Discord-бот, веб-сервер, HTTP-запросы;\n"
+            "- **функции**: «функция, которая считает среднее списка», «проверка високосного года», «шифр Цезаря»;\n"
+            "- **задачи**: сортировка, Фибоначчи, простые числа, факториал, таблица умножения, работа с файлами, JSON, CSV.\n\n"
+            "Язык можно выбрать: «… на JavaScript», «… на C++», «… на Java».")

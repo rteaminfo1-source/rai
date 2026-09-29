@@ -84,12 +84,12 @@ def chat(version_id=None):
 
 @app.post("/api/code")
 def code():
-    """Вкладка Code: check | fix | explain | comment | generate. Код не выполняется на сервере."""
+    """Вкладка Code: check | fix | explain | comment | generate | edit (правка сайта). Код не выполняется на сервере."""
     data = _payload() or {}
     action = data.get("action")
     source = data.get("code") or ""
-    if action not in ("check", "fix", "explain", "comment", "generate"):
-        return jsonify({"error": "action: check, fix, explain, comment или generate"}), 400
+    if action not in ("check", "fix", "explain", "comment", "generate", "edit"):
+        return jsonify({"error": "action: check, fix, explain, comment, generate или edit"}), 400
     if len(source) > 200_000 or len(data.get("prompt") or "") > 4000:
         return jsonify({"error": "Слишком большой код"}), 413
     return jsonify(codeai.run_action(action, source, data.get("lang"), data.get("prompt") or ""))

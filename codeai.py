@@ -12,6 +12,7 @@ import re
 from html.parser import HTMLParser
 
 import codelib
+import webgen
 
 LANG_NAMES = {
     "python": "Python", "javascript": "JavaScript", "html": "HTML", "css": "CSS", "php": "PHP", "json": "JSON",
@@ -866,8 +867,68 @@ def action_of(text):
     return None
 
 
+_STRONG_SITE = re.compile(r"сайт|лендинг|landing|визитк|портфолио|website|homepage")
+_BUILD_VERB = re.compile(r"(?:^|\b)(?:напиши|написать|сделай|сделать|создай|создать|сгенерируй|запрограммируй|закодь|собери|"
+                         r"нужен|нужна|нужно|хочу|разработай|сверстай|сверстать|make|create|build|write)\b")
+_BUILD_NOUN = re.compile(r"сайт|лендинг|страниц|визитк|портфолио|приложени|игр[аушы]|программ|бот[аы]?\b|скрипт|\bкод\b|калькулятор|"
+                         r"конвертер|часы|таймер|секундомер|галере|пианино|синтезатор|рисовалк|рисовани|функци|класс|парсер|сервер|"
+                         r"виджет|тетрис|змейк|2048|пинг|понг|арканоид|туду|todo|список дел|анкет|форм[уа]|викторин|тест\b|app\b|game\b")
+_NOT_CODE = re.compile(r"презентац|слайд|картин|рисунок|нарисуй|архив|логотип|фото(?!галере)")
+
+
+def wants_site(text):
+    """Просьба сделать сайт (а не программу, игру или страницу-инструмент)."""
+    low = (text or "").lower().replace("ё", "е")
+    if _STRONG_SITE.search(low):
+        return True
+    return webgen.is_site_request(low) and codelib.find_task(low) in (None, "page", "hello")
+
+
+def is_build_request(text):
+    """«Сделай сайт кофейни», «напиши игру тетрис», «создай приложение погоды» — просьба написать код."""
+    low = (text or "").lower().replace("ё", "е")
+    if _NOT_CODE.search(low) and not _STRONG_SITE.search(low):
+        return False
+    return bool(_BUILD_VERB.search(low) and _BUILD_NOUN.search(low)) or bool(re.match(r"^\s*(?:сайт|лендинг|игра)\s", low))
+
+
+def known_program(text):
+    """Короткая просьба, которая называет знакомую программу: «калькулятор ИМТ», «шифр цезаря на js»."""
+    low = (text or "").lower().replace("ё", "е").strip()
+    if len(low) > 60 or re.search(r"\?|^(?:что|как|кто|зачем|почему|где|когда|сколько)\b", low):
+        return False
+    # Только явные названия программ: «пароль от wifi», «прогноз погоды», «курс валют» — это вопросы, а не заказ кода
+    task = codelib.find_task(low)
+    if task in _NAMED_PROGRAMS or (task and codelib.lang_from_text(low)):
+        return True
+    fn_ok = codelib.funcgen.generate(low) is not None
+    return fn_ok and bool(codelib.funcgen._TRIGGER.search(low) or codelib.lang_from_text(low))
+
+
+_NAMED_PROGRAMS = {"tetris", "pong", "breakout", "g2048", "paint", "piano", "memory", "gallery", "bmi", "snake", "tictactoe",
+                   "guess", "rps", "calculator", "fizzbuzz", "discord"}
+
+
+def site_result(spec, answer):
+    return {"answer": answer, "code": webgen.render(spec), "lang": "html", "filename": "index.html",
+            "title": "Сайт «" + spec["title"] + "»", "site": True}
+
+
 def run_action(action, code, lang=None, prompt=""):
     """Выполнить действие над кодом. Возвращает {"answer", "code"?, "lang", "filename"?}."""
+    if action == "edit" or (action == "generate" and code and webgen.spec_from_html(code) and webgen.is_edit(prompt)):
+        spec = webgen.spec_from_html(code)
+        if not spec:
+            return {"answer": "Править словами умею сайты, которые собрал сам. Опишите новый сайт — соберу.", "lang": "html"}
+        spec, done = webgen.edit_spec(spec, prompt)
+        if not done:
+            return {"answer": "Не понял правку. " + webgen.EDIT_HELP, "lang": "html"}
+        return dict(site_result(spec, f"Сделано: {done}.\n\n{webgen.summary(spec)}"), changed=True)
+    if action == "generate" and wants_site(prompt):
+        spec = webgen.new_spec(prompt)
+        return site_result(spec, webgen.summary(spec) + "\n\n" + webgen.EDIT_HELP)
+    if action == "generate":
+        code = ""
     lang = detect_lang(code, lang) if code else (lang or "python")
     if action == "check":
         lang, issues = check_code(code, lang)
@@ -904,10 +965,23 @@ def run_action(action, code, lang=None, prompt=""):
             "lang": lang}
 
 
-def chat(text, version=None):
-    """Код в обычном чате: проверка/объяснение вставленного кода или генерация по просьбе. None — не про код."""
+def chat(text, version=None, state=None):
+    """Код в обычном чате: проверка/объяснение вставленного кода или генерация по просьбе. None — не про код.
+
+    state — память чата: там лежит последний собранный сайт, чтобы «добавь раздел цены» правило именно его.
+    """
+    state = state if state is not None else {}
     code, lang = extract_code(text)
     action = action_of(text)
+    if not code and state.get("site") and webgen.is_edit(text) and not wants_site(text):
+        spec, done = webgen.edit_spec(state["site"], text)
+        if done:
+            state["site"] = spec
+            return site_result(spec, f"Сделано: {done}.\n\n{webgen.summary(spec)}")
+    if not code and wants_site(text) and (is_build_request(text) or action == "generate"):
+        spec = webgen.new_spec(text)
+        state["site"] = spec
+        return site_result(spec, webgen.summary(spec) + "\n\nОткройте «Просмотр» или вкладку Code. " + webgen.EDIT_HELP)
     if code:
         action = action if action in ("fix", "explain", "comment", "check") else "check"
         result = run_action(action, code, lang)
@@ -918,7 +992,9 @@ def chat(text, version=None):
         return None  # вопрос о понятии, а не просьба написать код
     if action is None and codelib.find_task(text) and codelib.lang_from_text(text) and len(text) < 80:
         action = "generate"  # «калькулятор на c++»
-    if action == "generate" and codelib.find_task(text) or action == "generate" and re.search(r"код|программ|скрипт|функци|игр|бот|сайт|страниц|калькулятор|hello|приложени|класс\b|алгоритм|сортировк|парсер|сервер|таймер|html|python|питон|javascript|js\b|php|c\+\+|java\b", (text or "").lower()):
+    if (action is None or action == "check") and (is_build_request(text) or known_program(text)):
+        action = "generate"
+    if action == "generate" and (codelib.find_task(text) or codelib.funcgen.generate(text)) or action == "generate" and re.search(r"код|программ|скрипт|функци|игр|бот|сайт|страниц|калькулятор|hello|приложени|класс\b|алгоритм|сортировк|парсер|сервер|таймер|html|python|питон|javascript|js\b|php|c\+\+|java\b", (text or "").lower()):
         result = run_action("generate", "", codelib.lang_from_text(text) or "python", text)
         return result if result.get("code") else None
     return None

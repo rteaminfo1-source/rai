@@ -24,6 +24,7 @@ import nlp
 import online
 import proglangs
 import skills
+import webgen
 from versions import Version
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -91,6 +92,9 @@ def _clean_session_id(value):
     return None
 
 
+_SITE_VERSION = None  # версия для поиска фактов (самая полная), задаётся ниже
+
+
 class Brain:
     def __init__(self, knowledge_path=KNOWLEDGE_PATH, learned_path=LEARNED_PATH, glossary_path=GLOSSARY_PATH):
         self.knowledge_path = knowledge_path
@@ -99,6 +103,7 @@ class Brain:
         self.sessions = SessionStore()
         self._lock = threading.Lock()
         self.reload()
+        webgen.KNOWLEDGE = self._site_facts  # сайты «про X» наполняются фактами из базы знаний
 
     # ------------------------------------------------------------ база знаний
 
@@ -271,6 +276,20 @@ class Brain:
                         "сердце, цветок и логотипы."), "image"
             return f"Готово: **{image['title']}**. Картинку можно скачать в PNG или SVG.", "image"
 
+        # ---- «сделай сайт / игру / приложение» — это код, даже если в просьбе есть «погода» или «валюты»
+        building = codeai.is_build_request(text)
+        if building or (session.get("site") and webgen.is_edit(text) and not creative.is_image_request(text)):
+            if "code" not in version.skills:
+                if building:
+                    return "Писать программы и сайты умеют Rai Pro Plus, Pro Sun и Pro Quasar — переключите версию сверху.", "code"
+            else:
+                result = codeai.chat(text, version, session)
+                if result and result.get("code"):
+                    self._code_attachment(result, attachments)
+                    return result["answer"], "code"
+                if building:
+                    return codelib.help_text(), "code"
+
         # ---- навыки с интернетом
         if "translate" in version.skills and online.is_translate_request(text):
             return online.translate(text), "translate"
@@ -298,18 +317,15 @@ class Brain:
 
         # ---- код: проверка, объяснение, исправление, генерация программ
         code_answer = proglangs.answer(text)
-        if "code" not in version.skills and (codeai.extract_code(text)[0] or
-                                             (codelib.find_task(text) not in (None, "hello") and codeai.chat(text))):
+        if "code" not in version.skills and (codeai.extract_code(text)[0] or codeai.known_program(text)):
             return "Проверять и писать код умеют Rai Pro Plus, Pro Sun и Pro Quasar — переключите версию сверху.", "code"
         if "code" in version.skills:
             task = codelib.find_task(text)
-            if codeai.extract_code(text)[0] or (task and task != "hello") or not code_answer:
-                result = codeai.chat(text, version)
+            if codeai.extract_code(text)[0] or (task and task != "hello") or not code_answer or codeai.known_program(text):
+                result = codeai.chat(text, version, session)
                 if result:
                     if result.get("code"):
-                        attachments.append({"type": "code", "lang": result["lang"], "code": result["code"],
-                                            "filename": result.get("filename") or "main." + codeai.EXT_OF.get(result["lang"], "txt"),
-                                            "title": result.get("title") or "Код"})
+                        self._code_attachment(result, attachments)
                     return result["answer"], "code"
         if code_answer and (proglangs._LIST_RE.search(text) or proglangs._CODE_RE.search(text)):
             return code_answer, "proglang"
@@ -443,6 +459,29 @@ class Brain:
         return (f"Готово: презентация **«{deck['title']}»**{colors}, {count}. "
                 "Смотрите на весь экран, скачивайте файлом или ZIP-архивом.")
 
+    @staticmethod
+    def _code_attachment(result, attachments):
+        attachments.append({"type": "code", "lang": result["lang"], "code": result["code"],
+                            "filename": result.get("filename") or "main." + codeai.EXT_OF.get(result["lang"], "txt"),
+                            "title": result.get("title") or "Код", "site": bool(result.get("site"))})
+
+    def _site_facts(self, topic):
+        """Тексты о теме для сайта «про X»: словарь, база знаний, а если пусто — статья из интернета."""
+        texts = [a["answers"][0].replace("{name}", "") for a in self._glossary_for(topic, limit=3)]
+        want = set(nlp.tokens(topic)) - nlp.GENERIC
+        for key, score in self.search(_SITE_VERSION, topic, limit=3, correct=False):
+            intent = self.intents[key]
+            if score >= 0.3 and want & set(nlp.tokens(intent.get("title", "") + " " + " ".join(intent["patterns"]))):
+                texts.append(intent["answers"][0].replace("{name}", ""))
+        if not texts:
+            try:
+                art = online.web_article(topic, langs=("ru",))
+            except net.NetError:
+                art = None
+            if art:
+                texts.append(art["text"])
+        return texts
+
     def _glossary_for(self, topic, limit=3):
         """Понятия из словаря, связанные с темой, в виде статей для слайдов."""
         want = set(nlp.tokens(topic)) - nlp.GENERIC
@@ -550,3 +589,12 @@ def _name_from_history(history):
             if m:
                 return m.group(1).capitalize()
     return None
+
+
+def _init_site_version():
+    global _SITE_VERSION
+    from versions import VERSIONS
+    _SITE_VERSION = VERSIONS["pro-quasar"]
+
+
+_init_site_version()
