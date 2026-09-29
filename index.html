@@ -520,7 +520,22 @@
     toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
   }
 
+  // В просмотрщике claude.ai файлы отдаются через его «downloads»; на обычном сайте — обычной ссылкой.
+  let saver = null;
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("downloads").then((d) => { saver = d; }, () => { saver = null; });
+  }
   function download(name, blob) {
+    if (saver) {
+      saver.save({filename: name, data: blob}).catch((e) => {
+        const code = e && e.code;
+        if (code === "declined") return;
+        if (code === "rejected_extension" || code === "extension_not_enabled") toast("Здесь такой файл не скачать — скачайте ZIP-архивом");
+        else if (code === "rate_limited") toast("Подождите немного и нажмите ещё раз");
+        else toast("Не удалось сохранить файл");
+      });
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = name;
