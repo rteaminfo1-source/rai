@@ -33,6 +33,11 @@ LEARNED_PATH = os.environ.get("RAI_LEARNED_PATH", os.path.join(BASE_DIR, "learne
 GLOSSARY_PATH = os.environ.get("RAI_GLOSSARY_PATH", os.path.join(BASE_DIR, "glossary.json"))
 
 MAX_MESSAGE_CHARS = int(os.environ.get("RAI_MAX_MESSAGE_CHARS", "4000"))
+MAX_SCREEN_CHARS = 16000
+SCREEN_MARK = "[[screen]]"
+_OPTION_RE = re.compile(r"^\s*(?:[a-dа-гA-DА-Г]|\d{1,2})\s*[).]\s+\S|^\s*[-•○□☐◯]\s+\S")
+_QUESTION_START = re.compile(r"^\s*(?:вопрос\s*\d*[.:]?\s*|\d{1,2}\s*[.)]\s*|задани\w*\s*\d*[.:]?\s*)", re.I)
+_MATH_LINE = re.compile(r"^[\d\s+\-*/×÷:^().,=?x]{3,}$")
 MAX_FACTS = 50
 DEFAULT_CITY = os.environ.get("RAI_DEFAULT_CITY", "Москва")
 
@@ -203,12 +208,19 @@ class Brain:
         message = (message or "").strip()
         if not message:
             raise RaiError("Пустой запрос.")
-        if len(message) > MAX_MESSAGE_CHARS:
+        screen = SCREEN_MARK in message  # текст со скриншота или записи экрана (распознан в браузере)
+        if len(message) > (MAX_SCREEN_CHARS if screen else MAX_MESSAGE_CHARS):
             raise RaiError(f"Запрос слишком длинный (больше {MAX_MESSAGE_CHARS} символов).", 413)
 
         session = self.sessions.get(_clean_session_id(session_id)) if version.context else {}
         if version.context and not session.get("name"):
             session["name"] = _name_from_history(history)
+
+        if screen:
+            attachments = []
+            text = self._screen(version, message, session, attachments)
+            return {"answer": text, "version": version.id, "version_name": version.name, "intent": "screen",
+                    "attachments": attachments}
 
         parts = [message]
         if version.multi and not _REMEMBER_RE.match(message) and not codeai.extract_code(message)[0]:
@@ -458,6 +470,95 @@ class Brain:
         colors = " в ваших цветах" if theme["custom"] else ""
         return (f"Готово: презентация **«{deck['title']}»**{colors}, {count}. "
                 "Смотрите на весь экран, скачивайте файлом или ZIP-архивом.")
+
+    # ------------------------------------------------------------ скриншоты и запись экрана
+
+    def _screen(self, version, message, session, attachments):
+        """Разобрать текст со скриншота: показать его и ответить на вопросы, задания, примеры и код."""
+        question, _, raw = message.partition(SCREEN_MARK)
+        question = question.strip()
+        lines = []
+        for line in raw.replace("\r", "").split("\n"):
+            line = re.sub(r"[ \t]+", " ", line).strip(" |_~")
+            letters = sum(ch.isalnum() for ch in line)
+            if line and (letters >= 2 and letters / max(1, len(line)) > 0.45 or _MATH_LINE.match(line)):
+                lines.append(line)
+        text = "\n".join(lines).strip()
+        if not text:
+            return ("На изображении не нашёл текста. Я читаю текст со скриншотов (русский и английский): вопросы, "
+                    "задания, примеры, код. Попробуйте скриншот покрупнее или без размытия.")
+        out = ["## Текст со скриншота", "", "\n".join("> " + l for l in lines[:40])]
+        if len(lines) > 40:
+            out.append(f"> … ещё {len(lines) - 40} строк")
+        low_q = question.lower()
+
+        # просьбы про весь текст
+        if re.search(r"перевед|translate", low_q):
+            lang = re.search(r"на\s+([а-я]+(?:ий|ый|кий))", low_q)
+            out += ["", "## Перевод", "", online.translate(f"переведи на {lang.group(1) if lang else 'английский'}: {text[:1500]}")]
+            return "\n".join(out)
+
+        code = "\n".join(lines)
+        code_lines = sum(1 for l in lines if not _OPTION_RE.match(l) and not _MATH_LINE.match(l) and re.search(
+            r"[{};]\s*$|^\s*(?:def|class|import|from|for|if|elif|else|while|return|print|function|const|let|var|#include|public|echo)\b"
+            r"|^\s*[A-Za-z_]\w*\s*(?:\[.*\])?\s*[-+*/]?=\s*\S|^\s*<\/?[a-z][\w-]*[ >]|\w\(.*\)\s*$", l))
+        looks_code = code_lines >= max(2, (len(lines) + 1) // 2)
+        if looks_code and "code" in version.skills:
+            lang = codeai.detect_lang(code)
+            result = codeai.run_action("check", code, lang)
+            out += ["", "## Код на скриншоте", "", result["answer"]]
+            if not result.get("issues"):
+                out += ["", codeai.explain(code, result["lang"])]
+            return "\n".join(out)
+
+        # вопросы (с вариантами ответов) и примеры
+        tasks, current = [], None
+        for line in lines:
+            if _MATH_LINE.match(line) and re.search(r"\d\s*[-+*/×÷:^]\s*\d", line):
+                tasks.append({"q": re.sub(r"^\s*\d{1,2}\s*[.)]\s+", "", line).rstrip("=? "), "options": [], "math": True})
+                current = None
+            elif re.search(r"\d\s*[-+*/×÷^]\s*\d", line) and re.search(r"(?:=|\?)\s*$|сколько|вычисл|посчита|реши", line, re.I):
+                expr = re.search(r"[\d(][\d\s+\-*/×÷^().,]*\d\)?", line)  # «Сколько будет 12 * 7 =» -> «12 * 7»
+                tasks.append({"q": expr.group(0).strip(), "options": [], "math": True, "label": _QUESTION_START.sub("", line).rstrip("=? ")})
+                current = None
+            elif line.endswith("?") or re.match(r"^\s*(?:вопрос|задани)", line, re.I):
+                current = {"q": _QUESTION_START.sub("", line), "options": []}
+                tasks.append(current)
+            elif current is not None and _OPTION_RE.match(line) and len(current["options"]) < 8:
+                current["options"].append(re.sub(r"^\s*(?:[a-dа-гA-DА-Г]|\d{1,2})\s*[).]\s*|^\s*[-•○□☐◯]\s*", "", line))
+        answers = []
+        for n, t in enumerate(tasks[:12], 1):
+            q = t["q"].replace("×", "*").replace("÷", "/") if t.get("math") else t["q"]
+            title = t.get("label") or t["q"]
+            reply, intent = self._answer_one(version, q, dict(session), [])
+            reply_text = re.sub(r"\s+", " ", re.sub(r"\*\*|`+|^#+\s*|^>\s*", "", reply, flags=re.M)).strip()
+            unknown = intent in (None, "unknown") or reply_text.startswith("Я пока не знаю")
+            if t["options"]:
+                words = set(nlp.tokens(reply_text))
+                scored = sorted(((len(words & set(nlp.tokens(o))), i) for i, o in enumerate(t["options"])), reverse=True)
+                if not unknown and scored and scored[0][0] > 0:
+                    pick = t["options"][scored[0][1]]
+                    answers.append(f"**{n}. {title}**\n\n**Ответ:** {pick}\n\n{reply_text[:300]}")
+                else:
+                    answers.append(f"**{n}. {title}**\n\nНе уверен в ответе — в моей базе знаний этого нет. Варианты: " + "; ".join(t["options"]))
+            elif unknown:
+                answers.append(f"**{n}. {title}**\n\nНе знаю ответа на этот вопрос.")
+            else:
+                answers.append(f"**{n}. {title}**\n\n{reply.strip()}")
+        if answers:
+            out += ["", f"## Ответы ({len(answers)})", "", "\n\n".join(answers)]
+        elif question and not re.search(r"что (здесь|тут) написан|прочитай|распознай|текст", low_q):
+            reply, _ = self._answer_one(version, question + " " + text[:600], dict(session), attachments)
+            out += ["", "## Ответ", "", reply]
+        else:
+            sentences = [s for s in re.split(r"(?<=[.!?])\s+", " ".join(lines)) if len(s) > 20]
+            if sentences:
+                out += ["", "## Коротко", "", "\n".join("- " + s for s in sentences[:3])]
+            terms = [d for d in (self.define(version, w, exact_only=True) for w in dict.fromkeys(
+                     w for w in re.findall(r"[A-Za-zА-Яа-яЁё+#]{3,}", text) if len(w) > 3)) if d][:3]
+            if terms:
+                out += ["", "## Термины", "", "\n\n".join(terms)]
+        return "\n".join(out)
 
     @staticmethod
     def _code_attachment(result, attachments):

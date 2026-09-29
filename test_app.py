@@ -533,5 +533,35 @@ class BuildersTest(unittest.TestCase):
         self.assertNotIn(">Отзывы<", data["code"])
 
 
+class ScreenTest(unittest.TestCase):
+    """Текст со скриншота или записи экрана: вопросы, варианты ответов, примеры, код."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "l.json"))
+        self.q = VERSIONS["pro-quasar"]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_questions_options_and_math(self):
+        text = "Реши [[screen]]\n1. Столица Франции?\nа) Берлин\n6) Париж\n2. Сколько будет 12 * 7 =\nВычисли 2^10"
+        r = self.brain.answer(self.q, text, "s")
+        self.assertEqual(r["intent"], "screen")
+        self.assertIn("**Ответ:** Париж", r["answer"])
+        self.assertIn("= 84", r["answer"])
+        self.assertIn("= 1024", r["answer"])
+
+    def test_code_and_empty(self):
+        r = self.brain.answer(self.q, "[[screen]]\ndef f(x)\n    return x*2", "s")
+        self.assertIn("Код на скриншоте", r["answer"])
+        self.assertIn("двоеточия", r["answer"])
+        self.assertIn("не нашёл текста", self.brain.answer(self.q, "[[screen]]\n@# ~", "s")["answer"])
+
+    def test_long_screen_text_allowed(self):
+        long = "[[screen]]\n" + "Это длинный текст с экрана. " * 400
+        self.assertEqual(self.brain.answer(self.q, long, "s")["intent"], "screen")
+
+
 if __name__ == "__main__":
     unittest.main()

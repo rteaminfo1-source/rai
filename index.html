@@ -52,6 +52,7 @@
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
@@ -266,6 +267,30 @@
   .round:hover { border-color: var(--red); }
   #mic.on { background: var(--red); border-color: var(--red); color: var(--ink); animation: pulse 1.4s infinite; }
   @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(225, 6, 0, .6) } 70% { box-shadow: 0 0 0 12px rgba(225, 6, 0, 0) } 100% { box-shadow: 0 0 0 0 rgba(225, 6, 0, 0) } }
+  .composer { position: relative; }
+  .composer.drop { outline: 2px dashed var(--red); outline-offset: -6px; }
+  .round.side { width: 42px; color: var(--muted); }
+  .round.side:hover { color: var(--fg); }
+  .attach-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 8px; }
+  .att-chip { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 4px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); max-width: 280px; }
+  .att-chip img, .att-chip .vid { width: 44px; height: 34px; object-fit: cover; border-radius: 6px; flex: none; background: #000; display: grid; place-items: center; color: #fff; }
+  .att-chip .nm { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .att-chip .x, .att-chip .dl { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 2px 5px; font-size: 16px; display: inline-flex; }
+  .att-chip .x:hover, .att-chip .dl:hover { color: var(--fg); }
+  .att-hint { font-size: 12px; color: var(--muted); flex-basis: 100%; }
+  .screen-menu { position: absolute; bottom: calc(100% - 4px); left: 24px; z-index: 20; display: flex; flex-direction: column; min-width: 210px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 6px; box-shadow: 0 12px 30px rgba(0, 0, 0, .5); }
+  .screen-menu button { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 0; border-radius: 8px; background: none; cursor: pointer; text-align: left; }
+  .screen-menu button:hover, .screen-menu button:focus-visible { background: var(--red-soft); }
+  .screen-menu #recBtn svg { color: var(--red-hi); }
+  .rec-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 8px 12px; border-radius: 10px; background: var(--red-soft); border: 1px solid #4a1111; font-size: 14px; }
+  .rec-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red-hi); animation: blink 1s infinite; }
+  .rec-bar b { font-family: var(--font-mono); }
+  .rec-bar .btn { margin-left: auto; }
+  .shots { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: min(640px, 92%); }
+  .shots img { height: 120px; max-width: 220px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); cursor: zoom-in; background: #000; }
+  .shots video { max-width: 100%; width: 420px; border-radius: 10px; border: 1px solid var(--line); background: #000; }
+  .shots .vnote { font-size: 12.5px; color: var(--muted); }
   #send { background: var(--red); border-color: var(--red); color: var(--ink); }
   #send:hover { background: var(--red-hi); }
   #send:disabled { opacity: .5; cursor: progress; }
@@ -292,6 +317,8 @@
     .modes button { padding: 7px 10px; gap: 5px; }
     .status { min-width: 0; }
     #log { padding: 16px; }
+    .round.side { width: 40px; height: 44px; }
+    form { gap: 6px; }
     .status { max-width: 38%; }
     .status #statusText { display: none; }
     .hint { display: none; }
@@ -412,6 +439,9 @@
   <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/></symbol>
   <symbol id="i-code" viewBox="0 0 24 24"><path d="M9 8l-5 4 5 4M15 8l5 4-5 4"/></symbol>
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11l-8.5 8.5a5 5 0 0 1-7-7L13 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L14 7"/></symbol>
+  <symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor"/></symbol>
 </svg>
 
 <div class="app">
@@ -448,15 +478,25 @@
 
     <div id="log" aria-live="polite"></div>
 
-    <div class="composer">
+    <div class="composer" id="composer">
       <p id="listening" hidden></p>
+      <div id="recBar" class="rec-bar" hidden role="status"><span class="dot"></span>Идёт запись экрана <b id="recTime">00:00</b>
+        <button class="btn red" id="recStop" type="button">Остановить</button></div>
+      <div id="attachBar" class="attach-bar" hidden></div>
+      <div id="screenMenu" class="screen-menu" hidden role="menu">
+        <button type="button" id="shotBtn" role="menuitem"><svg class="i"><use href="#i-screen"/></svg>Снимок экрана</button>
+        <button type="button" id="recBtn" role="menuitem"><svg class="i"><use href="#i-rec"/></svg>Запись экрана</button>
+      </div>
       <form id="form" autocomplete="off">
+        <button id="attach" class="round side" type="button" aria-label="Прикрепить скриншот" title="Прикрепить скриншот или фото (можно вставить Ctrl+V)"><svg class="i"><use href="#i-clip"/></svg></button>
+        <input type="file" id="attachFile" accept="image/*" multiple hidden>
+        <button id="screenBtn" class="round side" type="button" aria-label="Снимок или запись экрана" aria-haspopup="menu" title="Снимок или запись экрана"><svg class="i"><use href="#i-screen"/></svg></button>
         <label for="input" hidden>Сообщение для Rai</label>
         <textarea id="input" rows="1" placeholder="Спросите Rai…"></textarea>
         <button id="mic" class="round" type="button" aria-label="Голосовой ввод" title="Голосовой ввод"><svg class="i"><use href="#i-mic"/></svg></button>
         <button id="send" class="round" type="submit" aria-label="Отправить" title="Отправить (Enter)"><svg class="i"><use href="#i-send"/></svg></button>
       </form>
-      <p class="hint">Enter — отправить, Shift+Enter — новая строка. Микрофон — сказать голосом.</p>
+      <p class="hint">Enter — отправить, Shift+Enter — новая строка. Скрепка — скриншот (или Ctrl+V), экран — снимок и запись.</p>
     </div>
     </section>
     <section id="codeView" aria-label="Code" hidden></section>
@@ -467,6 +507,7 @@
 
 <script src="code.js"></script>
 <script src="slides.js"></script>
+<script src="screen.js"></script>
 <script>
 (function () {
   "use strict";
@@ -874,6 +915,31 @@
     const wrap = document.createElement("div");
     wrap.className = "inner msg " + (m.role === "user" ? "user" : "rai");
     if (m.role === "user") {
+      if ((m.images && m.images.length) || m.video) {
+        const shots = document.createElement("div");
+        shots.className = "shots";
+        for (const src of m.images || []) {
+          if (!/^data:image\//.test(src)) continue;
+          const img = document.createElement("img");
+          img.alt = "Скриншот"; img.src = src;
+          img.addEventListener("click", () => (img.requestFullscreen ? img.requestFullscreen() : Promise.reject()).catch(() => {}));
+          shots.append(img);
+        }
+        if (m._video) {
+          const v = document.createElement("video");
+          v.controls = true; v.src = m._video.url; v.preload = "metadata";
+          const dl = document.createElement("button");
+          dl.type = "button"; dl.className = "icon-btn"; dl.innerHTML = icon("down") + "Скачать запись";
+          dl.addEventListener("click", () => download(m.video.name, m._video.blob));
+          shots.append(v, dl);
+        } else if (m.video) {
+          const n = document.createElement("span");
+          n.className = "vnote";
+          n.textContent = `🎬 Запись экрана, ${m.video.seconds} с (видео не хранится после перезагрузки — скачивайте сразу)`;
+          shots.append(n);
+        }
+        wrap.append(shots);
+      }
       const b = document.createElement("div");
       b.className = "bubble";
       b.textContent = m.text;
@@ -1421,8 +1487,13 @@ def rai_code(action, code, lang, prompt):
   let busy = false;
   async function ask(text) {
     text = (text || "").trim();
-    if (!text || busy) return;
+    const screen = window.RaiScreen;
+    const hasShots = !!(screen && screen.items().length);
+    if ((!text && !hasShots) || busy) return;
+    if (screen && screen.recording()) { toast("Сначала остановите запись экрана"); return; }
     if (recording && rec) rec.stop();
+    const shots = hasShots ? screen.take() : [];
+    if (!text && shots.length) text = shots.some((x) => x.type === "video") ? "Разбери, что на записи экрана" : "Что на скриншоте? Ответь на вопросы";
     busy = true;
     sendBtn.disabled = true;
     const chat = current();
@@ -1433,6 +1504,15 @@ def rai_code(action, code, lang, prompt):
     }
     const history = historyOf(chat);
     const userMsg = {role: "user", text: text};
+    if (shots.length) {
+      userMsg.images = shots.filter((x) => x.type === "image").map((x) => x.thumb);
+      const video = shots.find((x) => x.type === "video");
+      if (video) {
+        userMsg.video = {name: video.name, seconds: video.seconds, size: video.size};
+        if (video.thumb) userMsg.images.push(video.thumb);
+        Object.defineProperty(userMsg, "_video", {value: {url: video.url, blob: video.blob}, enumerable: false});
+      }
+    }
     chat.messages.push(userMsg);
     chat.updated = Date.now();
     renderMessage(userMsg);
@@ -1450,12 +1530,27 @@ def rai_code(action, code, lang, prompt):
       const engine = await enginePromise;
       await new Promise((r) => setTimeout(r, 40));  // успеть показать «печатает…»
       const t0 = performance.now();
-      const data = await engine.ask(chat.version, text, chat.id, history);
+      let message = text;
+      if (shots.length) {
+        const bubble = pending.querySelector(".bubble");
+        let ocr = "";
+        try {
+          ocr = await screen.readAll(shots, (step) => { bubble.textContent = step; });
+        } catch (e) {
+          throw new Error("ocr: " + (e && e.message));
+        }
+        bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
+        message = text + "\n[[screen]]\n" + ocr;
+      }
+      const data = await engine.ask(chat.version, message, chat.id, history);
       const ms = Math.max(1, Math.round(performance.now() - t0));
       reply = {role: "rai", text: data.answer || "Результат не получен.", attachments: data.attachments || [],
                meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс"};
     } catch (e) {
-      reply = {role: "rai", text: "Не удалось получить ответ. Попробуйте ещё раз.", meta: "ошибка"};
+      const ocrFail = e && String(e.message).startsWith("ocr:");
+      reply = {role: "rai", text: ocrFail
+        ? "Не получилось распознать текст на картинке: " + e.message.slice(4) + ". Проверьте интернет (при первом запуске скачивается распознавание ~8 МБ) и попробуйте снова."
+        : "Не удалось получить ответ. Попробуйте ещё раз.", meta: "ошибка"};
     }
     pending.remove();
     chat.messages.push(reply);
@@ -1558,6 +1653,9 @@ def rai_code(action, code, lang, prompt):
   window.addEventListener("hashchange", () => setMode(location.hash.slice(1) || "chat"));
 
   if (backUrl) $("backLink").href = backUrl;
+  if (window.RaiScreen) {
+    window.RaiScreen.init({input: input, dropZone: $("composer"), toast: toast, download: download, icon: icon});
+  }
   load();
   renderAll();
   let startMode = "chat";
