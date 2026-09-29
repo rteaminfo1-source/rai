@@ -5,7 +5,7 @@ if (current_user()) redirect('studio.php');
 
 $errors = [
     'sso' => 'Не получилось войти: ссылка устарела. Нажмите «Войти» ещё раз.',
-    'sso_off' => 'Вход ещё не настроен: впишите одинаковый SSO_SECRET в config.php студии и сайта rteam.info.',
+    'sso_off' => 'Вход ещё не настроен: впишите одинаковый SSO_SECRET в config.php студии и сайта rai.rteam.info.',
     'csrf' => 'Страница устарела — попробуйте ещё раз.',
 ];
 $error = $errors[$_GET['error'] ?? ''] ?? null;
@@ -36,7 +36,7 @@ $error = $errors[$_GET['error'] ?? ''] ?? null;
     <p class="lead">AI Studio от Rteam: напишите словами, какой сайт нужен, и ИИ студии создаст его, поправит по вашим
       просьбам и опубликует по адресу <span class="mono">aistudio.rteam.info/sites/ваше-имя/</span>.</p>
     <ol class="steps">
-      <li>Войдите аккаунтом Rteam — логин станет адресом вашего сайта.</li>
+      <li>Войдите аккаунтом Rai — логин станет адресом вашего сайта.</li>
       <li>Напишите, например: «сайт кофейни «Зерно» в тёмных тонах с меню, отзывами и контактами».</li>
       <li>Попросите поправить: «добавь раздел цены», «сделай синим», «переименуй в …».</li>
       <li>Нажмите «Опубликовать». Нужен API — получите ключ в студии.</li>
@@ -47,11 +47,11 @@ $error = $errors[$_GET['error'] ?? ''] ?? null;
 
   <section class="panel sso" aria-label="Вход">
     <h2>Вход в студию</h2>
-    <p class="muted" style="margin:0">Один аккаунт Rteam для Rai, Code и AI Studio. Логин аккаунта станет адресом вашего сайта.</p>
+    <p class="muted" style="margin:0">Один аккаунт для Rai и AI Studio. Логин аккаунта станет адресом вашего сайта.</p>
     <?php if ($error): ?><p class="error"><?= h($error) ?></p><?php endif; ?>
-    <a class="btn" href="sso_start.php">Войти через аккаунт Rteam</a>
-    <a class="btn ghost" href="<?= h(RTEAM_URL) ?>/login.php?tab=register">Создать аккаунт на rteam.info</a>
-    <p class="muted" style="margin:0;font-size:13px">Можно войти и через Google — на странице входа Rteam.</p>
+    <a class="btn" href="sso_start.php">Войти через аккаунт Rai</a>
+    <a class="btn ghost" href="<?= h(ACCOUNT_URL) ?>/login.php?tab=register">Создать аккаунт в Rai</a>
+    <p class="muted" style="margin:0;font-size:13px">Можно войти и через Google — на странице входа Rai.</p>
   </section>
 </main>
 <footer class="foot"><span>© <?= date('Y') ?> Rteam</span><a href="<?= h(RAI_URL) ?>">rai.rteam.info</a><a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a></footer>

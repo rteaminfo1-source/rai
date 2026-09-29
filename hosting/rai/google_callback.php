@@ -1,5 +1,5 @@
 <?php
-/* Возврат от Google. В Google Cloud Console → Authorized redirect URIs: https://rteam.info/google_callback.php */
+/* Возврат от Google. В Google Cloud Console → Authorized redirect URIs: https://rai.rteam.info/google_callback.php */
 require __DIR__ . '/config.php';
 
 function g_request($url, $post = null, $headers = []) {
@@ -57,7 +57,7 @@ if ($link && $me) {
     redirect('account.php?ok=google');
 }
 
-$next = safe_next($_SESSION['next'] ?? 'account.php');
+$next = safe_next($_SESSION['next'] ?? './');
 unset($_SESSION['next']);
 $user = $owner ?: ($email !== '' ? find_user('email', $email) : null);
 if ($user) {

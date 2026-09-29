@@ -3,20 +3,19 @@
  * AI Studio Rteam — настройки и общие функции.
  * Сайт: https://aistudio.rteam.info   Основной ИИ: https://rai.rteam.info
  *
- * Вход — через аккаунт Rteam (https://rteam.info): регистрация, пароль и Google живут там,
+ * Вход — через аккаунт Rai (https://rai.rteam.info): регистрация, пароль и Google живут там,
  * а сюда приходит подписанный пропуск (единый вход, SSO).
  * ВАЖНО: SSO_SECRET вписывайте только в этот файл НА ХОСТИНГЕ (или в переменную окружения
- * RTEAM_SSO_SECRET) — та же строка, что в config.php сайта rteam.info. В GitHub его не выкладывайте.
+ * SSO_SECRET) — та же строка, что в config.php сайта rai.rteam.info. В GitHub его не выкладывайте.
  */
 
 // ====================================================================== настройки
 define('STUDIO_URL', getenv('STUDIO_URL') ?: 'https://aistudio.rteam.info');
-define('RAI_URL', 'https://rai.rteam.info/');                              // основной ИИ
-define('RAI_EMBED_URL', 'https://rteaminfo1-source.github.io/rai/');       // чат Rai на GitHub Pages
+define('ACCOUNT_URL', getenv('RAI_URL') ?: 'https://rai.rteam.info');     // Rai: аккаунты и чат
+define('RAI_URL', ACCOUNT_URL . '/');                              // основной ИИ
 define('GITHUB_URL', 'https://github.com/rteaminfo1-source/rai');
 
-define('RTEAM_URL', getenv('RTEAM_URL') ?: 'https://rteam.info');                                 // аккаунты Rteam
-define('SSO_SECRET', getenv('RTEAM_SSO_SECRET') ?: 'ВСТАВЬТЕ_ОДИНАКОВУЮ_СЛУЧАЙНУЮ_СТРОКУ');
+define('SSO_SECRET', getenv('SSO_SECRET') ?: 'ВСТАВЬТЕ_ОДИНАКОВУЮ_СЛУЧАЙНУЮ_СТРОКУ');
 
 // Папка с данными (пользователи, черновики). Если хостинг позволяет — вынесите её выше корня сайта.
 define('DATA_DIR', __DIR__ . '/data');
@@ -200,7 +199,7 @@ function b64url_decode($s) { return base64_decode(strtr($s, '-_', '+/') . str_re
 
 function sso_ready() { return SSO_SECRET !== '' && strpos(SSO_SECRET, 'ВСТАВЬТЕ') !== 0 && strlen(SSO_SECRET) >= 32; }
 
-/** Проверить пропуск от rteam.info: подпись, срок, адресата и одноразовый state. Возвращает данные или null. */
+/** Проверить пропуск от rai.rteam.info: подпись, срок, адресата и одноразовый state. Возвращает данные или null. */
 function sso_verify($token, $state) {
     if (!sso_ready() || !is_string($token) || substr_count($token, '.') !== 1 || $state === '') return null;
     list($body, $sig) = explode('.', $token);
@@ -212,7 +211,7 @@ function sso_verify($token, $state) {
     return $p;
 }
 
-/** Сообщение от rteam.info об изменении профиля или удалении аккаунта. */
+/** Сообщение от rai.rteam.info об изменении профиля или удалении аккаунта. */
 function sync_verify($body, $sig) {
     if (!sso_ready() || !is_string($sig) || !hash_equals(hash_hmac('sha256', $body, SSO_SECRET), $sig)) return null;
     $m = json_decode($body, true);

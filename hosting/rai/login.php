@@ -1,9 +1,9 @@
 <?php
-/* Вход и регистрация в аккаунт Rteam: логин и пароль или Google. */
+/* Вход и регистрация в аккаунт Rai: логин и пароль или Google. Аккаунт подходит и для AI Studio. */
 require __DIR__ . '/config.php';
 
 // Куда вернуться после входа: из ссылки, а после ошибки входа — из сессии
-$next = safe_next($_GET['next'] ?? (isset($_GET['error']) || isset($_GET['tab']) ? ($_SESSION['next'] ?? 'account.php') : 'account.php'));
+$next = safe_next($_GET['next'] ?? (isset($_GET['error']) || isset($_GET['tab']) ? ($_SESSION['next'] ?? './') : './'));
 if (current_user()) redirect($next);
 $_SESSION['next'] = $next;  // понадобится и после входа через Google
 
@@ -16,16 +16,16 @@ $errors = [
     'too_many' => 'Слишком много попыток. Подождите пару минут.', 'csrf' => 'Страница устарела — попробуйте ещё раз.',
     'google' => 'Google не подтвердил вход. Попробуйте ещё раз.', 'google_cancel' => 'Вход через Google отменён.',
     'google_off' => 'Вход через Google ещё не настроен: впишите секрет в config.php на хостинге.',
-    'deleted' => 'Аккаунт удалён.', 'sso' => 'Сначала войдите в аккаунт Rteam.',
+    'deleted' => 'Аккаунт удалён.', 'sso' => 'Сначала войдите в аккаунт Rai.',
 ];
 $error = $errors[$_GET['error'] ?? ''] ?? null;
 $sso = strpos($next, 'sso.php') === 0;
 $csrf = csrf_token();
-page_head($tab === 'register' ? 'Регистрация — Rteam' : 'Вход — Rteam');
+page_head($tab === 'register' ? 'Регистрация — Rai' : 'Вход — Rai');
 ?>
 <main class="auth">
   <section class="panel" aria-label="Вход и регистрация">
-    <h1><?= $tab === 'register' ? 'Регистрация' : 'Вход в Rteam' ?></h1>
+    <h1><?= $tab === 'register' ? 'Регистрация' : 'Вход в Rai' ?></h1>
     <?php if ($sso): ?><p class="muted">После входа вы вернётесь в AI Studio.</p><?php endif; ?>
     <div class="tabs" role="tablist">
       <a role="tab" href="?tab=login" aria-selected="<?= $tab === 'login' ? 'true' : 'false' ?>">Вход</a>

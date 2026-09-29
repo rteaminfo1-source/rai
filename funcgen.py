@@ -555,12 +555,12 @@ def is_email(text):
     return bool(EMAIL.match(text.strip()))
 
 
-for s in ("rai@rteam.info", "не почта", "a@b"):
+for s in ("user@example.com", "не почта", "a@b"):
     print(s, "→", is_email(s))
 ''', '''
 const isEmail = (s) => /^[\\w.+-]+@[\\w-]+(\\.[\\w-]+)+$/.test(s.trim());
 
-for (const s of ["rai@rteam.info", "не почта", "a@b"]) console.log(s, "→", isEmail(s));
+for (const s of ["user@example.com", "не почта", "a@b"]) console.log(s, "→", isEmail(s));
 ''')
 
 fn(r"переверн\w* слов|слова в обратн|reverse words", "Слова в обратном порядке", '''

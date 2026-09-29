@@ -4,7 +4,7 @@ require __DIR__ . '/config.php';
 $user = require_user();
 $name = $user['username'];
 $csrf = csrf_token();
-$chat = RAI_EMBED_URL . '?back=' . rawurlencode(STUDIO_URL . '/studio.php');
+$chat = RAI_URL;  // Rai с rai.rteam.info прямо в студии
 $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
 ?>
 <!DOCTYPE html>
@@ -24,7 +24,7 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
   <nav>
     <a href="<?= h(RAI_URL) ?>">Rai — основной ИИ</a>
     <a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
-    <a href="<?= h(RTEAM_URL) ?>/account.php">Кабинет Rteam</a>
+    <a href="<?= h(ACCOUNT_URL) ?>/account.php">Кабинет</a>
     <span class="me"><span class="ava"><?php if (!empty($user['avatar'])): ?><img alt="" src="<?= h($user['avatar']) ?>" referrerpolicy="no-referrer"><?php else: ?><?= h($initial) ?><?php endif; ?></span><?= h($user['name'] ?: $name) ?></span>
     <form method="post" action="auth.php" style="margin:0">
       <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="action" value="logout">

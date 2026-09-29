@@ -329,7 +329,7 @@ class HttpTest(unittest.TestCase):
         resp = self.client.get("/")
         self.assertEqual(resp.status_code, 200)
         self.assertIn(b"<title>Rai", resp.data)
-        # Вход и регистрация — на rteam.info, на странице ИИ их нет; есть вкладка Code
+        # Формы входа в самой странице нет (они на login.php хостинга); есть вкладка Code
         self.assertNotIn(b"authDialog", resp.data)
         self.assertIn(b'src="code.js"', resp.data)
         resp.close()

@@ -1,5 +1,5 @@
 <?php
-/* Сообщения от rteam.info: профиль изменился (update) или аккаунт удалён (delete). Подпись — HMAC SSO_SECRET. */
+/* Сообщения от rai.rteam.info: профиль изменился (update) или аккаунт удалён (delete). Подпись — HMAC SSO_SECRET. */
 require __DIR__ . '/config.php';
 require __DIR__ . '/sitegen.php';
 header('Content-Type: application/json; charset=utf-8');
@@ -8,7 +8,7 @@ $body = file_get_contents('php://input');
 $m = sync_verify($body, $_SERVER['HTTP_X_RTEAM_SIGNATURE'] ?? '');
 if (!$m) { http_response_code(403); echo '{"error":"bad signature"}'; exit; }
 $u = $m['user'];
-$user = find_user('rteam_id', $u['login']);
+$user = find_user('rai_id', $u['login']);
 if (!$user) { echo '{"ok":true,"known":false}'; exit; }  // в студию ещё не входил
 $name = $user['username'];
 

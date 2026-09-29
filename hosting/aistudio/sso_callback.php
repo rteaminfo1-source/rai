@@ -1,5 +1,5 @@
 <?php
-/* Возврат с rteam.info: проверяем подписанный пропуск и входим (аккаунт студии создаётся сам). */
+/* Возврат с rai.rteam.info: проверяем подписанный пропуск и входим (аккаунт студии создаётся сам). */
 require __DIR__ . '/config.php';
 
 $state = $_SESSION['sso_state'] ?? '';
@@ -9,11 +9,11 @@ if (!$p) redirect('index.php?error=sso');
 
 $rid = (string)$p['sub'];
 $email = !empty($p['email']) ? strtolower((string)$p['email']) : null;
-$fields = ['name' => mb_substr((string)($p['name'] ?? $rid), 0, 60), 'email' => $email, 'avatar' => $p['avatar'] ?? null, 'rteam_id' => $rid];
+$fields = ['name' => mb_substr((string)($p['name'] ?? $rid), 0, 60), 'email' => $email, 'avatar' => $p['avatar'] ?? null, 'rai_id' => $rid];
 
-$user = find_user('rteam_id', $rid);
+$user = find_user('rai_id', $rid);
 if (!$user) {
-    // Логин Rteam = адрес сайта в студии (если свободен)
+    // Логин Rai = адрес сайта в студии (если свободен)
     $users = users();
     $username = valid_username($rid) && !isset($users[$rid]) ? $rid : unique_username($rid);
     $user = create_user($username, $fields);

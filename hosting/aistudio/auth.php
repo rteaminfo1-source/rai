@@ -1,5 +1,5 @@
 <?php
-/* Выход из AI Studio. Вход и регистрация — через аккаунт Rteam (sso_start.php). */
+/* Выход из AI Studio. Вход и регистрация — через аккаунт Rai (sso_start.php). */
 require __DIR__ . '/config.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrf_ok()) redirect('index.php?error=csrf');

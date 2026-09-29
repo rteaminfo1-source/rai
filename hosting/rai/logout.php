@@ -1,7 +1,15 @@
 <?php
-/* Выход из Rai (чаты остаются в аккаунте). */
+/* Выход по ссылке (с подтверждением формой — чтобы чужой сайт не мог разлогинить по картинке). */
 require __DIR__ . '/config.php';
-if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrf_ok()) json_out(['error' => 'Страница устарела'], 403);
-$_SESSION = [];
-session_destroy();
-json_out(['ok' => true]);
+$user = current_user();
+if (!$user) redirect('./');
+page_head('Выход — Rai', $user);
+?>
+<main class="auth"><section class="panel">
+  <h1>Выйти из аккаунта?</h1>
+  <form method="post" action="auth.php" class="row">
+    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"><input type="hidden" name="action" value="logout">
+    <button class="btn" type="submit">Выйти</button><a class="btn ghost" href="account.php">Отмена</a>
+  </form>
+</section></main>
+<?php page_foot();

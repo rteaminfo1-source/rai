@@ -7,7 +7,7 @@ $action = $_POST['action'] ?? '';
 
 function finish_login($login) {
     login_user($login);
-    $next = safe_next($_SESSION['next'] ?? 'account.php');
+    $next = safe_next($_SESSION['next'] ?? './');
     unset($_SESSION['next']);
     redirect($next);
 }
@@ -15,7 +15,7 @@ function finish_login($login) {
 if ($action === 'logout') {
     $_SESSION = [];
     session_destroy();
-    redirect('index.php');
+    redirect('./');
 }
 
 if ($action === 'register' || $action === 'login') {
@@ -100,7 +100,9 @@ if ($action === 'unlink_google') {
 if ($action === 'delete') {
     if (strtolower(trim((string)($_POST['confirm'] ?? ''))) !== $login) redirect('account.php?error=confirm');
     update_json('users.json', function (&$users) use ($login) { unset($users[$login]); });
-    sync_push('delete', $user);  // удаляются и данные в AI Studio (сайт) и Rai (чаты)
+    $chats = json_path('chats/' . $login . '.json');  // чаты в Rai
+    if (is_file($chats)) unlink($chats);
+    sync_push('delete', $user);  // и сайт с API-ключами в AI Studio
     $_SESSION = [];
     session_destroy();
     redirect('login.php?error=deleted');

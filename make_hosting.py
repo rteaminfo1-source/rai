@@ -1,10 +1,10 @@
 """Собрать файлы для виртуального хостинга: по папке на каждый домен.
 
-    python make_hosting.py dist/hosting                   # папки rteam.info, rai.rteam.info, aistudio.rteam.info
+    python make_hosting.py dist/hosting                   # папки rai.rteam.info и aistudio.rteam.info
     python make_hosting.py dist/hosting --zip rteam.zip   # и ZIP-архив с ними
 
 Секреты в репозитории не хранятся. Если заданы переменные окружения GOOGLE_CLIENT_SECRET и
-RTEAM_SSO_SECRET, они вписываются в config.php собранных папок (только в копию, не в репозиторий).
+SSO_SECRET, они вписываются в config.php собранных папок (только в копию, не в репозиторий).
 """
 
 import argparse
@@ -20,47 +20,47 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 # а Python для браузера и распознавание текста страница берёт с CDN (jsdelivr).
 
 DOMAINS = {
-    "rteam.info": "hosting/rteam.info",
-    "aistudio.rteam.info": "hosting/aistudio",
     "rai.rteam.info": "hosting/rai",
+    "aistudio.rteam.info": "hosting/aistudio",
 }
 
 SKIP = {"__pycache__", ".DS_Store"}
 
 PLACEHOLDERS = {
     "ВСТАВЬТЕ_СЮДА_СЕКРЕТ_GOCSPX": "GOOGLE_CLIENT_SECRET",
-    "ВСТАВЬТЕ_ОДИНАКОВУЮ_СЛУЧАЙНУЮ_СТРОКУ": "RTEAM_SSO_SECRET",
+    "ВСТАВЬТЕ_ОДИНАКОВУЮ_СЛУЧАЙНУЮ_СТРОКУ": "SSO_SECRET",
 }
 
-README = """RTEAM — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГА
-======================================
-Каждая папка — содержимое одного сайта (загрузите ВСЁ из папки в корень этого домена):
+README = """RAI — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГА
+===================================
+Два сайта, каждая папка — содержимое одного сайта (загрузите ВСЁ из папки в корень этого домена):
 
-  rteam.info/            главный сайт: регистрация, вход (и через Google), личный кабинет, единый вход
-  rai.rteam.info/        Rai целиком в одном index.html: чат, Code, Слайды, скриншоты;
-                         вход через аккаунт Rteam, чаты в аккаунте
-  aistudio.rteam.info/   AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов
+  rai.rteam.info/        Rai: чат, Code, Слайды, скриншоты (всё в одном index.html)
+                         + аккаунты: регистрация, вход, вход через Google, личный кабинет, чаты в аккаунте
+  aistudio.rteam.info/   AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов;
+                         вход — аккаунтом Rai
 
 {secrets}
 
 На хостинге нужны только PHP 7.4+ (curl желателен) и HTML — Python не нужен: Rai работает в браузере
 посетителя, а Python и распознавание текста браузер скачивает с CDN (jsdelivr) при первом запуске.
-Все файлы — .php и .html. Файлы .htaccess и web.config — настройки для Apache/IIS: загрузите их, если
-хостинг позволяет (для AI Studio .htaccess передаёт API-ключ в api.php); без них сайты тоже работают.
+Все файлы — .php и .html. Файлы .htaccess и web.config — необязательные настройки для Apache/IIS
+(для AI Studio .htaccess передаёт API-ключ в api.php; без него ключ можно слать заголовком X-API-Key).
 
-Права на запись для PHP (755 или 775): папки data/ на всех трёх сайтах и sites/ в AI Studio.
-Данные пользователей хранятся в data/*.php — из браузера их прочитать нельзя. HTTPS включите для всех трёх адресов.
+Права на запись для PHP (755 или 775): папки data/ на обоих сайтах и sites/ в AI Studio.
+Данные пользователей хранятся в data/*.php — из браузера их прочитать нельзя. HTTPS включите для обоих адресов.
 
 Google Cloud Console → Credentials → клиент 40211315152-…
-  Authorized redirect URIs:      https://rteam.info/google_callback.php
-  Authorized JavaScript origins: https://rteam.info
+  Authorized redirect URIs:      https://rai.rteam.info/google_callback.php
+  Authorized JavaScript origins: https://rai.rteam.info
 
 Как связаны сайты:
-  • Вход и регистрация — только на rteam.info. Rai и AI Studio входят через него (кнопка «Войти через
-    аккаунт Rteam»): rteam.info выдаёт подписанный пропуск на 2 минуты.
-  • Изменили имя, почту или Google в кабинете — rteam.info сам сообщает об этом Rai и AI Studio.
-  • Удалили аккаунт — удаляются и чаты в Rai, и сайт с API-ключами в AI Studio.
-  • Все сообщения между сайтами подписаны общим секретом SSO_SECRET (одинаковым в трёх config.php).
+  • Регистрация и вход — на rai.rteam.info (login.php, в чате кнопка «Войти или зарегистрироваться»).
+  • AI Studio входит через Rai: кнопка «Войти через аккаунт Rai» — rai.rteam.info выдаёт подписанный
+    пропуск на 2 минуты, аккаунт в студии создаётся сам, логин = адрес сайта.
+  • Изменили имя, почту или Google в кабинете Rai — это само доходит до AI Studio.
+  • Удалили аккаунт — удаляются чаты в Rai и сайт с API-ключами в AI Studio.
+  • Всё, что сайты передают друг другу, подписано общим секретом SSO_SECRET (одинаковым в двух config.php).
 
 Список файлов:
 {files}
@@ -116,8 +116,8 @@ def build(out):
         listing.append(f"\n  {domain}/\n" + "\n".join("    " + n for n in names))
     secrets = ("Секреты УЖЕ вписаны в config.php (" + ", ".join(filled) + ").\n"
                "НЕ выкладывайте эти config.php в GitHub и никому не пересылайте.") if filled else (
-               "Впишите секреты в config.php: GOOGLE_CLIENT_SECRET (только rteam.info) и одинаковый\n"
-               "SSO_SECRET (длинная случайная строка) во все три config.php.")
+               "Впишите секреты в config.php: GOOGLE_CLIENT_SECRET (rai.rteam.info) и одинаковый\n"
+               "SSO_SECRET (длинная случайная строка) в оба config.php.")
     with open(os.path.join(out, "ПРОЧТИ.txt"), "w", encoding="utf-8") as f:
         f.write(README.format(secrets=secrets, files="".join(listing)))
     return filled

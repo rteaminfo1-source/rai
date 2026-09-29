@@ -20,7 +20,7 @@ app = Flask(__name__)
 app.json.ensure_ascii = False
 # Хостинг (Render и т.п.) стоит за прокси: так Flask видит настоящий адрес и https.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-# Аккаунты (регистрация, вход, Google) живут на основном сайте rteam.info, а не в Rai.
+# Аккаунты (регистрация, вход, Google) — PHP-часть на хостинге rai.rteam.info (hosting/rai), не этот сервер.
 app.config.update(MAX_CONTENT_LENGTH=5 * 1024 * 1024)
 
 _origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]

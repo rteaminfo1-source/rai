@@ -458,8 +458,8 @@
     <div class="brand"><div class="logo">R<span>ai</span></div><div class="byline">Rteam · свой ИИ</div></div>
     <button id="newChat" type="button"><svg class="i"><use href="#i-plus"/></svg>Новый чат</button>
     <nav id="chatList"></nav>
-    <div class="side-foot"><div id="accountBox"></div><a class="back-link" id="backLink" href="https://rteam.info/">← На сайт Rteam</a>
-      <span id="storeNote">Чаты и проекты Code хранятся в этом браузере. Аккаунт — на сайте Rteam.</span></div>
+    <div class="side-foot"><div id="accountBox"></div><a class="back-link" id="studioLink" href="https://aistudio.rteam.info/">AI Studio — сайты по описанию →</a>
+      <span id="storeNote">Чаты и проекты Code хранятся в этом браузере.</span></div>
   </aside>
   <div id="backdrop"></div>
 
@@ -526,16 +526,6 @@
   if (params.get("api")) CFG.api = params.get("api");
   if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
   if (params.get("py")) CFG.pyBase = params.get("py");
-  // Ссылка «назад на сайт»: chat.php на хостинге передаёт ?back=https://ваш-сайт/
-  let backUrl = null;  // адрес сайта, с которого пришли
-  try {
-    const b = params.get("back");
-    if (b && /^https?:\/\/[^\s]+$/i.test(b)) localStorage.setItem("rai_back", b);
-    backUrl = localStorage.getItem("rai_back");
-  } catch (e) {
-    const b = params.get("back");
-    backUrl = b && /^https?:\/\/[^\s]+$/i.test(b) ? b : null;
-  }
 
   const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py",
                     "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "brain.py", "knowledge.json", "glossary.json"];
@@ -1606,8 +1596,8 @@ def rai_code(action, code, lang, prompt):
     copyRich(code.textContent, "<pre>" + esc(code.textContent) + "</pre>", code);
   });
 
-  // ---------------------------------------------------------------- аккаунт Rteam (на rai.rteam.info, где есть PHP)
-  // Регистрации здесь нет: вход — через аккаунт Rteam (единый вход), чаты сохраняются в аккаунте.
+  // ---------------------------------------------------------------- аккаунт (на rai.rteam.info, где есть PHP)
+  // Вход и регистрация — на отдельных страницах login.php / account.php; тот же аккаунт открывает AI Studio.
   let account = null, pushTimer = null, pulling = false, deletedIds = [];
   function renderAccount() {
     const box = $("accountBox");
@@ -1620,11 +1610,13 @@ def rai_code(action, code, lang, prompt):
         `<div class="who-am"><b>${esc(u.name || u.login)}</b><span>@${esc(u.login)}</span></div>` +
         `<button class="icon-btn" type="button" id="logoutBtn">Выйти</button>`;
       $("logoutBtn").addEventListener("click", logout);
-      $("storeNote").innerHTML = `Чаты сохраняются в аккаунте Rteam. <a href="${esc(account.account)}" style="color:inherit">Кабинет</a>`;
+      $("storeNote").innerHTML = `Чаты сохраняются в аккаунте. <a href="${esc(account.account)}" style="color:inherit">Личный кабинет</a>`;
+      if (account.studio) $("studioLink").href = account.studio;  // в студию — сразу с входом
     } else if (account.login) {
       box.className = "";
-      box.innerHTML = `<a class="sso-btn" href="${esc(account.login)}">Войти через аккаунт Rteam</a>` +
-        `<a class="sso-reg" href="${esc(account.register)}">Нет аккаунта? Создать на rteam.info</a>`;
+      box.innerHTML = `<a class="sso-btn" href="${esc(account.login)}">Войти или зарегистрироваться</a>` +
+        (account.google ? `<a class="sso-reg" href="${esc(account.google)}">Войти через Google</a>` : "") +
+        `<a class="sso-reg" href="${esc(account.register)}">Создать аккаунт</a>`;
       $("storeNote").textContent = "Войдите, чтобы чаты сохранялись в аккаунте и были на всех устройствах.";
     }
   }
@@ -1638,7 +1630,7 @@ def rai_code(action, code, lang, prompt):
     renderAccount();
     const q = new URLSearchParams(location.search);
     if (q.get("login") === "ok" && account.user) toast("Вы вошли: " + (account.user.name || account.user.login));
-    if (q.get("login_error")) toast(q.get("login_error") === "sso_off" ? "Вход ещё не настроен на хостинге" : "Не получилось войти — попробуйте ещё раз");
+    if (q.get("login_error")) toast("Не получилось войти — попробуйте ещё раз");
     if (q.has("login") || q.has("login_error")) history.replaceState(null, "", location.pathname + location.hash);
     if (account.user) await pullChats();
   }
@@ -1678,7 +1670,7 @@ def rai_code(action, code, lang, prompt):
   }
   async function logout() {
     try {
-      await fetch("logout.php", {method: "POST", credentials: "same-origin", headers: {"X-CSRF-Token": account.csrf}});
+      await fetch("auth.php", {method: "POST", credentials: "same-origin", body: new URLSearchParams({csrf: account.csrf, action: "logout"})});
     } catch (e) { /* всё равно выходим */ }
     // Чаты остаются в аккаунте; с этого устройства убираем, чтобы их не увидел следующий человек
     account.user = null;
@@ -1746,7 +1738,6 @@ def rai_code(action, code, lang, prompt):
   $("modeSlides").addEventListener("click", () => setMode("slides"));
   window.addEventListener("hashchange", () => setMode(location.hash.slice(1) || "chat"));
 
-  if (backUrl) $("backLink").href = backUrl;
   initAccount();
   if (window.RaiScreen) {
     window.RaiScreen.init({input: input, dropZone: $("composer"), toast: toast, download: download, icon: icon});
