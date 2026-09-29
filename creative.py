@@ -475,3 +475,65 @@ def _decorate(slides, topic):
         slide["image"] = make_image(f"{topic} {slide['title']}", seed=seed + k + 1)["svg"]
     for k, slide in enumerate(slides):
         slide["transition"] = TRANSITIONS[k % len(TRANSITIONS)]
+
+
+# ------------------------------------------------------------------ погода
+
+def _cloud(c, x, y, s, color, opacity=1.0):
+    c.add(f'<g opacity="{opacity:.2f}" fill="{color}">'
+          f'<ellipse cx="{x}" cy="{y}" rx="{95 * s:.0f}" ry="{42 * s:.0f}"/>'
+          f'<circle cx="{x - 45 * s:.0f}" cy="{y - 18 * s:.0f}" r="{42 * s:.0f}"/>'
+          f'<circle cx="{x + 20 * s:.0f}" cy="{y - 38 * s:.0f}" r="{55 * s:.0f}"/>'
+          f'<circle cx="{x + 70 * s:.0f}" cy="{y - 10 * s:.0f}" r="{36 * s:.0f}"/></g>')
+
+
+def weather_card(city: str, temp: str, desc: str, kind: str, is_day: bool, extra: str = "") -> dict:
+    """Картинка погоды: небо, солнце/луна, облака, дождь, снег, гроза, туман + температура."""
+    rnd = random.Random(f"{city}{desc}{is_day}")
+    c = _Canvas(rnd)
+    if kind in ("rain", "storm"):
+        sky = [("0", "#1b2230"), ("1", "#3b4658")] if kind == "rain" else [("0", "#120c1c"), ("1", "#2c2340")]
+    elif kind == "snow":
+        sky = [("0", "#7f93ab"), ("1", "#d9e4f0")] if is_day else [("0", "#1a2233"), ("1", "#3a4a63")]
+    elif kind in ("cloudy", "fog"):
+        sky = [("0", "#5b6573"), ("1", "#aab3bf")] if is_day else [("0", "#15181f"), ("1", "#2c323d")]
+    else:
+        sky = [("0", "#1f6fd1"), ("1", "#9fd3ff")] if is_day else [("0", "#03040c"), ("1", "#1a2150")]
+    c.add(f'<rect width="{W}" height="{H}" fill="{c.gradient(sky)}"/>')
+
+    if not is_day and kind in ("clear", "partly"):
+        _stars(c, 120, top=H)
+    if kind in ("clear", "partly"):
+        if is_day:
+            _sun(c, 860, 250, 95, "#ffd54a")
+        else:
+            _moon(c, 860, 240, 80)
+    if kind in ("partly", "cloudy", "rain", "storm", "snow", "fog"):
+        shade = "#f2f4f7" if kind in ("partly",) or (kind == "snow" and is_day) else "#7d8796" if kind == "cloudy" else "#4a5262"
+        clouds = 2 if kind == "partly" else 4
+        for k in range(clouds):
+            _cloud(c, 620 + k * 150 - (clouds - 2) * 60, 230 + (k % 2) * 60, 1.4 - k * 0.1, shade, 0.95)
+    if kind in ("rain", "storm"):
+        c.add("".join(
+            f'<line x1="{x:.0f}" y1="{y:.0f}" x2="{x - 14:.0f}" y2="{y + 38:.0f}" stroke="#9cc8ff" stroke-width="3" '
+            f'stroke-linecap="round" opacity="0.8"/>'
+            for x, y in ((rnd.uniform(420, 1150), rnd.uniform(320, 760)) for _ in range(70))))
+    if kind == "storm":
+        c.add('<polygon points="840,300 780,450 830,450 790,590 900,410 845,410 890,300" fill="#ffe14a"/>')
+    if kind == "snow":
+        _snowfall(c)
+    if kind == "fog":
+        for k in range(7):
+            y = 330 + k * 60
+            c.add(f'<rect x="{rnd.uniform(-100, 300):.0f}" y="{y}" width="{rnd.uniform(700, 1100):.0f}" height="22" '
+                  f'rx="11" fill="#ffffff" opacity="0.35"/>')
+
+    # панель с текстом в стиле Rai
+    c.add('<rect x="40" y="40" width="560" height="720" rx="28" fill="#0b0b0c" opacity="0.78"/>')
+    c.add('<rect x="40" y="740" width="560" height="20" rx="0" fill="#e10600"/>')
+    c.add(f'<text x="80" y="130" font-family="Arial, sans-serif" font-size="44" font-weight="700" fill="#f3f1f1">{escape(city[:22])}</text>')
+    c.add(f'<text x="72" y="400" font-family="Arial Black, Arial, sans-serif" font-size="210" font-weight="900" fill="#ffffff">{escape(temp)}</text>')
+    c.add(f'<text x="80" y="490" font-family="Arial, sans-serif" font-size="46" fill="#ff4a4a">{escape(desc[:26])}</text>')
+    c.add(f'<text x="80" y="560" font-family="Arial, sans-serif" font-size="34" fill="#c9c3c7">{escape(extra[:34])}</text>')
+    c.add('<text x="80" y="700" font-family="Arial, sans-serif" font-size="26" fill="#9b9599">Rai · погода</text>')
+    return {"type": "image", "svg": c.svg(f"Погода: {city}"), "title": f"Погода: {city}, {temp}", "prompt": desc}

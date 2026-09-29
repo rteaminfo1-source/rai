@@ -34,7 +34,9 @@ class Version:
         }
 
 
-ALL_SKILLS = frozenset({"calc", "time", "convert", "random", "password", "text", "table", "capital", "image", "slides"})
+ONLINE = {"weather", "currency", "translate"}
+ALL_SKILLS = frozenset({"calc", "time", "convert", "random", "password", "text", "table", "capital", "image", "slides",
+                        "web"} | ONLINE)
 
 VERSIONS = {
     "pro": Version(
@@ -43,9 +45,9 @@ VERSIONS = {
         description="Основная версия: понимает смысл вопроса, основные навыки.",
         search="tfidf",
         fuzzy=False,
-        skills=frozenset({"calc", "time", "convert", "random", "table", "capital", "image"}),
+        skills=frozenset({"calc", "time", "convert", "random", "table", "capital", "image", "web"} | ONLINE),
         threshold=0.35,
-        features=["поиск по смыслу", "калькулятор", "дата и время", "конвертер", "таблицы", "картинки"],
+        features=["поиск по смыслу", "погода", "валюты", "перевод", "поиск в интернете", "таблицы", "картинки"],
     ),
     "pro-fast": Version(
         id="pro-fast",
@@ -53,9 +55,9 @@ VERSIONS = {
         description="Самая быстрая версия: поиск по ключевым словам.",
         search="keywords",
         fuzzy=False,
-        skills=frozenset({"calc", "time", "capital"}),
+        skills=frozenset({"calc", "time", "capital"} | ONLINE),
         threshold=0.3,
-        features=["поиск по ключевым словам", "калькулятор", "дата и время"],
+        features=["поиск по ключевым словам", "калькулятор", "погода", "валюты", "перевод"],
     ),
     "pro-plus": Version(
         id="pro-plus",

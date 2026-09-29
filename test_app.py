@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+import urllib.parse
 from unittest import mock
 
 import app as rai_app
@@ -13,6 +14,21 @@ from brain import Brain, RaiError
 from versions import VERSIONS, resolve
 
 PRO, FAST, PLUS, SUN = (VERSIONS[k] for k in ("pro", "pro-fast", "pro-plus", "pro-sun"))
+
+import fake_net
+import net
+
+_real_fetch = net.fetch_text
+
+
+def setUpModule():
+    # Тесты не ходят в интернет: сервисы отвечают из fake_net.
+    net.fetch_text = fake_net.fetch_text
+    net._cache.clear()
+
+
+def tearDownModule():
+    net.fetch_text = _real_fetch
 
 
 class VersionsTest(unittest.TestCase):
@@ -194,6 +210,79 @@ class CreativeTest(unittest.TestCase):
         self.assertIn("запомни, что квазар", unknown)
 
 
+class OnlineTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+        net._cache.clear()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def ask(self, text, version=None, sid="o"):
+        return self.brain.answer(version or PLUS, text, session_id=sid)
+
+    def test_weather_with_picture_and_city_memory(self):
+        r = self.ask("какая погода в Казани?")
+        self.assertEqual(r["intent"], "weather")
+        self.assertIn("Казань", r["answer"])
+        self.assertIn("| завтра |", r["answer"])
+        self.assertEqual(r["attachments"][0]["type"], "image")
+        self.assertIn("+12°", r["attachments"][0]["svg"])
+        self.assertIn("Казань", self.ask("а погода?")["answer"])      # город запомнился
+        self.assertIn("Москва", self.ask("погода в москве")["answer"])  # «москве» -> Москва
+
+    def test_currency(self):
+        self.assertIn("**100 USD = 9 250 RUB**", self.ask("100 долларов в рублях")["answer"])
+        self.assertIn("1 USD = 92,5 RUB", self.ask("курс доллара")["answer"])
+        self.assertIn("50 BYN", self.ask("50 белорусских рублей в рублях")["answer"])
+        self.assertIn("| евро | EUR |", self.ask("курсы валют")["answer"])
+        # «сумма», «Лариса», «1 фунт в кг» — не валюты
+        self.assertNotEqual(self.ask("какая сумма у Ларисы")["intent"], "currency")
+        self.assertEqual(self.ask("1 фунт в кг")["intent"], "skill")
+
+    def test_translate(self):
+        import online
+        self.assertEqual(online.detect_language("Guten Morgen, wie geht es dir?"), "de")
+        self.assertEqual(online.detect_language("¿Cómo estás?"), "es")
+        self.assertEqual(online.detect_language("Привіт, як справи?"), "uk")
+        self.assertEqual(online.detect_language("こんにちは"), "ja")
+        self.assertEqual(online.parse_translate("переведи на английский: доброе утро"), ("доброе утро", None, "en"))
+        self.assertEqual(online.parse_translate("как по-немецки кошка"), ("кошка", None, "de"))
+        r = self.ask("переведи с английского на французский: good morning")
+        self.assertIn("[en|fr] good morning", r["answer"])
+        self.assertIn("[de|ru]", self.ask("переведи Guten Morgen")["answer"])
+
+    def test_web_search(self):
+        r = self.ask("найди в интернете эйфелева башня")
+        self.assertEqual(r["intent"], "web")
+        self.assertIn("Парижа", r["answer"])
+        self.assertEqual(r["attachments"][0]["type"], "photo")
+        # неизвестное — Rai сам идёт искать
+        self.assertEqual(self.ask("что такое эйфелева башня")["intent"], "web")
+        self.assertIn("умеют Rai Pro", self.ask("найди в интернете эйфелева башня", FAST)["answer"])
+
+    def test_no_internet(self):
+        def down(*a, **k):
+            raise net.NetError("offline")
+        with mock.patch.object(net, "fetch_text", down):
+            self.assertIn("нет связи", self.ask("погода в Казани")["answer"])
+            self.assertIn("нет связи", self.ask("курс доллара")["answer"])
+            answer = self.ask("что такое квазар", SUN)["answer"]
+            self.assertIn("запомни, что квазар", answer)
+            self.assertIn("не получилось", answer)
+
+    def test_programming_languages(self):
+        self.assertIn("```go", self.ask("hello world на go")["answer"])
+        self.assertIn("**Rust**", self.ask("что такое rust")["answer"])
+        self.assertIn("**C#**", self.ask("что такое c#")["answer"])
+        self.assertIn("Языки программирования", self.ask("какие языки программирования ты знаешь")["answer"])
+        import proglangs
+        self.assertGreaterEqual(len(proglangs.LANGUAGES), 45)
+        # короткие названия («c», «r») только в явном контексте
+        self.assertIsNone(proglangs.find_language("у меня есть r и c"))
+
+
 class HttpTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -246,3 +335,74 @@ class HttpTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AuthTest(unittest.TestCase):
+    def setUp(self):
+        import auth
+        self.auth = auth
+        self.tmp = tempfile.TemporaryDirectory()
+        auth.store = auth.UserStore(self.tmp.name)
+        auth._attempts.clear()
+        self.client = rai_app.app.test_client()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def post(self, path, **body):
+        return self.client.post(path, json=body)
+
+    def test_register_login_logout(self):
+        self.assertIsNone(self.client.get("/auth/me").get_json()["user"])
+        r = self.post("/auth/register", login="artem", password="1234567", email="a@b.ru")
+        self.assertEqual(r.status_code, 400)  # пароль короче 8 символов
+        r = self.post("/auth/register", login="artem", password="12345678", email="a@b.ru", name="Артём")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self.client.get("/auth/me").get_json()["user"]["name"], "Артём")
+        self.assertEqual(self.post("/auth/register", login="Artem", password="12345678").status_code, 400)
+        self.post("/auth/logout")
+        self.assertIsNone(self.client.get("/auth/me").get_json()["user"])
+        self.assertEqual(self.post("/auth/login", login="artem", password="неверный").status_code, 401)
+        self.assertEqual(self.post("/auth/login", login="a@b.ru", password="12345678").status_code, 200)
+        # пароль хранится только хешем
+        with open(os.path.join(self.tmp.name, "users.json"), encoding="utf-8") as f:
+            self.assertNotIn("12345678", f.read())
+
+    def test_rate_limit(self):
+        for _ in range(10):
+            self.post("/auth/login", login="x", password="y")
+        self.assertEqual(self.post("/auth/login", login="x", password="y").status_code, 429)
+
+    def test_chats_sync(self):
+        self.assertEqual(self.client.get("/api/chats").status_code, 401)
+        self.post("/auth/register", login="user1", password="12345678")
+        chats = [{"id": "c1", "title": "Тест", "messages": []}]
+        self.assertEqual(self.client.put("/api/chats", json={"chats": chats}).status_code, 200)
+        self.assertEqual(self.client.get("/api/chats").get_json()["chats"], chats)
+
+    def test_google_login_creates_and_links_by_email(self):
+        profile = {"sub": "g-1", "email": "a@b.ru", "email_verified": True, "name": "Артём", "picture": "https://p/1"}
+        with mock.patch.object(self.auth, "GOOGLE_CLIENT_SECRET", "test-secret"):
+            start = self.client.get("/auth/google/start")
+            self.assertEqual(start.status_code, 302)
+            self.assertIn("accounts.google.com", start.headers["Location"])
+            self.assertIn("40211315152-", start.headers["Location"])
+            self.assertNotIn("test-secret", start.headers["Location"])
+            state = urllib.parse.parse_qs(urllib.parse.urlparse(start.headers["Location"]).query)["state"][0]
+            # чужой state — отказ
+            bad = self.client.get("/auth/google/callback?state=wrong&code=x")
+            self.assertIn("auth_error=state", bad.headers["Location"])
+            self.client.get("/auth/google/start")
+            with self.client.session_transaction() as sess:
+                state = sess["google_state"]
+            with mock.patch.object(self.auth, "google_profile", return_value=profile):
+                done = self.client.get(f"/google_callback.php?state={state}&code=abc")
+            self.assertIn("auth=google", done.headers["Location"])
+            me = self.client.get("/auth/me").get_json()["user"]
+            self.assertEqual((me["login"], me["google"]), ("a", True))
+
+    def test_google_not_configured(self):
+        with mock.patch.object(self.auth, "GOOGLE_CLIENT_SECRET", ""):
+            r = self.client.get("/auth/google/start")
+            self.assertIn("google_not_configured", r.headers["Location"])
+            self.assertFalse(self.client.get("/auth/me").get_json()["google"])

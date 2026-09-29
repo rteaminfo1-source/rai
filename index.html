@@ -107,7 +107,44 @@
     padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
   }
   .btn.red { background: var(--red); border-color: var(--red); color: var(--ink); }
-  .side-foot { padding: 12px 18px 16px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); }
+  .side-foot { padding: 12px 14px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+  .account { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; flex: none; background: var(--red); color: var(--ink);
+    display: grid; place-items: center; font-weight: 700; overflow: hidden; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .account .who-am { flex: 1; min-width: 0; }
+  .account .who-am b { display: block; color: var(--fg); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .account .who-am span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #loginBtn { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--red); background: transparent; color: var(--fg); cursor: pointer; font-weight: 600; }
+  #loginBtn:hover { background: var(--red-soft); }
+
+  /* окно входа */
+  dialog#authDialog { border: 1px solid var(--line); border-radius: 16px; padding: 0; background: var(--panel); color: var(--fg); width: min(420px, calc(100vw - 32px)); }
+  dialog#authDialog::backdrop { background: rgba(0, 0, 0, .7); }
+  .auth-card { padding: 22px 22px 20px; display: flex; flex-direction: column; gap: 14px; }
+  .auth-head { display: flex; align-items: center; justify-content: space-between; }
+  .auth-head h2 { margin: 0; font: 800 20px/1.2 var(--font-display); }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--bg); padding: 4px; border-radius: 10px; }
+  .tabs button { border: 0; background: transparent; padding: 8px; border-radius: 8px; cursor: pointer; font-weight: 600; color: var(--muted); }
+  .tabs button[aria-selected="true"] { background: var(--red); color: var(--ink); }
+  .google-btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 11px; border-radius: 10px;
+    background: #ffffff; color: #1f1f1f; font-weight: 600; text-decoration: none; border: 0; }
+  .google-btn:hover { background: #f1f1f1; }
+  .google-btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+  .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+  .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+  .auth-form { display: flex; flex-direction: column; gap: 10px; }
+  .auth-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .auth-form input { padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: 15px var(--font-body); }
+  .auth-form input:focus { border-color: var(--red); outline: none; }
+  .auth-form .btn { padding: 11px; font-size: 15px; font-weight: 600; }
+  .auth-error { margin: 0; color: var(--red-hi); font-size: 13px; }
+  .auth-note { margin: 0; font-size: 12.5px; color: var(--muted); }
+
+  .photo { margin: 4px 0 0; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+  .photo img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); background: #000; }
+  .photo figcaption { font-size: 12.5px; color: var(--muted); }
+  .photo a { color: var(--red-hi); }
 
   /* ---------- основная часть ---------- */
   main { display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; }
@@ -332,7 +369,7 @@
     <div class="brand"><div class="logo">R<span>ai</span></div><div class="byline">Rteam · свой ИИ</div></div>
     <button id="newChat" type="button"><svg class="i"><use href="#i-plus"/></svg>Новый чат</button>
     <nav id="chatList"></nav>
-    <div class="side-foot">Чаты хранятся в этом браузере.</div>
+    <div class="side-foot"><div id="account"></div><span id="storeNote">Чаты хранятся в этом браузере.</span></div>
   </aside>
   <div id="backdrop"></div>
 
@@ -364,6 +401,34 @@
   </main>
 </div>
 <div id="toast" hidden role="status"></div>
+<dialog id="authDialog" aria-labelledby="authTitle">
+  <div class="auth-card">
+    <div class="auth-head"><h2 id="authTitle">Вход в Rai</h2>
+      <button class="icon-btn" type="button" id="authClose" aria-label="Закрыть"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tabLogin" aria-selected="true">Вход</button>
+      <button type="button" role="tab" id="tabRegister" aria-selected="false">Регистрация</button>
+    </div>
+    <a class="google-btn" id="googleBtn" href="auth/google/start">
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.2 1.5-5 2.3-8.2 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>
+      Войти через Google</a>
+    <div class="or">или</div>
+    <form class="auth-form" id="loginForm">
+      <label>Логин или почта<input id="loginName" name="login" autocomplete="username" required></label>
+      <label>Пароль<input id="loginPass" name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn red" type="submit">Войти</button>
+    </form>
+    <form class="auth-form" id="registerForm" hidden>
+      <label>Логин<input id="regLogin" name="login" autocomplete="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_.\-]{3,32}" title="Латинские буквы, цифры, точка, дефис, подчёркивание"></label>
+      <label>Имя<input id="regName" name="name" autocomplete="name" maxlength="60"></label>
+      <label>Почта (необязательно)<input id="regEmail" name="email" type="email" autocomplete="email"></label>
+      <label>Пароль (от 8 символов)<input id="regPass" name="password" type="password" autocomplete="new-password" required minlength="8"></label>
+      <button class="btn red" type="submit">Зарегистрироваться</button>
+    </form>
+    <p class="auth-error" id="authError" hidden></p>
+    <p class="auth-note" id="authNote"></p>
+  </div>
+</dialog>
 
 <script>
 (function () {
@@ -375,22 +440,25 @@
   if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
   if (params.get("py")) CFG.pyBase = params.get("py");
 
-  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "creative.py", "brain.py", "knowledge.json", "glossary.json"];
+  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py", "brain.py",
+                    "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
   let VERSIONS = [
-    {id: "pro", name: "Rai Pro", features: ["поиск по смыслу", "калькулятор", "дата и время", "конвертер", "таблицы", "картинки"]},
-    {id: "pro-fast", name: "Rai Pro Fast", features: ["поиск по ключевым словам", "калькулятор", "дата и время"]},
+    {id: "pro", name: "Rai Pro", features: ["поиск по смыслу", "погода", "валюты", "перевод", "поиск в интернете", "таблицы", "картинки"]},
+    {id: "pro-fast", name: "Rai Pro Fast", features: ["поиск по ключевым словам", "калькулятор", "погода", "валюты", "перевод"]},
     {id: "pro-plus", name: "Rai Pro Plus", features: ["понимает опечатки", "все навыки", "картинки", "презентации", "помнит имя", "«подробнее» по теме", "подсказки"]},
     {id: "pro-sun", name: "Rai Pro Sun", features: ["всё из Pro Plus", "память фактов («запомни, что …»)", "несколько вопросов сразу", "подробные ответы", "большие презентации"]}
   ];
   const EXAMPLES = [
+    ["Погода в Москве", "погода с картинкой"],
+    ["100 долларов в рублях", "курсы валют"],
+    ["Переведи на английский: доброе утро", "перевод"],
     ["Нарисуй закат над морем", "картинка"],
-    ["Сделай презентацию про Python", "презентация · Pro Plus / Sun"],
-    ["Сравни Python и PHP", "таблица"],
-    ["Таблица умножения на 7", "таблица"],
-    ["Сделай логотип Rteam", "картинка"],
+    ["Сделай презентацию про космос", "презентация · Pro Plus / Sun"],
+    ["Hello World на Rust", "языки программирования"],
+    ["Найди в интернете Эйфелева башня", "поиск в интернете"],
     ["Что ты умеешь?", "все возможности"]
   ];
 
@@ -596,6 +664,7 @@
   function save() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify({chats: chats, current: currentId, version: lastVersion})); }
     catch (e) { toast("В браузере не хватает места — удалите старые чаты"); }
+    schedulePush();
   }
   function load() {
     try {
@@ -737,6 +806,7 @@
     bubble.innerHTML = renderMarkdown(m.text);
     for (const a of m.attachments || []) {
       if (a.type === "image" && a.svg) wrap.append(renderImage(a));
+      if (a.type === "photo" && /^https:\/\//.test(a.url || "")) wrap.append(renderPhoto(a));
       if (a.type === "slides" && Array.isArray(a.slides)) wrap.append(renderDeck(a));
     }
     const acts = document.createElement("div");
@@ -753,6 +823,17 @@
 
   // картинка
   function svgUrl(svg) { return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg); }
+  function renderPhoto(a) {
+    const fig = document.createElement("figure");
+    fig.className = "photo";
+    fig.innerHTML = `<img alt="${esc(a.title || "Фото")}" src="${esc(a.url)}" loading="lazy" referrerpolicy="no-referrer">` +
+      `<figcaption>${esc(a.title || "")}` +
+      (/^https:\/\//.test(a.source || "") ? ` · <a href="${esc(a.source)}" target="_blank" rel="noopener noreferrer">источник</a>` : "") +
+      `</figcaption>`;
+    fig.querySelector("img").addEventListener("error", () => fig.remove());
+    return fig;
+  }
+
   function renderImage(a) {
     const fig = document.createElement("figure");
     fig.className = "art";
@@ -884,6 +965,7 @@ document.addEventListener('click',function(){go(1)});show();<\/script></body></h
   function serverEngine(root) {
     return {
       mode: "server",
+      root: root,
       async versions() {
         const r = await fetch(root + "api/versions");
         return (await r.json()).versions;
@@ -1038,6 +1120,7 @@ def rai_versions():
     let reply;
     try {
       const engine = await enginePromise;
+      await new Promise((r) => setTimeout(r, 40));  // успеть показать «печатает…»
       const t0 = performance.now();
       const data = await engine.ask(chat.version, text, chat.id, history);
       const ms = Math.max(1, Math.round(performance.now() - t0));
@@ -1083,8 +1166,148 @@ def rai_versions():
     copyRich(code.textContent, "<pre>" + esc(code.textContent) + "</pre>", code);
   });
 
+  // ---------------------------------------------------------------- аккаунт
+  let authUser = null, authAvailable = false, googleEnabled = false, pushTimer = null, pulling = false;
+  const dialog = $("authDialog");
+
+  function renderAccount() {
+    const box = $("account");
+    if (authUser) {
+      const initial = esc((authUser.name || authUser.login || "?").trim().charAt(0).toUpperCase());
+      box.className = "account";
+      box.innerHTML = `<div class="avatar">${authUser.avatar ? `<img alt="" src="${esc(authUser.avatar)}" referrerpolicy="no-referrer">` : initial}</div>` +
+        `<div class="who-am"><b>${esc(authUser.name || authUser.login)}</b><span>${esc(authUser.email || "@" + authUser.login)}</span></div>` +
+        `<button class="icon-btn" type="button" id="logoutBtn">Выйти</button>`;
+      $("logoutBtn").addEventListener("click", logout);
+      $("storeNote").textContent = "Чаты сохраняются в вашем аккаунте.";
+    } else {
+      box.className = "";
+      box.innerHTML = `<button id="loginBtn" type="button">Войти или зарегистрироваться</button>`;
+      $("loginBtn").addEventListener("click", () => openAuth("login"));
+      $("storeNote").textContent = "Чаты хранятся в этом браузере.";
+    }
+  }
+
+  function openAuth(tab) {
+    showTab(tab);
+    $("authError").hidden = true;
+    $("googleBtn").setAttribute("aria-disabled", String(!(authAvailable && googleEnabled)));
+    $("authNote").textContent = !authAvailable
+      ? "Вход и регистрация работают, когда Rai запущен на своём сервере (python app.py или хостинг). Сейчас Rai работает прямо в браузере, чаты хранятся только здесь."
+      : googleEnabled ? "" : "Вход через Google появится, когда на сервере задан GOOGLE_CLIENT_SECRET.";
+    for (const f of dialog.querySelectorAll("input, .auth-form button")) f.disabled = !authAvailable;
+    if (dialog.showModal) dialog.showModal(); else dialog.setAttribute("open", "");
+  }
+  function showTab(tab) {
+    const reg = tab === "register";
+    $("tabLogin").setAttribute("aria-selected", String(!reg));
+    $("tabRegister").setAttribute("aria-selected", String(reg));
+    $("loginForm").hidden = reg;
+    $("registerForm").hidden = !reg;
+    $("authTitle").textContent = reg ? "Регистрация" : "Вход в Rai";
+  }
+  $("tabLogin").addEventListener("click", () => showTab("login"));
+  $("tabRegister").addEventListener("click", () => showTab("register"));
+  $("authClose").addEventListener("click", () => dialog.close());
+
+  async function authPost(path, body) {
+    const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"},
+                                 credentials: "same-origin", body: JSON.stringify(body)});
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || "Ошибка " + r.status);
+    return data;
+  }
+  async function submitAuth(e, path, body) {
+    e.preventDefault();
+    $("authError").hidden = true;
+    try {
+      const data = await authPost(path, body);
+      authUser = data.user;
+      dialog.close();
+      renderAccount();
+      toast("Здравствуйте, " + (authUser.name || authUser.login) + "!");
+      await pullChats();
+    } catch (err) {
+      $("authError").textContent = err.message;
+      $("authError").hidden = false;
+    }
+  }
+  $("loginForm").addEventListener("submit", (e) => submitAuth(e, "auth/login",
+    {login: $("loginName").value.trim(), password: $("loginPass").value}));
+  $("registerForm").addEventListener("submit", (e) => submitAuth(e, "auth/register",
+    {login: $("regLogin").value.trim(), name: $("regName").value.trim(), email: $("regEmail").value.trim(), password: $("regPass").value}));
+
+  async function logout() {
+    try { await authPost("auth/logout", {}); } catch (e) { /* всё равно выходим */ }
+    authUser = null;
+    // Чаты остаются в аккаунте; с этого устройства убираем, чтобы их не увидел следующий человек.
+    chats = [makeChat()];
+    currentId = chats[0].id;
+    try { localStorage.removeItem(STORE_KEY); } catch (e) { /* нет доступа к хранилищу */ }
+    renderAccount(); renderAll();
+    toast("Вы вышли из аккаунта");
+  }
+
+  // Слияние: у каждого чата берём более свежую версию (из браузера или с сервера).
+  async function pullChats() {
+    if (!authUser) return;
+    pulling = true;
+    try {
+      const r = await fetch("api/chats", {credentials: "same-origin"});
+      if (!r.ok) return;
+      const remote = (await r.json()).chats || [];
+      const byId = new Map(remote.filter((c) => c && c.id && Array.isArray(c.messages)).map((c) => [c.id, c]));
+      for (const c of chats) {
+        if (!c.messages.length) continue;
+        const other = byId.get(c.id);
+        if (!other || (c.updated || 0) > (other.updated || 0)) byId.set(c.id, c);
+      }
+      if (byId.size) {
+        chats = Array.from(byId.values()).sort((a, b) => b.updated - a.updated);
+        if (!chats.some((c) => c.id === currentId)) currentId = chats[0].id;
+      }
+      renderAll();
+    } finally {
+      pulling = false;
+    }
+    save();
+  }
+  function schedulePush() {
+    if (!authUser || pulling) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(async () => {
+      try {
+        const r = await fetch("api/chats", {method: "PUT", headers: {"Content-Type": "application/json"}, credentials: "same-origin",
+                                            body: JSON.stringify({chats: chats.filter((c) => c.messages.length)})});
+        if (!r.ok) toast((await r.json().catch(() => ({}))).error || "Не удалось сохранить чаты в аккаунт");
+      } catch (e) { toast("Нет связи с сервером — чаты сохранены в браузере"); }
+    }, 1200);
+  }
+
+  async function initAuth(engine) {
+    authAvailable = engine.mode === "server" && engine.root === "";
+    if (!authAvailable) return;
+    try {
+      const r = await fetch("auth/me", {credentials: "same-origin"});
+      const d = await r.json();
+      googleEnabled = !!d.google;
+      authUser = d.user;
+      renderAccount();
+      if (authUser) await pullChats();
+    } catch (e) { authAvailable = false; }
+    const q = new URLSearchParams(location.search);
+    const errors = {state: "Вход через Google не удался: устаревшая ссылка, попробуйте ещё раз.",
+                    cancelled: "Вход через Google отменён.", google: "Google не подтвердил вход. Попробуйте ещё раз.",
+                    already_linked: "Этот Google уже привязан к другому аккаунту.",
+                    google_not_configured: "Вход через Google ещё не настроен на сервере."};
+    if (q.get("auth") === "google" && authUser) toast("Вы вошли через Google");
+    if (q.get("auth_error")) toast(errors[q.get("auth_error")] || "Не удалось войти");
+    if (q.has("auth") || q.has("auth_error")) history.replaceState(null, "", location.pathname);
+  }
+
   load();
   renderAll();
+  renderAccount();
 
   const enginePromise = startEngine().then(async (engine) => {
     try {
@@ -1093,6 +1316,7 @@ def rai_versions():
     } catch (e) { /* остаёмся со встроенным списком */ }
     engineReady = true;
     setStatus("ready", engine.mode === "server" ? "Сервер Rai" : "Rai работает в браузере");
+    initAuth(engine);
     return engine;
   }).catch((err) => {
     setStatus("error", "Rai не запустился");

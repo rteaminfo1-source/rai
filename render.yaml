@@ -9,6 +9,13 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
+      - key: RAI_SECRET_KEY
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        value: 40211315152-jq7a91jcqrpu8hkmlqmg1poh6bthgs5j.apps.googleusercontent.com
+      # Секрет вводится вручную в панели Render (Environment), в GitHub его нет.
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
       - key: ALLOWED_ORIGINS
         sync: false
       - key: RAI_ADMIN_TOKEN

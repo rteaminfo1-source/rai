@@ -17,7 +17,10 @@ import time
 from collections import OrderedDict
 
 import creative
+import net
 import nlp
+import online
+import proglangs
 import skills
 from versions import Version
 
@@ -28,6 +31,7 @@ GLOSSARY_PATH = os.environ.get("RAI_GLOSSARY_PATH", os.path.join(BASE_DIR, "glos
 
 MAX_MESSAGE_CHARS = int(os.environ.get("RAI_MAX_MESSAGE_CHARS", "4000"))
 MAX_FACTS = 50
+DEFAULT_CITY = os.environ.get("RAI_DEFAULT_CITY", "Москва")
 
 _NAME_RE = re.compile(
     r"(?:меня зовут|мое имя|моё имя|зови меня|называй меня|my name is)\s+([A-Za-zА-Яа-яЁё-]{2,30})",
@@ -263,12 +267,37 @@ class Brain:
                         "сердце, цветок и логотипы."), "image"
             return f"Готово: **{image['title']}**. Картинку можно скачать в PNG или SVG.", "image"
 
+        # ---- навыки с интернетом
+        if "translate" in version.skills and online.is_translate_request(text):
+            return online.translate(text), "translate"
+        if "weather" in version.skills:
+            found = online.weather(text, session, DEFAULT_CITY)
+            if found:
+                reply, extra = found
+                attachments.extend(extra)
+                return reply, "weather"
+        if "currency" in version.skills:
+            reply = online.currency(text)
+            if reply:
+                return reply, "currency"
+        query = online.explicit_search(text)
+        if query:
+            if "web" not in version.skills:
+                return "Искать в интернете умеют Rai Pro, Pro Plus и Pro Sun.", "web"
+            return self._web(query, attachments) or (f"В интернете ничего не нашёл про «{query}».", "web")
+
+        # ---- языки программирования: примеры кода и список
+        code_answer = proglangs.answer(text)
+        if code_answer and (proglangs._LIST_RE.search(text) or proglangs._CODE_RE.search(text)):
+            return code_answer, "proglang"
+
         reply = skills.run(text, version.skills)
         if reply:
             return reply, "skill"
 
         # «Что такое X», где X точно есть в словаре, — отвечаем определением.
-        definition = self.define(version, text, exact_only=True)
+        # Языки программирования отвечает справочник proglangs, а не словарь.
+        definition = None if code_answer else self.define(version, text, exact_only=True)
         if definition:
             return definition, "glossary"
 
@@ -281,6 +310,8 @@ class Brain:
                 return f"Вы мне говорили: {fact}.", "memory"
 
         if best < version.threshold:
+            if code_answer:
+                return code_answer, "proglang"
             definition = self.define(version, text)
             if definition:
                 return definition, "glossary"
@@ -296,7 +327,39 @@ class Brain:
                     session.pop("last_intent", None)
             return self._render(intent, version, session), intent["id"]
 
-        return self._fallback(version, results, text), None
+        note = ""
+        if "web" in version.skills and self._worth_searching(text):
+            try:
+                found = self._web(self._subject(text) or text, attachments, raise_errors=True)
+            except net.NetError:
+                found, note = None, "\n\n*Поискать в интернете не получилось: нет связи.*"
+            if found:
+                return found
+        return self._fallback(version, results, text) + note, None
+
+    @staticmethod
+    def _subject(text):
+        m = _DEFINE_RE.match(text)
+        return ((m.group(1) or m.group(2)) if m else "").strip()
+
+    @staticmethod
+    def _worth_searching(text):
+        """Искать в интернете только осмысленные вопросы, а не «ок» или «ыыы»."""
+        meaningful = [w for w in nlp.tokens(text) if w not in nlp.GENERIC and len(w) > 2]
+        return bool(meaningful) and bool(re.search(r"[а-яa-z]{3,}", text.lower()))
+
+    def _web(self, query, attachments, raise_errors=False):
+        try:
+            found = online.web_search(query)
+        except net.NetError as e:
+            if raise_errors:
+                raise
+            return f"Поискать в интернете не получилось: нет связи ({e}).", "web"
+        if not found:
+            return None
+        reply, extra = found
+        attachments.extend(extra)
+        return reply, "web"
 
     def _slides(self, version, text, attachments):
         topic = creative.slides_topic(text)
