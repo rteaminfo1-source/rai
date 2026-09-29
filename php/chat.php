@@ -12,7 +12,7 @@ if (empty($_SESSION['user'])) {
     exit;
 }
 
-$rai = defined('RAI_CHAT_URL') ? RAI_CHAT_URL : 'https://rteaminfo1-source.github.io/rai/';
+$rai = defined('RAI_CHAT_URL') ? RAI_CHAT_URL : 'https://rai.rteam.info/';
 
 // Адрес сайта для кнопки «← На сайт Rteam» в чате
 $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')

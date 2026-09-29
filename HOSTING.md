@@ -1,66 +1,83 @@
-# Как разложить Rai: виртуальный хостинг + GitHub
+# Rteam: что положить на виртуальный хостинг
+
+Три адреса, Python на хостинге не нужен:
+
+| Адрес | Что это | Где лежит |
+|---|---|---|
+| **rteam.info** | ваш сайт (PHP), вход, кнопка «Rai» | виртуальный хостинг |
+| **rai.rteam.info** | основной ИИ Rai: страница, в которую встроен чат с GitHub | виртуальный хостинг (1 файл) + GitHub Pages |
+| **aistudio.rteam.info** | AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов | виртуальный хостинг (PHP) |
 
 ```
-Пользователь ──► ваш сайт (виртуальный хостинг, PHP)
-                   │  вход: логин/пароль или Google (google_start.php → google_callback.php)
-                   │  кнопка «Rai» / chat.php
-                   ▼
-                 чат Rai на GitHub Pages: https://rteaminfo1-source.github.io/rai/
-                   (Python работает прямо в браузере, сервер не нужен)
-                   │  кнопка «← На сайт Rteam»
-                   ▼
-                 обратно на ваш сайт
+rteam.info ──«Rai»──► rai.rteam.info ── встроен чат ──► rteaminfo1-source.github.io/rai/ (Python в браузере)
+     │                      │
+     └──────────────► aistudio.rteam.info ── ИИ создаёт ──► aistudio.rteam.info/sites/<имя>/
+                            └── справа встроен тот же чат Rai с GitHub
 ```
 
-Python на обычном (PHP) виртуальном хостинге не запускается, поэтому **весь Rai живёт на GitHub**,
-а на хостинге остаются сайт, вход и переход в чат.
+## 0. Один раз на GitHub: включить Pages
 
-## Шаг 1. Включить GitHub Pages (один раз)
+github.com/rteaminfo1-source/rai → **Settings → Pages** → Source: *Deploy from a branch* →
+ветка `claude/peaceful-allen-c7nn4t` (или `main`), папка `/ (root)` → **Save**.
+Чат появится по адресу `https://rteaminfo1-source.github.io/rai/` и дальше обновляется сам после каждого `git push`.
 
-1. Откройте https://github.com/rteaminfo1-source/rai → **Settings** → **Pages**.
-2. **Build and deployment → Source:** *Deploy from a branch*.
-3. **Branch:** `claude/peaceful-allen-c7nn4t` (или `main`, если код туда перенесён), папка **`/ (root)`** → **Save**.
-4. Через 1–2 минуты чат откроется по адресу **https://rteaminfo1-source.github.io/rai/**.
+## 1. Поддомены в панели хостинга
 
-Ничего копировать не нужно: GitHub сам раздаёт `index.html`, все `.py`, `knowledge.json`, `glossary.json`
-и папку `pyodide/`. После каждого `git push` чат обновляется сам.
+Создайте поддомены **rai.rteam.info** и **aistudio.rteam.info** (каждому своя папка) и включите для них HTTPS
+(Let's Encrypt в панели хостинга). Для aistudio нужен PHP 7.4 или новее.
 
-## Шаг 2. Что положить на виртуальный хостинг
+## 2. rai.rteam.info — основной ИИ
 
-Файлы берите из папки `php/` этого репозитория.
+В папку поддомена положите **один файл**: `hosting/rai/index.html`.
+Это тонкая шапка (AI Studio, Rteam, GitHub) и чат Rai с GitHub Pages на всю страницу.
 
-| Файл на хостинге | Что сделать |
+## 3. aistudio.rteam.info — AI Studio
+
+В папку поддомена положите **всё содержимое** `hosting/aistudio/`:
+
+| Файл / папка | Зачем |
 |---|---|
-| `chat.php` | **Заменить** старый на `php/chat.php` — он переводит в чат Rai на GitHub |
-| `google_start.php` | Положить `php/google_start.php` (кнопка «Войти через Google») |
-| `google_callback.php` | Положить `php/google_callback.php` (сюда Google возвращает после входа) |
-| `config.php` | **Дописать** строки из `php/config.google.example.php` и вставить туда секрет `GOCSPX-…` |
-| `chat.js`, `rai.php` | Больше не нужны, можно удалить |
-| остальные файлы сайта | Оставить как есть |
+| `index.php` | главная: что такое студия, вход и регистрация |
+| `studio.php` | рабочее место: ИИ-конструктор, предпросмотр, публикация, API-ключ, чат Rai |
+| `sitegen.php` | ИИ, который создаёт и правит сайты |
+| `actions.php` | кнопки студии |
+| `api.php` | API по ключу (`Authorization: Bearer rai_…`) |
+| `auth.php`, `google_start.php`, `google_callback.php` | вход, регистрация, Google |
+| `config.php` | настройки — **вставьте сюда секрет Google** (`GOOGLE_CLIENT_SECRET`) |
+| `assets/` | стили и скрипт студии |
+| `data/` | пользователи и черновики (закрыта от посетителей). Папке нужны права на запись |
+| `sites/` | сайты пользователей: `sites/<имя>/index.html`. Нужны права на запись, PHP здесь отключён |
+| `.htaccess` / `web.config` | защита для Apache / IIS |
 
-Кнопка «Войти через Google» на `login.php` должна вести на `google_start.php`,
-а ссылка «Rai» в меню сайта — на `chat.php`.
+Права: папкам `data/` и `sites/` дайте запись для PHP (обычно 755 или 775 — как в панели хостинга).
 
-**Не кладите** на хостинг и в GitHub: `.py` файлы (они на GitHub), папку `pyodide/`,
-а в GitHub — `config.php` с секретом и `users.json` с паролями.
+Как это работает:
 
-## Шаг 3. Google Cloud Console
+- регистрация: имя пользователя (латиница) = папка его сайта `sites/<имя>/`;
+- пользователь пишет «сайт кофейни «Зерно» с меню и отзывами» → ИИ студии собирает сайт → «Опубликовать»;
+- правки словами: «добавь раздел цены», «сделай синим», «переименуй в …», «измени раздел о нас на: …»;
+- **файлы сайтов создаёт только ИИ студии**: загрузить свои файлы нельзя, поэтому на хостинг не попадёт
+  чужой PHP-код;
+- API-ключ выдаётся в студии (показывается один раз, хранится только хеш), им можно создавать и править
+  сайт из своих программ: `POST https://aistudio.rteam.info/api.php?a=generate`.
 
-https://console.cloud.google.com/apis/credentials → ваш OAuth-клиент (`40211315152-…`):
+## 4. rteam.info — ваш сайт
 
-- **Authorized redirect URIs:** `https://ВАШ-САЙТ/google_callback.php` — ровно так же, как `GOOGLE_REDIRECT_URI` в `config.php`.
-- **Authorized JavaScript origins:** `https://ВАШ-САЙТ`.
+| Файл | Что сделать |
+|---|---|
+| `chat.php` | заменить на `php/chat.php` — ведёт на rai.rteam.info |
+| `google_start.php`, `google_callback.php` | положить из `php/` |
+| `config.php` | дописать строки из `php/config.google.example.php` и вставить секрет |
+| `chat.js`, `rai.php` | больше не нужны |
 
-## Шаг 4. Проверка
+## 5. Google Cloud Console
 
-1. Откройте `https://ВАШ-САЙТ/login.php` → «Войти через Google» → выберите аккаунт → вы на сайте.
-2. Нажмите «Rai» (или откройте `https://ВАШ-САЙТ/chat.php`) → открывается чат на `rteaminfo1-source.github.io/rai/`.
-3. В чате слева внизу кнопка **«← На сайт Rteam»** возвращает на сайт.
-4. Первое открытие чата — 5–15 секунд (браузер скачивает Python ≈ 13 МБ), дальше — из кэша.
+console.cloud.google.com → APIs & Services → Credentials → клиент `40211315152-…`:
 
-## Где хранятся чаты
+- **Authorized redirect URIs**: `https://rteam.info/google_callback.php` и `https://aistudio.rteam.info/google_callback.php`
+- **Authorized JavaScript origins**: `https://rteam.info` и `https://aistudio.rteam.info`
 
-На GitHub Pages чаты Rai хранятся в браузере пользователя (у каждого свои). Если нужно, чтобы чаты
-сохранялись в аккаунте и открывались на любом устройстве, запустите Python-сервер Rai (Render, см. README) —
-там свои вход, регистрация и синхронизация чатов. Тогда в `config.php` укажите
-`RAI_CHAT_URL` = адрес сервера Rai.
+## Что не выкладывать в GitHub
+
+`config.php` с секретом, папки `data/` и `sites/` с хостинга, `users.json` с паролями.
+В репозитории `config.php` лежит без секрета.

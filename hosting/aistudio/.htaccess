@@ -1,0 +1,21 @@
+# AI Studio Rteam (Apache)
+Options -Indexes
+DirectoryIndex index.php index.html
+
+# Служебные папки и файлы закрыты от посетителей
+RedirectMatch 404 ^/data(/|$)
+<FilesMatch "\.(json|lock|tmp|md)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# Заголовок Authorization должен доходить до api.php
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>

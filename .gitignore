@@ -5,3 +5,10 @@ venv/
 .env
 learned.json
 data/
+# AI Studio: в репозитории только защитные файлы папок, данные и сайты пользователей — на хостинге
+!hosting/aistudio/data/
+hosting/aistudio/data/*
+!hosting/aistudio/data/.htaccess
+hosting/aistudio/sites/*
+!hosting/aistudio/sites/.htaccess
+!hosting/aistudio/sites/index.html

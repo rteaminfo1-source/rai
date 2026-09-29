@@ -10,5 +10,5 @@ define('GOOGLE_CLIENT_SECRET', getenv('GOOGLE_CLIENT_SECRET') ?: 'ВСТАВЬТ
 // Этот адрес должен В ТОЧНОСТИ совпадать с «Authorized redirect URI» в Google Cloud Console.
 define('GOOGLE_REDIRECT_URI', 'https://ВАШ-САЙТ/google_callback.php');
 
-// Где открывается чат Rai (GitHub Pages). chat.php переводит пользователя сюда.
-define('RAI_CHAT_URL', 'https://rteaminfo1-source.github.io/rai/');
+// Основной ИИ Rai. chat.php переводит пользователя сюда.
+define('RAI_CHAT_URL', 'https://rai.rteam.info/');

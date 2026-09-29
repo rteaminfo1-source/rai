@@ -1,0 +1,21 @@
+# Сайты пользователей: только статические файлы, PHP здесь не выполняется
+Options -Indexes -ExecCGI
+<IfModule mod_php.c>
+  php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+  php_flag engine off
+</IfModule>
+RemoveHandler .php .phtml .php5 .php7 .phar .cgi .pl .py
+RemoveType .php .phtml .php5 .php7 .phar
+<FilesMatch "\.(php|phtml|php\d|phar|cgi|pl|py|sh)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Deny from all
+  </IfModule>
+</FilesMatch>
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+</IfModule>
