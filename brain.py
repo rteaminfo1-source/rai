@@ -16,6 +16,7 @@ import threading
 import time
 from collections import OrderedDict
 
+import creative
 import nlp
 import skills
 from versions import Version
@@ -23,6 +24,7 @@ from versions import Version
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 KNOWLEDGE_PATH = os.environ.get("RAI_KNOWLEDGE_PATH", os.path.join(BASE_DIR, "knowledge.json"))
 LEARNED_PATH = os.environ.get("RAI_LEARNED_PATH", os.path.join(BASE_DIR, "learned.json"))
+GLOSSARY_PATH = os.environ.get("RAI_GLOSSARY_PATH", os.path.join(BASE_DIR, "glossary.json"))
 
 MAX_MESSAGE_CHARS = int(os.environ.get("RAI_MAX_MESSAGE_CHARS", "4000"))
 MAX_FACTS = 50
@@ -36,6 +38,12 @@ _MORE_RE = re.compile(r"^(а\s+)?(подробнее|ещ[её]|расскажи
 _REMEMBER_RE = re.compile(r"^\s*запомни(?:,)?\s*(?:что|:)?\s*(.+)$", re.I | re.S)
 _RECALL_RE = re.compile(r"что ты (?:помнишь|запомнил|знаешь обо мне)|что я тебе говорил", re.I)
 _FORGET_RE = re.compile(r"^\s*забудь (?:вс[её]|об? мне)", re.I)
+_DEFINE_RE = re.compile(
+    r"^\s*(?:а\s+)?(?:что такое|что это(?: такое)?|кто такой|кто такая|кто такие|что значит|что означает|"
+    r"что такое это|расскажи (?:про|о|об)|что ты знаешь (?:про|о|об)|что знаешь (?:про|о|об)|объясни(?: что такое)?)"
+    r"\s+(.+?)[\s?!.]*$|^\s*(.+?)\s*(?:[-—]\s*)?это что[\s?!.]*$",
+    re.I,
+)
 
 
 class RaiError(Exception):
@@ -76,9 +84,10 @@ def _clean_session_id(value):
 
 
 class Brain:
-    def __init__(self, knowledge_path=KNOWLEDGE_PATH, learned_path=LEARNED_PATH):
+    def __init__(self, knowledge_path=KNOWLEDGE_PATH, learned_path=LEARNED_PATH, glossary_path=GLOSSARY_PATH):
         self.knowledge_path = knowledge_path
         self.learned_path = learned_path
+        self.glossary_path = glossary_path
         self.sessions = SessionStore()
         self._lock = threading.Lock()
         self.reload()
@@ -106,10 +115,20 @@ class Brain:
         intent_tokens = {}
         for key, text in docs:
             intent_tokens.setdefault(key, set()).update(nlp.tokens(text))
-        speller = nlp.SpellChecker(text for _, text in docs)
+        glossary = []
+        if self.glossary_path and os.path.exists(self.glossary_path):
+            with open(self.glossary_path, encoding="utf-8") as f:
+                for entry in json.load(f).get("terms", []):
+                    keys = [tuple(nlp.tokens(t, keep_stopwords=True)) for t in entry["terms"]]
+                    glossary.append(([k for k in keys if k], entry["text"]))
+        # Слова из статей словаря тоже «известные», чтобы корректор их не «исправлял».
+        vocab = [text for _, text in docs] + [text for _, text in glossary] + [
+            " ".join(k) for keys, _ in glossary for k in keys]
+        speller = nlp.SpellChecker(vocab)
         with self._lock:
             self.intents, self.indexes = by_id, indexes
             self.intent_tokens, self.speller = intent_tokens, speller
+            self.glossary = glossary
 
     def teach(self, patterns, answer, title=None):
         """Добавить знание в learned.json (админ-функция)."""
@@ -130,9 +149,31 @@ class Brain:
         self.reload()
         return intent_id
 
-    def search(self, version: Version, text: str, limit: int = 5):
-        """Найти подходящие темы: [(id, сходство)], только уверенные совпадения."""
+    def define(self, version: Version, text: str, exact_only: bool = False):
+        """Найти понятие в словаре: «что такое атом», «кто такой хакер», просто «фотосинтез»."""
+        m = _DEFINE_RE.match(text)
+        subject = (m.group(1) or m.group(2)) if m else None
+        if exact_only and not subject:
+            return None
+        target = subject if subject else text
         if version.fuzzy:
+            target = self.speller.correct(target)
+        words = tuple(nlp.tokens(target, keep_stopwords=True))
+        if not words:
+            return None
+        best, best_len = None, 0
+        for keys, definition in self.glossary:
+            for key in keys:
+                exact = words == key
+                # «что такое X» — X может быть частью фразы («что такое оперативная память в компьютере»)
+                inside = subject and not exact_only and any(words[i:i + len(key)] == key for i in range(len(words)))
+                if (exact or inside) and len(key) > best_len:
+                    best, best_len = definition, len(key)
+        return best
+
+    def search(self, version: Version, text: str, limit: int = 5, correct: bool = True):
+        """Найти подходящие темы: [(id, сходство)], только уверенные совпадения."""
+        if version.fuzzy and correct:
             text = self.speller.correct(text)
         key = "keywords" if version.search == "keywords" else ("tfidf+fuzzy" if version.fuzzy else "tfidf")
         results = self.indexes[key].search(text)
@@ -160,14 +201,14 @@ class Brain:
         if version.multi and not _REMEMBER_RE.match(message):
             parts = [p.strip() for p in re.split(r"(?<=\?)\s+|\n+", message) if p.strip()] or [message]
 
-        answers, intents = [], []
+        answers, intents, attachments = [], [], []
         for part in parts[:5]:
-            text, intent = self._answer_one(version, part, session)
+            text, intent = self._answer_one(version, part, session, attachments)
             answers.append(text)
             intents.append(intent)
 
         if len(answers) > 1:
-            text = "\n\n".join(f"— {q}\n{a}" for q, a in zip(parts, answers))
+            text = "\n\n".join(f"**{q}**\n\n{a}" for q, a in zip(parts, answers))
         else:
             text = answers[0]
         return {
@@ -175,9 +216,10 @@ class Brain:
             "version": version.id,
             "version_name": version.name,
             "intent": intents[0] if len(intents) == 1 else intents,
+            "attachments": attachments,
         }
 
-    def _answer_one(self, version: Version, text: str, session: dict):
+    def _answer_one(self, version: Version, text: str, session: dict, attachments: list):
         name_match = _NAME_RE.search(text)
         if name_match:
             name = name_match.group(1).capitalize()
@@ -205,9 +247,30 @@ class Brain:
                 return "Запоминать факты умеет только Rai Pro Sun.", "memory"
             return self._memory(text, session), "memory"
 
+        if creative.is_slides_request(text):
+            if "slides" not in version.skills:
+                return "Презентации умеют делать Rai Pro Plus и Rai Pro Sun.", "slides"
+            return self._slides(version, text, attachments), "slides"
+
+        if creative.is_image_request(text):
+            if "image" not in version.skills:
+                return "Картинки умеют рисовать Rai Pro, Pro Plus и Pro Sun.", "image"
+            image = creative.make_image(text)
+            attachments.append(image)
+            if image.get("unknown"):
+                return ("Такой сюжет я пока рисовать не умею, поэтому нарисовал **абстракцию**. "
+                        "Умею: закат, рассвет, ночь, космос, горы, море, лес, город, пустыню, зиму, "
+                        "сердце, цветок и логотипы."), "image"
+            return f"Готово: **{image['title']}**. Картинку можно скачать в PNG или SVG.", "image"
+
         reply = skills.run(text, version.skills)
         if reply:
             return reply, "skill"
+
+        # «Что такое X», где X точно есть в словаре, — отвечаем определением.
+        definition = self.define(version, text, exact_only=True)
+        if definition:
+            return definition, "glossary"
 
         results = self.search(version, text)
         best = results[0][1] if results else 0.0
@@ -216,6 +279,11 @@ class Brain:
             fact, score = self._find_fact(text, session)
             if fact and score >= best:
                 return f"Вы мне говорили: {fact}.", "memory"
+
+        if best < version.threshold:
+            definition = self.define(version, text)
+            if definition:
+                return definition, "glossary"
 
         if best >= version.threshold:
             intent = self.intents[results[0][0]]
@@ -228,7 +296,52 @@ class Brain:
                     session.pop("last_intent", None)
             return self._render(intent, version, session), intent["id"]
 
-        return self._fallback(version, results), None
+        return self._fallback(version, results, text), None
+
+    def _slides(self, version, text, attachments):
+        topic = creative.slides_topic(text)
+        results = self.search(version, topic, limit=4, correct=False) if topic else []
+        found = [self.intents[k] for k, score in results if score >= version.threshold * 0.8]
+        found = found[:4] if version.detailed else found[:2]
+        if len(found) < 2 and topic:
+            found += self._glossary_for(topic, limit=(6 if version.detailed else 3) - len(found))
+        title = topic or "Rteam"
+        if re.fullmatch(r"[a-z0-9+#]{1,5}", title, re.I):
+            title = title.upper()  # html -> HTML, php -> PHP
+        elif found and found[0].get("key_match") and len(title.split()) == 1:
+            title = found[0]["title"]  # «котов» -> «Кошка»
+        deck = creative.make_slides(title, found, max_slides=10 if version.detailed else 6)
+        attachments.append(deck)
+        n = len(deck["slides"])
+        count = f"{n} " + ("слайд" if n % 10 == 1 and n % 100 != 11 else
+                          "слайда" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "слайдов")
+        if deck["template"]:
+            return (f"В моей базе нет материала про «{deck['title']}», поэтому я сделал **шаблон**: "
+                    f"{count}. Замените текст на свой.")
+        return f"Готово: презентация **«{deck['title']}»**, {count}. Её можно смотреть на весь экран и скачать."
+
+    def _glossary_for(self, topic, limit=3):
+        """Понятия из словаря, связанные с темой, в виде статей для слайдов."""
+        want = set(nlp.tokens(topic)) - nlp.GENERIC
+        if not want or limit <= 0:
+            return []
+        by_key, by_text = [], []
+        for keys, text in self.glossary:
+            key_words = {w for k in keys for w in k}
+            if want & key_words:
+                by_key.append((len(want & key_words), keys, text))
+            elif want & set(nlp.tokens(text)):
+                by_text.append((len(want & set(nlp.tokens(text))), keys, text))
+        # Сначала понятия, в названии которых есть тема, потом те, где она упоминается.
+        scored = [(True,) + x for x in sorted(by_key, key=lambda x: -x[0])] + \
+                 [(False,) + x for x in sorted(by_text, key=lambda x: -x[0])]
+        out = []
+        for key_match, _, keys, text in scored[:limit]:
+            m = re.match(r"\*\*(.+?)\*\*", text)
+            title = m.group(1) if m else " ".join(keys[0]).capitalize()
+            out.append({"title": title, "key_match": key_match,
+                        "answers": [re.sub(r"^\*\*.+?\*\*\s*(\([^)]*\)\s*)?[—-]\s*", "", text)]})
+        return out
 
     def _pick(self, intent, session):
         """Случайный вариант ответа, по возможности не тот же, что в прошлый раз."""
@@ -287,13 +400,21 @@ class Brain:
                 return fact, results[0][1]
         return None, 0.0
 
-    def _fallback(self, version, results):
-        base = "Я пока не знаю ответа на это."
+    def _fallback(self, version, results, text=""):
+        m = _DEFINE_RE.match(text)
+        subject = ((m.group(1) or m.group(2)) if m else "").strip()
+        base = f"Про «{subject}» я пока не знаю." if subject else "Я пока не знаю ответа на это."
+        lines = [base]
         if version.suggestions:
             titles = [self.intents[k].get("title", k) for k, s in results[:3] if s >= 0.1]
             if titles:
-                return base + " Возможно, вы имели в виду:\n" + "\n".join(f"• {t}" for t in titles)
-        return base + " Попробуйте спросить иначе или напишите «помощь»."
+                lines.append("Возможно, вы имели в виду:\n" + "\n".join(f"- {t}" for t in titles))
+        if version.memory:
+            example = subject or "Rai"
+            lines.append(f"Научите меня: напишите «запомни, что {example} — это …», и я запомню.")
+        else:
+            lines.append("Попробуйте спросить иначе или напишите «что ты умеешь».")
+        return "\n\n".join(lines)
 
 
 def _name_from_history(history):

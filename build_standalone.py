@@ -14,7 +14,7 @@ import os
 import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FILES = ["versions.py", "nlp.py", "skills.py", "brain.py", "knowledge.json"]
+FILES = ["versions.py", "nlp.py", "skills.py", "creative.py", "brain.py", "knowledge.json", "glossary.json"]
 
 
 def build(pyodide=None, fragment=False, stdlib=None):

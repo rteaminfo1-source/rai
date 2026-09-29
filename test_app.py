@@ -148,6 +148,52 @@ class BrainTest(unittest.TestCase):
             self.ask(PRO, "а" * 10000)
 
 
+class CreativeTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_image(self):
+        r = self.brain.answer(PRO, "нарисуй закат над морем")
+        image = r["attachments"][0]
+        self.assertEqual(image["type"], "image")
+        self.assertTrue(image["svg"].startswith("<svg"))
+        self.assertIn("Закат", image["title"])
+        self.assertIn("не умею", self.brain.answer(PRO, "нарисуй кота")["answer"])
+        self.assertEqual(self.brain.answer(FAST, "нарисуй закат")["attachments"], [])
+
+    def test_logo_text_is_escaped(self):
+        import creative
+        svg = creative.make_image('логотип <script>alert(1)</script>')["svg"]
+        self.assertNotIn("<script", svg)
+
+    def test_slides(self):
+        self.assertEqual(self.brain.answer(PRO, "сделай презентацию про python")["attachments"], [])
+        deck = self.brain.answer(SUN, "сделай презентацию про python")["attachments"][0]
+        kinds = [s["kind"] for s in deck["slides"]]
+        self.assertEqual((kinds[0], kinds[-1]), ("title", "end"))
+        self.assertIn("code", kinds)
+        self.assertTrue(deck["slides"][0].get("image"))
+        self.assertTrue(all(s.get("transition") for s in deck["slides"]))
+        glossary_deck = self.brain.answer(PLUS, "презентация про космос")["attachments"][0]
+        self.assertFalse(glossary_deck["template"])
+        # «Как сделать презентацию?» — вопрос, а не просьба.
+        self.assertEqual(self.brain.answer(PLUS, "как сделать презентацию")["attachments"], [])
+
+    def test_glossary_capitals_tables(self):
+        self.assertEqual(self.brain.answer(PRO, "что такое фотосинтез")["intent"], "glossary")
+        self.assertEqual(self.brain.answer(PLUS, "что такое фатосинтез")["intent"], "glossary")
+        self.assertEqual(self.brain.answer(PRO, "что такое сервер")["intent"], "glossary")
+        self.assertIn("Париж", self.brain.answer(PRO, "столица франции")["answer"])
+        self.assertIn("Сеул", self.brain.answer(PRO, "какая столица южной кореи?")["answer"])
+        self.assertIn("| 7 × 3 | **21** |", self.brain.answer(PRO, "таблица умножения на 7")["answer"])
+        unknown = self.brain.answer(SUN, "что такое квазар")["answer"]
+        self.assertIn("запомни, что квазар", unknown)
+
+
 class HttpTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -34,7 +34,7 @@ class Version:
         }
 
 
-ALL_SKILLS = frozenset({"calc", "time", "convert", "random", "password", "text"})
+ALL_SKILLS = frozenset({"calc", "time", "convert", "random", "password", "text", "table", "capital", "image", "slides"})
 
 VERSIONS = {
     "pro": Version(
@@ -43,9 +43,9 @@ VERSIONS = {
         description="Основная версия: понимает смысл вопроса, основные навыки.",
         search="tfidf",
         fuzzy=False,
-        skills=frozenset({"calc", "time", "convert", "random"}),
+        skills=frozenset({"calc", "time", "convert", "random", "table", "capital", "image"}),
         threshold=0.35,
-        features=["поиск по смыслу", "калькулятор", "дата и время", "конвертер", "случайные числа"],
+        features=["поиск по смыслу", "калькулятор", "дата и время", "конвертер", "таблицы", "картинки"],
     ),
     "pro-fast": Version(
         id="pro-fast",
@@ -53,22 +53,22 @@ VERSIONS = {
         description="Самая быстрая версия: поиск по ключевым словам.",
         search="keywords",
         fuzzy=False,
-        skills=frozenset({"calc", "time"}),
+        skills=frozenset({"calc", "time", "capital"}),
         threshold=0.3,
         features=["поиск по ключевым словам", "калькулятор", "дата и время"],
     ),
     "pro-plus": Version(
         id="pro-plus",
         name="Rai Pro Plus",
-        description="Понимает опечатки, все навыки, помнит имя и тему разговора.",
+        description="Понимает опечатки, все навыки, картинки и презентации, помнит имя.",
         search="tfidf",
         fuzzy=True,
         skills=ALL_SKILLS,
         context=True,
         suggestions=True,
         threshold=0.3,
-        features=["поиск по смыслу", "понимает опечатки", "все навыки", "помнит имя",
-                  "«подробнее» по теме", "подсказки похожих вопросов"],
+        features=["понимает опечатки", "все навыки", "картинки", "презентации", "помнит имя",
+                  "«подробнее» по теме", "подсказки"],
     ),
     "pro-sun": Version(
         id="pro-sun",
@@ -84,7 +84,7 @@ VERSIONS = {
         suggestions=True,
         threshold=0.27,
         features=["всё из Pro Plus", "память фактов («запомни, что …»)",
-                  "несколько вопросов в одном сообщении", "подробные ответы"],
+                  "несколько вопросов сразу", "подробные ответы", "большие презентации"],
     ),
 }
 
