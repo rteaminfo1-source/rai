@@ -1,0 +1,151 @@
+# Rai — собственный ИИ-ассистент Rteam на Python
+
+Rai работает **полностью на своём движке**: без OpenAI, Claude и любых других внешних API, без ключей и без интернета.
+Этот репозиторий — только Python-часть (сервер). Сайт (HTML/PHP/JS) лежит на другом хостинге и обращается к Rai по ссылке.
+
+## Четыре версии
+
+| Версия | id | Что умеет |
+|---|---|---|
+| **Rai Pro Fast** | `pro-fast` | Самая быстрая: поиск по ключевым словам, калькулятор, дата и время |
+| **Rai Pro** | `pro` | Основная: поиск по смыслу (TF-IDF), калькулятор, время, конвертер единиц, случайные числа |
+| **Rai Pro Plus** | `pro-plus` | Всё из Pro, а ещё исправляет опечатки и раскладку (`ghbdtn` → «привет»), даёт все навыки (пароли, работа с текстом), помнит имя, отвечает на «подробнее/ещё» и подсказывает похожие вопросы |
+| **Rai Pro Sun** | `pro-sun` | Всё из Plus, а ещё запоминает факты («запомни, что …»), отвечает на несколько вопросов в одном сообщении и сразу даёт подробные ответы |
+
+## Файлы
+
+| Файл | Что это |
+|---|---|
+| `app.py` | Веб-сервер (Flask): принимает запросы от сайта |
+| `brain.py` | Движок Rai: выбор ответа, память, логика версий |
+| `nlp.py` | Своя обработка текста: стемминг, TF-IDF, исправление опечаток |
+| `skills.py` | Навыки: калькулятор, дата/время, конвертер, пароли, текст, случайности |
+| `versions.py` | Настройки четырёх версий |
+| `knowledge.json` | База знаний: вопросы и ответы. **Дополняйте её сами** |
+| `test_app.py` | Тесты: `python -m unittest -v` |
+| `requirements.txt`, `Procfile`, `render.yaml` | Для запуска на хостинге |
+
+## Запуск у себя
+
+```bash
+pip install -r requirements.txt
+python app.py            # http://localhost:8000
+```
+
+## Запуск на хостинге из GitHub
+
+Нужен хостинг с поддержкой Python. Обычный PHP-хостинг Python не запускает.
+
+**Render.com (бесплатно):** New → Blueprint → выберите этот репозиторий. Render сам прочитает `render.yaml`.
+Вручную: New → Web Service → репозиторий `rai`,
+Build: `pip install -r requirements.txt`,
+Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8`.
+
+Так же подойдут Railway, Koyeb (они используют `Procfile`), PythonAnywhere или свой VPS.
+Когда сервер запустится, вы получите ссылку вида `https://rai-xxxx.onrender.com`.
+
+Переменные окружения (см. `.env.example`):
+
+- `ALLOWED_ORIGINS`: адрес вашего сайта, например `https://rteam.info`. Тогда запросы к Rai будут приниматься только с него.
+- `RAI_DEFAULT_VERSION`: версия по умолчанию (`pro`).
+- `RAI_ADMIN_TOKEN`: секрет для обучения через `/api/teach`.
+- `RAI_TZ`: часовой пояс (`Europe/Moscow`).
+
+## API
+
+| Метод | Путь | Описание |
+|---|---|---|
+| GET | `/api/versions` | Список версий |
+| GET | `/health` | Проверка, что сервер жив |
+| POST | `/api/chat` | Вопрос → ответ |
+| POST | `/api/chat/<версия>` | То же, версия в адресе (`/api/chat/pro-sun`) |
+| POST | `/rai.php`, `/rai` | Совместимость со старым `chat.js` |
+| POST | `/api/teach` | Научить новому ответу (нужен `RAI_ADMIN_TOKEN`) |
+
+Запрос:
+
+```json
+{"message": "что такое python?", "version": "pro-plus", "session_id": "любая-строка-пользователя"}
+```
+
+Ответ:
+
+```json
+{"answer": "Python — простой и мощный язык…", "version": "pro-plus", "version_name": "Rai Pro Plus", "intent": "python"}
+```
+
+`session_id` нужен, чтобы Pro Plus и Pro Sun помнили имя и факты. Это любая строка до 64 символов из букв, цифр и `_.-`.
+
+## Подключение к сайту
+
+В `chat.js` на сайте поменяйте адрес сервера и добавьте версию:
+
+```js
+const backendUrl = "https://rai-xxxx.onrender.com/api/chat";   // ваша ссылка
+
+let sessionId = localStorage.getItem("rai_session");
+if (!sessionId) {
+    sessionId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem("rai_session", sessionId);
+}
+
+// версия: "pro" | "pro-fast" | "pro-plus" | "pro-sun"
+// например из <select id="raiVersion">…</select>
+function currentVersion() {
+    const el = document.getElementById("raiVersion");
+    return el ? el.value : "pro";
+}
+
+// внутри sendRequest():
+const response = await fetch(backendUrl, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({message: text, version: currentVersion(), session_id: sessionId})
+});
+const data = await response.json();
+addBlock(data.answer || "Результат не получен.", "rai");
+```
+
+Выбор версии в `chat.php`:
+
+```html
+<select id="raiVersion">
+    <option value="pro">Rai Pro</option>
+    <option value="pro-fast">Rai Pro Fast</option>
+    <option value="pro-plus">Rai Pro Plus</option>
+    <option value="pro-sun">Rai Pro Sun</option>
+</select>
+```
+
+## Как научить Rai новому
+
+**Способ 1: в `knowledge.json`.** Добавьте блок и сделайте push в GitHub. Хостинг обновится сам.
+
+```json
+{
+  "id": "schedule",
+  "title": "Расписание созвонов",
+  "patterns": ["когда созвон", "во сколько собрание", "расписание встреч"],
+  "answers": ["Созвон команды — по пятницам в 19:00."],
+  "more": "Ссылка на созвон публикуется в чате команды за час до начала."
+}
+```
+
+- `patterns`: разные формулировки вопроса. Чем их больше, тем лучше Rai понимает.
+- `answers`: варианты ответа, Rai выбирает случайный. `{name}` заменяется на «, Имя», если имя известно.
+- `more`: подробности. Их показывает Pro Sun сразу, а Pro Plus по команде «подробнее».
+
+**Способ 2: без правки кода, через `/api/teach`** (нужен `RAI_ADMIN_TOKEN`):
+
+```bash
+curl -X POST https://rai-xxxx.onrender.com/api/teach \
+  -H "Content-Type: application/json" -H "X-Rai-Token: ваш_секрет" \
+  -d '{"patterns": ["когда созвон"], "answer": "По пятницам в 19:00."}'
+```
+
+Выученное сохраняется в `learned.json` на сервере. На бесплатных хостингах этот файл стирается при перезапуске, поэтому постоянные знания лучше добавлять в `knowledge.json`.
+
+## Важно
+
+- Память сессий (имя, факты) хранится в оперативной памяти сервера и пропадает при перезапуске. Поэтому сервер запускается с одним воркером (`--workers 1`).
+- Rai — не генеративная нейросеть. Он отвечает на то, что есть в базе знаний, плюс работает навыками. Чем больше вопросов и ответов в `knowledge.json`, тем он умнее.
