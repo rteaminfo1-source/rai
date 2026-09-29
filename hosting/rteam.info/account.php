@@ -33,7 +33,7 @@ page_head('Личный кабинет — Rteam', $user);
   <?php if ($error): ?><p class="error" role="alert"><?= h($error) ?></p><?php endif; ?>
 
   <section class="cards" aria-label="Ваши сервисы">
-    <a class="card" href="<?= h(RAI_URL) ?>"><span class="tag">Чат</span><h2>Rai</h2><p>Спросить, перевести, нарисовать, сделать презентацию.</p><span class="go">Открыть →</span></a>
+    <a class="card" href="<?= h(RAI_BASE) ?>/sso_start.php"><span class="tag">Чат</span><h2>Rai</h2><p>Спросить, перевести, нарисовать, сделать презентацию. Чаты сохраняются в аккаунте.</p><span class="go">Открыть →</span></a>
     <a class="card" href="<?= h(RAI_CODE_URL) ?>"><span class="tag">Код</span><h2>Rai Code</h2><p>Писать, запускать и исправлять программы с ИИ.</p><span class="go">Открыть →</span></a>
     <a class="card" href="<?= h(STUDIO_URL) ?>/sso_start.php"><span class="tag">Сайты</span><h2>AI Studio</h2><p>Ваш сайт: aistudio.rteam.info/sites/<?= h($user['login']) ?>/ и API-ключи.</p><span class="go">Войти →</span></a>
   </section>
@@ -79,7 +79,7 @@ page_head('Личный кабинет — Rteam', $user);
 
     <section class="panel danger" aria-labelledby="h-del">
       <h2 id="h-del">Удалить аккаунт</h2>
-      <p class="muted small">Аккаунт Rteam удалится. Сайт в AI Studio удаляется в самой студии.</p>
+      <p class="muted small">Удалится аккаунт Rteam, а вместе с ним — чаты в Rai, сайт и API-ключи в AI Studio.</p>
       <form method="post" action="auth.php" class="form">
         <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="action" value="delete">
         <label class="field"><span>Впишите логин <b><?= h($user['login']) ?></b> для подтверждения</span><input name="confirm" autocomplete="off" required></label>

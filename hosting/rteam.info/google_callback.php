@@ -53,6 +53,7 @@ if ($link && $me) {
         $users[$me['login']]['google_id'] = $gid;
         $users[$me['login']]['avatar'] = $p['picture'] ?? null;
     });
+    sync_push('update', users()[$me['login']]);
     redirect('account.php?ok=google');
 }
 

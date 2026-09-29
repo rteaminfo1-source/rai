@@ -9,8 +9,9 @@
 
 // ====================================================================== настройки
 define('SITE_URL', getenv('RTEAM_URL') ?: 'https://rteam.info');
-define('RAI_URL', 'https://rai.rteam.info/');                         // основной ИИ
-define('RAI_CODE_URL', 'https://rai.rteam.info/#code');               // Rai, вкладка Code
+define('RAI_BASE', getenv('RAI_URL') ?: 'https://rai.rteam.info');   // основной ИИ
+define('RAI_URL', RAI_BASE . '/');
+define('RAI_CODE_URL', RAI_BASE . '/#code');                          // Rai, вкладка Code
 define('STUDIO_URL', getenv('STUDIO_URL') ?: 'https://aistudio.rteam.info');
 define('GITHUB_URL', 'https://github.com/rteaminfo1-source/rai');
 
@@ -22,8 +23,10 @@ define('GOOGLE_REDIRECT_URI', SITE_URL . '/google_callback.php');
 // Общий секрет единого входа: ОДИНАКОВАЯ длинная случайная строка здесь и в config.php AI Studio.
 define('SSO_SECRET', getenv('RTEAM_SSO_SECRET') ?: 'ВСТАВЬТЕ_ОДИНАКОВУЮ_СЛУЧАЙНУЮ_СТРОКУ');
 // Сайты, которые могут входить через аккаунт Rteam, и куда им возвращать пользователя
+// sync — куда отправлять изменения профиля и удаление аккаунта (подписано тем же секретом)
 const SSO_CLIENTS = [
-    'aistudio' => ['name' => 'AI Studio', 'callback' => STUDIO_URL . '/sso_callback.php'],
+    'aistudio' => ['name' => 'AI Studio', 'callback' => STUDIO_URL . '/sso_callback.php', 'sync' => STUDIO_URL . '/sync.php'],
+    'rai' => ['name' => 'Rai', 'callback' => RAI_BASE . '/sso_callback.php', 'sync' => RAI_BASE . '/sync.php'],
 ];
 
 // Папка с данными (пользователи). Если хостинг позволяет — вынесите её выше корня сайта.
@@ -199,6 +202,37 @@ function sso_token($user, $client, $state) {
         'aud' => $client, 'nonce' => $state, 'iat' => time(), 'exp' => time() + 120,
     ], JSON_UNESCAPED_UNICODE));
     return $body . '.' . b64url(hash_hmac('sha256', $body, SSO_SECRET, true));
+}
+
+/**
+ * Сообщить сервисам (AI Studio, Rai), что профиль изменился или аккаунт удалён.
+ * Сообщение подписано HMAC SSO_SECRET, с меткой времени и одноразовым nonce. Ответ не ждём долго.
+ */
+function sync_push($event, $user) {
+    if (!sso_ready()) return [];
+    $body = json_encode(['event' => $event, 'time' => time(), 'nonce' => bin2hex(random_bytes(12)),
+        'user' => ['login' => $user['login'], 'name' => $user['name'] ?? null, 'email' => $user['email'] ?? null, 'avatar' => $user['avatar'] ?? null]],
+        JSON_UNESCAPED_UNICODE);
+    $sig = hash_hmac('sha256', $body, SSO_SECRET);
+    $results = [];
+    foreach (SSO_CLIENTS as $name => $client) {
+        if (empty($client['sync'])) continue;
+        $headers = ['Content-Type: application/json', 'X-Rteam-Signature: ' . $sig];
+        if (function_exists('curl_init')) {
+            $ch = curl_init($client['sync']);
+            curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => $headers,
+                                    CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_TIMEOUT => 5]);
+            curl_exec($ch);
+            $results[$name] = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+        } else {
+            $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => implode("\r\n", $headers), 'content' => $body,
+                                                     'timeout' => 5, 'ignore_errors' => true]]);
+            @file_get_contents($client['sync'], false, $ctx);
+            $results[$name] = isset($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m) ? (int)$m[1] : 0;
+        }
+    }
+    return $results;
 }
 
 function google_ready() { return GOOGLE_CLIENT_SECRET !== '' && strpos(GOOGLE_CLIENT_SECRET, 'ВСТАВЬТЕ') !== 0; }

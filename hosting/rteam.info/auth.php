@@ -70,6 +70,7 @@ if ($action === 'profile') {
         $users[$login]['name'] = $name !== '' ? $name : $login;
         $users[$login]['email'] = $email !== '' ? $email : null;
     });
+    sync_push('update', users()[$login]);  // AI Studio и Rai узнают новое имя и почту
     redirect('account.php?ok=profile');
 }
 
@@ -92,12 +93,14 @@ if ($action === 'unlink_google') {
         $users[$login]['google_id'] = null;
         $users[$login]['avatar'] = null;
     });
+    sync_push('update', users()[$login]);
     redirect('account.php?ok=unlinked');
 }
 
 if ($action === 'delete') {
     if (strtolower(trim((string)($_POST['confirm'] ?? ''))) !== $login) redirect('account.php?error=confirm');
     update_json('users.json', function (&$users) use ($login) { unset($users[$login]); });
+    sync_push('delete', $user);  // удаляются и данные в AI Studio (сайт) и Rai (чаты)
     $_SESSION = [];
     session_destroy();
     redirect('login.php?error=deleted');

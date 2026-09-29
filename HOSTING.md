@@ -1,24 +1,34 @@
 # Rteam: что положить на виртуальный хостинг
 
-Три адреса, Python на хостинге не нужен (нужен только PHP 7.4+):
+Три адреса, Python на хостинге не нужен (нужен только PHP 7.4+).
 
-| Адрес | Что это | Папка в репозитории |
+**Быстрее всего:** `python make_hosting.py dist/hosting --zip rteam.zip` соберёт три готовые папки с названиями
+доменов (и ZIP). Если перед этим задать переменные `GOOGLE_CLIENT_SECRET` и `RTEAM_SSO_SECRET`, секреты
+впишутся в копии `config.php` (в репозиторий они не попадают).
+
+| Адрес | Что это | Откуда файлы |
 |---|---|---|
-| **rteam.info** | главный сайт: регистрация, вход (и через Google), личный кабинет, единый вход в AI Studio | `hosting/rteam.info/` |
-| **rai.rteam.info** | основной ИИ Rai (чат и вкладка Code) — встроен с GitHub Pages | `hosting/rai/` (1 файл) |
+| **rteam.info** | главный сайт: регистрация, вход (и через Google), личный кабинет, единый вход | `hosting/rteam.info/` |
+| **rai.rteam.info** | Rai целиком: чат, Code, Слайды, скриншоты; вход через аккаунт Rteam, чаты в аккаунте | страница Rai из корня репозитория + `pyodide/`, `ocr/` + `hosting/rai/` |
 | **aistudio.rteam.info** | AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов | `hosting/aistudio/` |
 
 ```
-                 ┌──────── аккаунт, пароль, Google ────────┐
-rteam.info ──────┤                                         │
-   │  «Rai»      └─ sso.php: подписанный пропуск ──► aistudio.rteam.info ──► sites/<логин>/
-   ▼                                                        │
-rai.rteam.info ── встроен ──► rteaminfo1-source.github.io/rai/ (Python в браузере, без входа)
-                                                            └── справа в студии тот же чат Rai
+                    аккаунт, пароль, Google, кабинет
+                              rteam.info
+          sso.php (пропуск) ↙            ↘ sso.php (пропуск)
+   rai.rteam.info                          aistudio.rteam.info
+   чат · Code · Слайды · скриншоты         сайты пользователей · API-ключи
+   чаты хранятся в аккаунте                sites/<логин>/
+          ↖ sync.php: имя, почта, удаление аккаунта ↗   (подписано SSO_SECRET)
 ```
 
-На странице ИИ (rai.rteam.info) **регистрации и входа нет**: чаты и проекты Code хранятся в браузере,
-а аккаунт — на rteam.info. AI Studio своих паролей не хранит: кнопка «Войти через аккаунт Rteam».
+- **Регистрация и вход — только на rteam.info.** В Rai и AI Studio нет своих паролей: кнопка
+  «Войти через аккаунт Rteam» → rteam.info (войти или зарегистрироваться) → обратно уже с входом.
+- **Пользователи передаются:** пропуск несёт логин, имя, почту и аватар; действует 2 минуты и один раз.
+- **Изменения синхронизируются:** сменили имя, почту или Google в кабинете — rteam.info сам сообщает
+  Rai и AI Studio. Удалили аккаунт — удаляются чаты в Rai и сайт с API-ключами в AI Studio.
+- **Чаты сохраняются в аккаунте**: после входа в Rai они доступны на любом устройстве.
+  Без входа Rai тоже работает, чаты тогда хранятся в браузере.
 
 ## 0. Один раз на GitHub: включить Pages
 
@@ -34,8 +44,8 @@ github.com/rteaminfo1-source/rai → **Settings → Pages** → Source: *Deploy 
 ## 2. Общий секрет единого входа
 
 Придумайте длинную случайную строку (от 32 символов, например 64 символа 0-9a-f) и впишите её
-**одинаковой** в `SSO_SECRET` двух файлов: `rteam.info/config.php` и `aistudio.rteam.info/config.php`.
-По этому секрету студия проверяет, что пропуск выдал именно rteam.info.
+**одинаковой** в `SSO_SECRET` трёх файлов: `config.php` сайтов rteam.info, rai.rteam.info и aistudio.rteam.info.
+По этому секрету Rai и студия проверяют, что пропуск и изменения профиля пришли именно от rteam.info.
 
 ## 3. rteam.info — главный сайт
 
@@ -49,7 +59,7 @@ github.com/rteaminfo1-source/rai → **Settings → Pages** → Source: *Deploy 
 | `account.php` | личный кабинет: профиль, пароль, привязка Google, ссылки на сервисы |
 | `logout.php` | выход по ссылке (с подтверждением) |
 | `google_start.php`, `google_callback.php` | вход через Google |
-| `sso.php` | единый вход: выдаёт AI Studio подписанный пропуск (действует 2 минуты, один раз) |
+| `sso.php` | единый вход: выдаёт Rai и AI Studio подписанный пропуск (действует 2 минуты, один раз) |
 | `chat.php` | старые ссылки на чат ведут на rai.rteam.info |
 | `config.php` | настройки — **впишите секрет Google и SSO_SECRET** |
 | `assets/site.css` | стиль (чёрно-красный) |
@@ -61,8 +71,23 @@ github.com/rteaminfo1-source/rai → **Settings → Pages** → Source: *Deploy 
 
 ## 4. rai.rteam.info — основной ИИ
 
-В папку поддомена положите **один файл**: `hosting/rai/index.html` — тонкая шапка (Code, AI Studio, Кабинет,
-GitHub) и Rai с GitHub Pages на всю страницу. Ссылка `https://rai.rteam.info/#code` сразу открывает вкладку Code.
+Загрузите **всю папку `rai.rteam.info/`** из сборки (`make_hosting.py`):
+
+| Файл / папка | Зачем |
+|---|---|
+| `index.html`, `code.js`, `code.css`, `slides.js`, `slides.css`, `screen.js` | страница Rai: чат, Code, Слайды, скриншоты и запись экрана |
+| `*.py`, `knowledge.json`, `glossary.json` | движок Rai (Python выполняется в браузере) |
+| `pyodide/` | Python для браузера (≈ 13 МБ) |
+| `ocr/` | распознавание текста на скриншотах, русский и английский (≈ 14 МБ) |
+| `config.php` | настройки — **впишите SSO_SECRET** |
+| `sso_start.php`, `sso_callback.php` | вход через аккаунт Rteam |
+| `me.php`, `chats.php`, `logout.php` | кто вошёл, чаты в аккаунте, выход |
+| `sync.php` | принимает изменения профиля и удаление аккаунта от rteam.info |
+| `data/` | пользователи и чаты (закрыта от посетителей, нужны права на запись) |
+| `.htaccess` / `web.config` | типы файлов (.wasm, .mjs) и защита для Apache / IIS |
+
+Ссылки: `https://rai.rteam.info/#code` — сразу Code, `#slides` — сразу Слайды.
+Копия на GitHub Pages (`rteaminfo1-source.github.io/rai/`) тоже работает, но без входа — чаты в браузере.
 
 ## 5. aistudio.rteam.info — AI Studio
 
@@ -72,6 +97,7 @@ GitHub) и Rai с GitHub Pages на всю страницу. Ссылка `https
 |---|---|
 | `index.php` | главная студии и кнопка «Войти через аккаунт Rteam» |
 | `sso_start.php`, `sso_callback.php` | единый вход через rteam.info |
+| `sync.php` | принимает изменения профиля и удаление аккаунта от rteam.info |
 | `studio.php` | рабочее место: ИИ-конструктор, предпросмотр, публикация, ZIP сайта, API-ключ, чат Rai |
 | `sitegen.php` | ИИ, который создаёт и правит сайты |
 | `actions.php` | кнопки студии |

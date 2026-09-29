@@ -16,3 +16,9 @@ hosting/aistudio/sites/*
 !hosting/rteam.info/data/
 hosting/rteam.info/data/*
 !hosting/rteam.info/data/.htaccess
+# Rai на хостинге: только защита папки с чатами
+!hosting/rai/data/
+hosting/rai/data/*
+!hosting/rai/data/.htaccess
+# Собранные папки для хостинга (make_hosting.py)
+dist/

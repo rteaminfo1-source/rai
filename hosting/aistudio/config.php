@@ -203,6 +203,21 @@ function sso_verify($token, $state) {
     return $p;
 }
 
+/** Сообщение от rteam.info об изменении профиля или удалении аккаунта. */
+function sync_verify($body, $sig) {
+    if (!sso_ready() || !is_string($sig) || !hash_equals(hash_hmac('sha256', $body, SSO_SECRET), $sig)) return null;
+    $m = json_decode($body, true);
+    if (!is_array($m) || abs(time() - (int)($m['time'] ?? 0)) > 300 || empty($m['nonce']) || empty($m['user']['login'])) return null;
+    $fresh = update_json('nonces.json', function (&$seen) use ($m) {
+        $now = time();
+        foreach ($seen as $n => $t) if ($now - $t > 900) unset($seen[$n]);
+        if (isset($seen[$m['nonce']])) return false;
+        $seen[$m['nonce']] = $now;
+        return true;
+    });
+    return $fresh ? $m : null;
+}
+
 function site_url($username) { return SITES_URL . rawurlencode($username) . '/'; }
 function site_file($username) { return SITES_DIR . '/' . $username . '/index.html'; }
 
