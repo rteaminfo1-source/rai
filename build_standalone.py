@@ -22,14 +22,17 @@ def build(pyodide=None, fragment=False, stdlib=None):
     with open(os.path.join(BASE_DIR, "index.html"), encoding="utf-8") as f:
         html = f.read()
 
-    # Вкладка Code (code.css и code.js) встраивается прямо в страницу — файл остаётся один.
+    # Вкладки Code и Слайды (css и js) встраиваются прямо в страницу — файл остаётся один.
     with open(os.path.join(BASE_DIR, "code.css"), encoding="utf-8") as f:
         html = html.replace('<link rel="stylesheet" href="code.css">', "<style>\n" + f.read() + "</style>", 1)
-    with open(os.path.join(BASE_DIR, "code.js"), encoding="utf-8") as f:
-        js = f.read()
+    with open(os.path.join(BASE_DIR, "slides.css"), encoding="utf-8") as f:
+        html = html.replace('<link rel="stylesheet" href="slides.css">', "<style>\n" + f.read() + "</style>", 1)
+    for name in ("code.js", "slides.js"):
+        with open(os.path.join(BASE_DIR, name), encoding="utf-8") as f:
+            js = f.read()
         # «<!--» внутри <script> переводит HTML-парсер в особый режим, и тег может не закрыться
-        assert "<!--" not in js, "code.js не должен содержать <!--"
-        html = html.replace('<script src="code.js"></script>', "<script>\n" + js.replace("</script", "<\\/script") + "</script>", 1)
+        assert "<!--" not in js, name + " не должен содержать <!--"
+        html = html.replace(f'<script src="{name}"></script>', "<script>\n" + js.replace("</script", "<\\/script") + "</script>", 1)
 
     files = {}
     for name in FILES:

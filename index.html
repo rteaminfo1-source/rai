@@ -289,11 +289,16 @@
     body.menu-open #backdrop { display: block; position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .6); }
     #menuBtn { display: inline-flex; }
     header, .composer, .topbar { padding-inline: 16px; }
-    .modes button { padding: 7px 11px; }
+    .modes button { padding: 7px 10px; gap: 5px; }
+    .status { min-width: 0; }
     #log { padding: 16px; }
     .status { max-width: 38%; }
     .status #statusText { display: none; }
     .hint { display: none; }
+  }
+  @media (max-width: 420px) {
+    .modes button svg.i { display: none; }
+    .topbar { gap: 6px; }
   }
   @media (prefers-reduced-motion: reduce) {
     #sidebar { transition: none; } #mic.on, .typing span { animation: none; }
@@ -382,6 +387,7 @@
   @media (prefers-reduced-motion: reduce) { .slide, .slide * { animation: none !important; } }
 </style>
 <link rel="stylesheet" href="code.css">
+<link rel="stylesheet" href="slides.css">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -424,6 +430,7 @@
       <div class="modes" role="tablist" aria-label="Режим">
         <button type="button" role="tab" id="modeChat" aria-selected="true"><svg class="i"><use href="#i-chat"/></svg>Чат</button>
         <button type="button" role="tab" id="modeCode" aria-selected="false"><svg class="i"><use href="#i-code"/></svg>Code</button>
+        <button type="button" role="tab" id="modeSlides" aria-selected="false"><svg class="i"><use href="#i-full"/></svg>Слайды</button>
       </div>
       <span class="spacer"></span>
       <div class="status" id="status" data-state="loading" role="status" aria-live="polite">
@@ -453,11 +460,13 @@
     </div>
     </section>
     <section id="codeView" aria-label="Code" hidden></section>
+    <section id="slidesView" aria-label="Слайды" hidden></section>
   </main>
 </div>
 <div id="toast" hidden role="status"></div>
 
 <script src="code.js"></script>
+<script src="slides.js"></script>
 <script>
 (function () {
   "use strict";
@@ -1002,7 +1011,8 @@
       `<span class="spacer"></span>` +
       `<button class="icon-btn full" type="button">${icon("full")}На весь экран</button>` +
       `<button class="icon-btn dl" type="button">${icon("down")}HTML</button>` +
-      `<button class="icon-btn zip" type="button">${icon("zip")}ZIP</button></div>`;
+      `<button class="icon-btn zip" type="button">${icon("zip")}ZIP</button>` +
+      `<button class="icon-btn edit-deck" type="button">${icon("edit")}В Слайды</button></div>`;
     const stage = deck.querySelector(".stage");
     if (a.theme && HEX.test(a.theme.bg || "")) stage.style.background = a.theme.bg;
     let k = 0;
@@ -1040,6 +1050,12 @@
       download(safeName(a.title) + ".html", new Blob([deckFile(a)], {type: "text/html"})));
     deck.querySelector(".zip").addEventListener("click", () =>
       download(safeName(a.title) + ".zip", makeZip(deckFiles(a, ""))));
+    deck.querySelector(".edit-deck").addEventListener("click", () => {
+      if (!startSlides()) return;
+      window.RaiSlides.open(a);
+      setMode("slides");
+      toast("Презентация открыта во вкладке «Слайды»");
+    });
     show();
     return deck;
   }
@@ -1247,6 +1263,12 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
         const data = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(data.error || "ошибка " + r.status);
         return data;
+      },
+      async slides(action, args) {
+        const r = await fetch(root + "api/slides", {
+          method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(Object.assign({action: action}, args))
+        });
+        return await r.json();
       }
     };
   }
@@ -1349,6 +1371,16 @@ def rai_ask(version_id, message, session_id, history_json="[]"):
 def rai_versions():
     return json.dumps([v.public() for v in versions.VERSIONS.values()], ensure_ascii=False)
 
+def rai_slides(action, args_json):
+    import creative
+    a = json.loads(args_json or "{}")
+    if action == "theme":
+        return json.dumps(creative.deck_theme(str(a.get("text") or "")[:300]), ensure_ascii=False)
+    if action == "image":
+        seed = a.get("seed") if isinstance(a.get("seed"), int) else None
+        return json.dumps(creative.make_image(str(a.get("prompt") or "")[:300], seed=seed, theme=a.get("theme")), ensure_ascii=False)
+    return json.dumps({"error": "unknown action"})
+
 def rai_code(action, code, lang, prompt):
     import codeai
     try:
@@ -1359,11 +1391,13 @@ def rai_code(action, code, lang, prompt):
     const pyAsk = pyodide.globals.get("rai_ask");
     const pyVersions = pyodide.globals.get("rai_versions");
     const pyCode = pyodide.globals.get("rai_code");
+    const pySlides = pyodide.globals.get("rai_slides");
     return {
       mode: "browser",
       async versions() { return JSON.parse(pyVersions()); },
       async ask(v, message, sessionId, history) { return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history))); },
-      async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); }
+      async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); },
+      async slides(action, args) { return JSON.parse(pySlides(action, JSON.stringify(args || {}))); }
     };
   }
 
@@ -1483,17 +1517,34 @@ def rai_code(action, code, lang, prompt):
     });
     return true;
   }
+  let slidesStarted = false;
+  function startSlides() {
+    if (slidesStarted || !window.RaiSlides) return !!window.RaiSlides;
+    slidesStarted = true;
+    window.RaiSlides.init({
+      deck: {slideHTML: slideHTML, deckFile: deckFile, deckFiles: deckFiles},
+      ask: async (text) => (await enginePromise).ask(TOP_VERSION, text, "slides-tab", []),
+      slides: async (action, args) => (await enginePromise).slides(action, args),
+      md: renderMarkdown, toast: toast, download: download, zip: makeZip
+    });
+    return true;
+  }
+  const MODES = {chat: ["chatView", "modeChat", "Rai"], code: ["codeView", "modeCode", "Rai Code"], slides: ["slidesView", "modeSlides", "Rai Слайды"]};
   function setMode(mode) {
     if (mode === "code" && !startCode()) { toast("Не удалось загрузить code.js"); mode = "chat"; }
-    const code = mode === "code";
-    $("chatView").hidden = code;
-    $("codeView").hidden = !code;
-    $("modeChat").setAttribute("aria-selected", String(!code));
-    $("modeCode").setAttribute("aria-selected", String(code));
-    document.title = code ? "Rai Code" : "Rai";
+    if (mode === "slides" && !startSlides()) { toast("Не удалось загрузить slides.js"); mode = "chat"; }
+    if (!MODES[mode]) mode = "chat";
+    for (const [name, [view, tab]] of Object.entries(MODES)) {
+      $(view).hidden = name !== mode;
+      $(tab).setAttribute("aria-selected", String(name === mode));
+    }
+    document.title = MODES[mode][2];
     try { localStorage.setItem("rai_mode", mode); } catch (e) { /* не страшно */ }
-    if ((location.hash === "#code") !== code) history.replaceState(null, "", code ? "#code" : location.pathname + location.search);
-    if (code) window.RaiCode.focus(); else input.focus();
+    const hash = mode === "chat" ? "" : "#" + mode;
+    if (location.hash !== hash) history.replaceState(null, "", hash || location.pathname + location.search);
+    if (mode === "code") window.RaiCode.focus();
+    else if (mode === "slides") window.RaiSlides.focus();
+    else input.focus();
   }
   function openInCode(name, text) {
     startCode();
@@ -1503,14 +1554,15 @@ def rai_code(action, code, lang, prompt):
   }
   $("modeChat").addEventListener("click", () => setMode("chat"));
   $("modeCode").addEventListener("click", () => setMode("code"));
-  window.addEventListener("hashchange", () => setMode(location.hash === "#code" ? "code" : "chat"));
+  $("modeSlides").addEventListener("click", () => setMode("slides"));
+  window.addEventListener("hashchange", () => setMode(location.hash.slice(1) || "chat"));
 
   if (backUrl) $("backLink").href = backUrl;
   load();
   renderAll();
   let startMode = "chat";
-  try { startMode = location.hash === "#code" ? "code" : location.hash ? "chat" : localStorage.getItem("rai_mode") || "chat"; } catch (e) { /* чат */ }
-  if (startMode === "code") setMode("code");
+  try { startMode = location.hash ? location.hash.slice(1) : localStorage.getItem("rai_mode") || "chat"; } catch (e) { /* чат */ }
+  if (startMode === "code" || startMode === "slides") setMode(startMode);
 
   const enginePromise = startEngine().then(async (engine) => {
     try {

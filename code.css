@@ -1,5 +1,5 @@
 /* Rai Code — редактор, запуск и ИИ для кода. Цвета берутся из токенов index.html. */
-#codeView { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
+#codeView { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; }
 #codeView[hidden] { display: none; }
 
 .code-top { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }

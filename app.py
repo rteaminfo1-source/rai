@@ -95,6 +95,21 @@ def code():
     return jsonify(codeai.run_action(action, source, data.get("lang"), data.get("prompt") or ""))
 
 
+@app.post("/api/slides")
+def slides_tools():
+    """Вкладка «Слайды»: цвета темы по словам (theme) и картинка в цветах темы (image)."""
+    import creative
+    data = _payload() or {}
+    action = data.get("action")
+    if action == "theme":
+        return jsonify(creative.deck_theme(str(data.get("text") or "")[:300]))
+    if action == "image":
+        theme = data.get("theme") if isinstance(data.get("theme"), dict) else None
+        seed = data.get("seed") if isinstance(data.get("seed"), int) else None
+        return jsonify(creative.make_image(str(data.get("prompt") or "")[:300], seed=seed, theme=theme))
+    return jsonify({"error": "action: theme или image"}), 400
+
+
 @app.post("/api/teach")
 def teach():
     """Добавить знание. Работает, только если задан RAI_ADMIN_TOKEN."""

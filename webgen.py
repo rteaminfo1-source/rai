@@ -517,7 +517,8 @@ def edit_spec(spec, instruction):
                 custom = extract_items(text, kind)
                 if custom:
                     section["items"] = custom
-                at = next((j for j, s in enumerate(spec["sections"]) if s["kind"] == "contacts"), len(spec["sections"]))
+                # новый раздел — перед формой заявки и контактами
+                at = next((j for j, s in enumerate(spec["sections"]) if s["kind"] in ("form", "contacts")), len(spec["sections"]))
                 spec["sections"].insert(at, section)
                 done.append(f"добавил раздел «{section['title']}»")
         else:
