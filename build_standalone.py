@@ -31,9 +31,9 @@ def build(pyodide=None, fragment=False, stdlib=None):
     html = html.replace("<script>\n(function () {", embedded + "<script>\n(function () {", 1)
 
     if pyodide:
-        html = re.sub(r'pyodide: "[^"]*"', f'pyodide: "{pyodide}"', html, count=1)
+        html = re.sub(r'pyodide: (null|"[^"]*")', f'pyodide: "{pyodide}"', html, count=1)
     if stdlib:
-        html = re.sub(r'(pyodide: "[^"]*")', rf'\1,\n    stdlib: "{stdlib}"', html, count=1)
+        html = re.sub(r'(pyodide: (?:null|"[^"]*"))', rf'\1,\n    stdlib: "{stdlib}"', html, count=1)
 
     if fragment:
         html = re.sub(r"<!DOCTYPE html>\s*", "", html, flags=re.I)

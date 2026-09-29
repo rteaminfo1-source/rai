@@ -13,12 +13,20 @@
                Не задан: если страницу отдаёт сам сервер Rai — используется он,
                иначе Rai запускается прямо в браузере (Python через Pyodide).
      pyBase  — откуда брать .py файлы в браузерном режиме (по умолчанию — рядом со страницей).
-     pyodide — откуда грузить Pyodide (stdlib — свой адрес python_stdlib.zip, если нужно). */
+     pyodide — свой адрес Pyodide (stdlib — свой адрес python_stdlib.zip, если нужно). */
   window.RAI_CONFIG = Object.assign({
     api: null,
     pyBase: "./",
-    pyodide: "https://cdn.jsdelivr.net/npm/pyodide@314.0.7/"
+    pyodide: null
   }, window.RAI_CONFIG || {});
+  /* Откуда пробовать загрузить Pyodide, по очереди: свой адрес (если задан),
+     папка pyodide/ рядом со страницей (есть в репозитории), затем CDN. */
+  window.RAI_PYODIDE_SOURCES = [
+    "pyodide/",
+    "https://cdn.jsdelivr.net/npm/pyodide@314.0.7/",
+    "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/",
+    "https://unpkg.com/pyodide@314.0.7/"
+  ];
 </script>
 <style>
   /* Layout: одноэкранный чат — шапка с выбором версии, лента сообщений, строка ввода. */
@@ -131,6 +139,11 @@
   .msg.pending .bubble { color: var(--muted); }
   .bubble code, .bubble { font-variant-ligatures: none; }
 
+  .retry {
+    align-self: flex-start; appearance: none; cursor: pointer;
+    margin-top: 4px; padding: 8px 14px; border-radius: 10px; border: 0;
+    background: var(--accent); color: var(--accent-ink); font: 600 14px/1 var(--font-body);
+  }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chips button {
     appearance: none; cursor: pointer;
@@ -330,22 +343,58 @@
     });
   }
 
+  function readPyFiles() {
+    return Promise.all(PY_FILES.map(async (name) => {
+      // Файлы, встроенные в страницу (rai.html, собранный build_standalone.py).
+      const embedded = document.getElementById("rai-files");
+      if (embedded) return [name, JSON.parse(embedded.textContent)[name]];
+      const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + name, {cache: "no-cache"});
+      if (!r.ok) throw new Error("нет файла " + name + " (" + r.status + ")");
+      return [name, await r.text()];
+    }));
+  }
+
+  // Загрузить Pyodide: пробуем источники по очереди, каждый с ограничением по времени.
+  async function loadPython(onStep) {
+    const sources = [];
+    for (const src of [CFG.pyodide].concat(window.RAI_PYODIDE_SOURCES)) {
+      if (src && !sources.includes(src)) sources.push(src);
+    }
+    const problems = [];
+    for (const src of sources) {
+      const base = new URL(src.replace(/\/?$/, "/"), location.href).href;
+      const where = new URL(base).host || "файл";
+      try {
+        onStep("Скачиваю Python (" + where + ")");
+        if (!window.loadPyodide) await withTimeout(loadScript(base + "pyodide.js"), 20000);
+        const opts = {indexURL: base};
+        if (CFG.stdlib && src === CFG.pyodide) opts.stdLibURL = new URL(CFG.stdlib, location.href).href;
+        return await withTimeout(window.loadPyodide(opts), 120000);
+      } catch (e) {
+        problems.push(where + ": " + (e && e.message === "timeout" ? "слишком долго" : (e && e.message) || e));
+        try { delete window.loadPyodide; } catch (_) { window.loadPyodide = undefined; }
+      }
+    }
+    throw new Error("не удалось загрузить Python.\n" + problems.join("\n"));
+  }
+
   async function browserEngine() {
-    setStatus("loading", "Загружаю Python в браузер…");
-    const base = new URL(CFG.pyodide.replace(/\/?$/, "/"), location.href).href;
-    if (!window.loadPyodide) await loadScript(base + "pyodide.js");
-    const [pyodide, files] = await Promise.all([
-      window.loadPyodide(Object.assign({indexURL: base},
-        CFG.stdlib ? {stdLibURL: new URL(CFG.stdlib, location.href).href} : {})),
-      Promise.all(PY_FILES.map(async (name) => {
-        // Файлы, встроенные в страницу (rai.html, собранный build_standalone.py).
-        const embedded = document.getElementById("rai-files");
-        if (embedded) return [name, JSON.parse(embedded.textContent)[name]];
-        const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + name, {cache: "no-cache"});
-        if (!r.ok) throw new Error("Нет файла " + name + " (" + r.status + ")");
-        return [name, await r.text()];
-      }))
-    ]);
+    const t0 = Date.now();
+    let step = "Загружаю Python";
+    const tick = () => setStatus("loading", step + "… " + Math.round((Date.now() - t0) / 1000) + " с");
+    tick();
+    const timer = setInterval(tick, 1000);
+    let pyodide, files;
+    try {
+      [pyodide, files] = await Promise.all([
+        loadPython((text) => { step = text; tick(); }),
+        readPyFiles()
+      ]);
+      step = "Запускаю Rai";
+      tick();
+    } finally {
+      clearInterval(timer);
+    }
     pyodide.FS.mkdirTree("/home/pyodide/rai");
     for (const [name, text] of files) pyodide.FS.writeFile("/home/pyodide/rai/" + name, text);
     pyodide.runPython(`
@@ -393,17 +442,25 @@ def rai_versions():
     return browserEngine();
   }
 
+  let engineReady = false;
   const enginePromise = startEngine().then(async (engine) => {
     try {
       const list = await engine.versions();
       if (Array.isArray(list) && list.length) { VERSIONS = list; renderVersions(); }
     } catch (e) { /* остаёмся со встроенным списком */ }
+    engineReady = true;
     setStatus("ready", engine.mode === "server" ? "Сервер Rai" : "Rai работает в браузере");
     return engine;
   }).catch((err) => {
     setStatus("error", "Rai не запустился");
-    addMessage("rai", "Не получилось запустить Rai: " + err.message +
-      ". Проверьте интернет и обновите страницу.", "ошибка");
+    const box = addMessage("rai", "Не получилось запустить Rai: " + err.message +
+      "\n\nПроверьте интернет (или не блокирует ли антивирус загрузку) и попробуйте снова.", "ошибка");
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "retry";
+    retry.textContent = "Попробовать снова";
+    retry.addEventListener("click", () => location.reload());
+    box.append(retry);
     throw err;
   });
 
@@ -418,7 +475,8 @@ def rai_versions():
     input.value = "";
     autosize();
     const current = VERSIONS.find(v => v.id === version) || {name: version};
-    const pending = addMessage("rai pending", "…", current.name);
+    const pending = addMessage("rai pending",
+      engineReady ? "…" : "Rai ещё загружается, отвечу сразу после загрузки…", current.name);
     try {
       const engine = await enginePromise;
       const t0 = performance.now();
