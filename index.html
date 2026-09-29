@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rai — Rteam</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<script>
+  /* Настройки (можно задать до этого файла через window.RAI_CONFIG):
+     api     — адрес Python-сервера Rai, например "https://rai-xxxx.onrender.com".
+               Не задан: если страницу отдаёт сам сервер Rai — используется он,
+               иначе Rai запускается прямо в браузере (Python через Pyodide).
+     pyBase  — откуда брать .py файлы в браузерном режиме (по умолчанию — рядом со страницей).
+     pyodide — откуда грузить Pyodide. */
+  window.RAI_CONFIG = Object.assign({
+    api: null,
+    pyBase: "./",
+    pyodide: "https://cdn.jsdelivr.net/npm/pyodide@314.0.7/"
+  }, window.RAI_CONFIG || {});
+</script>
+<style>
+  /* Layout: одноэкранный чат — шапка с выбором версии, лента сообщений, строка ввода. */
+  :root {
+    --bg: #0f0c10;
+    --panel: #18131a;
+    --panel-2: #211a24;
+    --line: #2f2533;
+    --fg: #f1eaef;
+    --muted: #a39aa6;
+    --accent: #ff2a2a;
+    --accent-soft: #3b1418;
+    --accent-ink: #ffffff;
+    --ok: #3ccf7a;
+    --warn: #f0b23c;
+    --font-display: "Unbounded", "Arial Black", system-ui, sans-serif;
+    --font-body: "Onest", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f6f2f3; --panel: #ffffff; --panel-2: #f1eaed; --line: #e3d8dd;
+      --fg: #1c1519; --muted: #6d6270; --accent: #dc1a1a; --accent-soft: #fde3e3;
+      --accent-ink: #ffffff; --ok: #1f9d55; --warn: #b7791f; color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f2f3; --panel: #ffffff; --panel-2: #f1eaed; --line: #e3d8dd;
+    --fg: #1c1519; --muted: #6d6270; --accent: #dc1a1a; --accent-soft: #fde3e3;
+    --accent-ink: #ffffff; --ok: #1f9d55; --warn: #b7791f; color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.55 var(--font-body);
+    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+  }
+  .app {
+    height: 100%;
+    max-width: 880px;
+    margin: 0 auto;
+    padding-inline: 16px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    min-height: 0;
+  }
+
+  /* ---------- шапка ---------- */
+  header {
+    display: flex; flex-direction: column; gap: 12px;
+    padding-block: 16px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .logo {
+    font: 800 26px/1 var(--font-display);
+    letter-spacing: -0.02em;
+    color: var(--fg);
+  }
+  .logo span { color: var(--accent); }
+  .byline { font: 500 12px/1 var(--font-mono); color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .status {
+    display: inline-flex; align-items: center; gap: 8px;
+    font: 500 12px/1 var(--font-mono); color: var(--muted);
+    padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+  .status[data-state="ready"] .dot { background: var(--ok); }
+  .status[data-state="error"] .dot { background: var(--accent); }
+
+  .versions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .versions button {
+    appearance: none; cursor: pointer; text-align: left;
+    padding: 9px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+    font: 600 14px/1.2 var(--font-body);
+    min-width: 0;
+  }
+  .versions button small { display: block; margin-top: 3px; font: 400 11px/1.3 var(--font-mono); color: var(--muted); }
+  .versions button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+  .versions button[aria-pressed="true"] small { color: var(--fg); }
+  .versions button:focus-visible, .chips button:focus-visible, #send:focus-visible, #input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  .features { margin: 0; font-size: 13px; color: var(--muted); min-height: 1.5em; }
+
+  /* ---------- сообщения ---------- */
+  #log {
+    overflow-y: auto; min-height: 0;
+    display: flex; flex-direction: column; gap: 14px;
+    padding-block: 18px;
+    scroll-behavior: smooth;
+  }
+  .msg { display: flex; flex-direction: column; gap: 4px; max-width: min(640px, 92%); min-width: 0; }
+  .msg .bubble {
+    padding: 10px 14px; border-radius: 14px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.user .bubble { background: var(--accent-soft); border-color: transparent; border-bottom-right-radius: 4px; }
+  .msg.rai .bubble { border-bottom-left-radius: 4px; }
+  .msg .meta { font: 400 11px/1 var(--font-mono); color: var(--muted); padding-inline: 4px; }
+  .msg.pending .bubble { color: var(--muted); }
+  .bubble code, .bubble { font-variant-ligatures: none; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button {
+    appearance: none; cursor: pointer;
+    padding: 6px 11px; border-radius: 999px;
+    border: 1px dashed var(--line); background: transparent; color: var(--fg);
+    font: 400 13px/1.3 var(--font-body);
+  }
+  .chips button:hover { border-color: var(--accent); }
+
+  /* ---------- ввод ---------- */
+  form {
+    display: flex; gap: 8px; align-items: flex-end;
+    padding-block: 12px 16px;
+    border-top: 1px solid var(--line);
+  }
+  #input {
+    flex: 1; min-width: 0; resize: none;
+    max-height: 160px; min-height: 46px;
+    padding: 12px 14px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+    font: 15px/1.4 var(--font-body);
+  }
+  #send {
+    appearance: none; cursor: pointer; flex: none;
+    height: 46px; padding: 0 18px; border-radius: 12px; border: 0;
+    background: var(--accent); color: var(--accent-ink);
+    font: 600 15px/1 var(--font-body);
+  }
+  #send:disabled { opacity: 0.5; cursor: progress; }
+
+  @media (max-width: 560px) {
+    .versions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .logo { font-size: 22px; }
+  }
+  @media (prefers-reduced-motion: reduce) { #log { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <div class="brand">
+        <div class="logo">R<span>ai</span></div>
+        <div class="byline">Rteam · свой движок на Python</div>
+      </div>
+      <div class="status" id="status" data-state="loading" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span><span id="statusText">Подключение…</span>
+      </div>
+    </div>
+    <div class="versions" id="versions" role="group" aria-label="Версия Rai"></div>
+    <p class="features" id="features"></p>
+  </header>
+
+  <main id="log" aria-live="polite"></main>
+
+  <form id="form" autocomplete="off">
+    <label for="input" hidden>Сообщение для Rai</label>
+    <textarea id="input" rows="1" placeholder="Спросите Rai…" title="Enter — отправить, Shift+Enter — новая строка"></textarea>
+    <button id="send" type="submit">Отправить</button>
+  </form>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const CFG = window.RAI_CONFIG;
+  const params = new URLSearchParams(location.search);
+  if (params.get("api")) CFG.api = params.get("api");
+  if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
+  if (params.get("py")) CFG.pyBase = params.get("py");
+
+  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "brain.py", "knowledge.json"];
+
+  // Пока движок не загрузился — показываем версии из этого списка.
+  let VERSIONS = [
+    {id: "pro", name: "Rai Pro", features: ["поиск по смыслу", "калькулятор", "дата и время", "конвертер", "случайные числа"]},
+    {id: "pro-fast", name: "Rai Pro Fast", features: ["поиск по ключевым словам", "калькулятор", "дата и время"]},
+    {id: "pro-plus", name: "Rai Pro Plus", features: ["поиск по смыслу", "понимает опечатки", "все навыки", "помнит имя", "«подробнее» по теме", "подсказки похожих вопросов"]},
+    {id: "pro-sun", name: "Rai Pro Sun", features: ["всё из Pro Plus", "память фактов («запомни, что …»)", "несколько вопросов в одном сообщении", "подробные ответы"]}
+  ];
+  const SHORT = {"pro": "основная", "pro-fast": "быстрая", "pro-plus": "умнее", "pro-sun": "максимум"};
+  const EXAMPLES = [
+    "Что ты умеешь?", "Что такое Python?", "Сколько будет 15*4+2", "5 км в мили",
+    "Меня зовут Артём", "Расскажи шутку", "Сгенерируй пароль 16", "Как попасть в команду?"
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const log = $("log"), input = $("input"), send = $("send");
+
+  function store(key, value) {
+    try {
+      if (value === undefined) return localStorage.getItem(key);
+      localStorage.setItem(key, value);
+    } catch (e) { return null; }
+  }
+
+  let version = store("rai_version") || "pro";
+  let sessionId = store("rai_session");
+  if (!sessionId || !/^[A-Za-z0-9_.-]{1,64}$/.test(sessionId)) {
+    sessionId = "s" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    store("rai_session", sessionId);
+  }
+
+  function setStatus(state, text) {
+    $("status").dataset.state = state;
+    $("statusText").textContent = text;
+  }
+
+  // ---------- версии ----------
+  function renderVersions() {
+    if (!VERSIONS.some(v => v.id === version)) version = VERSIONS[0].id;
+    const box = $("versions");
+    box.textContent = "";
+    for (const v of VERSIONS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.id = "ver-" + v.id;
+      b.setAttribute("aria-pressed", String(v.id === version));
+      b.append(v.name.replace(/^Rai\s+/, ""));
+      const s = document.createElement("small");
+      s.textContent = SHORT[v.id] || v.id;
+      b.append(s);
+      b.addEventListener("click", () => {
+        version = v.id;
+        store("rai_version", version);
+        renderVersions();
+      });
+      box.append(b);
+    }
+    const cur = VERSIONS.find(v => v.id === version);
+    $("features").textContent = cur ? cur.name + ": " + (cur.features || []).join(" · ") : "";
+  }
+
+  // ---------- сообщения ----------
+  function addMessage(who, text, meta) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg " + who;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+    wrap.append(bubble);
+    if (meta) {
+      const m = document.createElement("div");
+      m.className = "meta";
+      m.textContent = meta;
+      wrap.append(m);
+    }
+    log.append(wrap);
+    log.scrollTop = log.scrollHeight;
+    return wrap;
+  }
+
+  function addChips() {
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    for (const q of EXAMPLES) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = q;
+      b.addEventListener("click", () => ask(q));
+      chips.append(b);
+    }
+    log.append(chips);
+  }
+
+  // ---------- движки ----------
+  function withTimeout(promise, ms) {
+    return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+  }
+
+  function serverEngine(root) {
+    return {
+      mode: "server",
+      async versions() {
+        const r = await fetch(root + "api/versions");
+        return (await r.json()).versions;
+      },
+      async ask(v, message) {
+        const r = await fetch(root + "api/chat", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({message: message, version: v, session_id: sessionId})
+        });
+        return await r.json();
+      }
+    };
+  }
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("Не удалось загрузить " + src));
+      document.head.append(s);
+    });
+  }
+
+  async function browserEngine() {
+    setStatus("loading", "Загружаю Python в браузер…");
+    const base = CFG.pyodide.replace(/\/?$/, "/");
+    if (!window.loadPyodide) await loadScript(base + "pyodide.js");
+    const [pyodide, files] = await Promise.all([
+      window.loadPyodide({indexURL: base}),
+      Promise.all(PY_FILES.map(async (name) => {
+        const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + name, {cache: "no-cache"});
+        if (!r.ok) throw new Error("Нет файла " + name + " (" + r.status + ")");
+        return [name, await r.text()];
+      }))
+    ]);
+    pyodide.FS.mkdirTree("/home/pyodide/rai");
+    for (const [name, text] of files) pyodide.FS.writeFile("/home/pyodide/rai/" + name, text);
+    pyodide.runPython(`
+import sys, json
+sys.path.insert(0, "/home/pyodide/rai")
+import brain, versions
+_rai = brain.Brain(learned_path="/tmp/learned.json")
+
+def rai_ask(version_id, message, session_id):
+    v = versions.resolve(version_id)
+    if v is None:
+        return json.dumps({"answer": "Неизвестная версия.", "error": "unknown_version"}, ensure_ascii=False)
+    try:
+        return json.dumps(_rai.answer(v, message, session_id), ensure_ascii=False)
+    except brain.RaiError as e:
+        return json.dumps({"answer": str(e), "error": "rai_error"}, ensure_ascii=False)
+
+def rai_versions():
+    return json.dumps([v.public() for v in versions.VERSIONS.values()], ensure_ascii=False)
+`);
+    const pyAsk = pyodide.globals.get("rai_ask");
+    const pyVersions = pyodide.globals.get("rai_versions");
+    return {
+      mode: "browser",
+      async versions() { return JSON.parse(pyVersions()); },
+      async ask(v, message) { return JSON.parse(pyAsk(v, message, sessionId)); }
+    };
+  }
+
+  async function startEngine() {
+    if (CFG.api) {
+      return serverEngine(CFG.api.replace(/\/+$/, "") + "/");
+    }
+    // Страницу отдаёт сам сервер Rai? Тогда рядом есть api/versions.
+    if (location.protocol.startsWith("http")) {
+      try {
+        const r = await withTimeout(fetch("api/versions", {cache: "no-store"}), 2500);
+        const ct = r.headers.get("content-type") || "";
+        if (r.ok && ct.includes("json")) {
+          const d = await r.json();
+          if (d && Array.isArray(d.versions)) return serverEngine("");
+        }
+      } catch (e) { /* нет сервера — запускаем в браузере */ }
+    }
+    return browserEngine();
+  }
+
+  const enginePromise = startEngine().then(async (engine) => {
+    try {
+      const list = await engine.versions();
+      if (Array.isArray(list) && list.length) { VERSIONS = list; renderVersions(); }
+    } catch (e) { /* остаёмся со встроенным списком */ }
+    setStatus("ready", engine.mode === "server" ? "Сервер Rai" : "Rai работает в браузере");
+    return engine;
+  }).catch((err) => {
+    setStatus("error", "Rai не запустился");
+    addMessage("rai", "Не получилось запустить Rai: " + err.message +
+      ". Проверьте интернет и обновите страницу.", "ошибка");
+    throw err;
+  });
+
+  // ---------- отправка ----------
+  let busy = false;
+  async function ask(text) {
+    text = (text || "").trim();
+    if (!text || busy) return;
+    busy = true;
+    send.disabled = true;
+    addMessage("user", text);
+    input.value = "";
+    autosize();
+    const current = VERSIONS.find(v => v.id === version) || {name: version};
+    const pending = addMessage("rai pending", "…", current.name);
+    try {
+      const engine = await enginePromise;
+      const t0 = performance.now();
+      const data = await engine.ask(version, text);
+      const ms = Math.max(1, Math.round(performance.now() - t0));
+      pending.classList.remove("pending");
+      pending.querySelector(".bubble").textContent = data.answer || "Результат не получен.";
+      pending.querySelector(".meta").textContent = (data.version_name || current.name) + " · " + ms + " мс";
+    } catch (e) {
+      pending.classList.remove("pending");
+      pending.querySelector(".bubble").textContent = "Не удалось получить ответ. Попробуйте ещё раз.";
+    } finally {
+      busy = false;
+      send.disabled = false;
+      log.scrollTop = log.scrollHeight;
+      input.focus();
+    }
+  }
+
+  function autosize() {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 160) + "px";
+  }
+
+  $("form").addEventListener("submit", (e) => { e.preventDefault(); ask(input.value); });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(input.value); }
+  });
+  input.addEventListener("input", autosize);
+
+  renderVersions();
+  addMessage("rai", "Привет! Я Rai — ассистент Rteam. Выберите версию сверху и задайте вопрос. Например:", "Rai");
+  addChips();
+})();
+</script>
+</body>
+</html>

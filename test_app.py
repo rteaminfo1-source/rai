@@ -157,6 +157,12 @@ class HttpTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_index_page(self):
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"<title>Rai", resp.data)
+        resp.close()
+
     def test_versions_endpoint(self):
         data = self.client.get("/api/versions").get_json()
         self.assertEqual([v["id"] for v in data["versions"]], list(VERSIONS))

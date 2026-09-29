@@ -8,7 +8,7 @@
 import hmac
 import os
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 from brain import Brain, RaiError
@@ -21,6 +21,7 @@ _origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",")
 CORS(app, origins=_origins or "*")
 
 brain = Brain()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _payload():
@@ -32,6 +33,11 @@ def _payload():
 
 
 @app.get("/")
+def index():
+    """Страница чата (та же, что работает и без сервера)."""
+    return send_from_directory(BASE_DIR, "index.html")
+
+
 @app.get("/api/versions")
 def versions():
     return jsonify(
