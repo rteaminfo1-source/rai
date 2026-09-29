@@ -3,19 +3,20 @@
  * AI Studio Rteam — настройки и общие функции.
  * Сайт: https://aistudio.rteam.info   Основной ИИ: https://rai.rteam.info
  *
- * ВАЖНО: секрет Google вставляйте только в этот файл НА ХОСТИНГЕ
- * (или в переменную окружения GOOGLE_CLIENT_SECRET). В GitHub его не выкладывайте.
+ * Вход — через аккаунт Rteam (https://rteam.info): регистрация, пароль и Google живут там,
+ * а сюда приходит подписанный пропуск (единый вход, SSO).
+ * ВАЖНО: SSO_SECRET вписывайте только в этот файл НА ХОСТИНГЕ (или в переменную окружения
+ * RTEAM_SSO_SECRET) — та же строка, что в config.php сайта rteam.info. В GitHub его не выкладывайте.
  */
 
 // ====================================================================== настройки
-define('STUDIO_URL', 'https://aistudio.rteam.info');
+define('STUDIO_URL', getenv('STUDIO_URL') ?: 'https://aistudio.rteam.info');
 define('RAI_URL', 'https://rai.rteam.info/');                              // основной ИИ
 define('RAI_EMBED_URL', 'https://rteaminfo1-source.github.io/rai/');       // чат Rai на GitHub Pages
 define('GITHUB_URL', 'https://github.com/rteaminfo1-source/rai');
 
-define('GOOGLE_CLIENT_ID', '40211315152-jq7a91jcqrpu8hkmlqmg1poh6bthgs5j.apps.googleusercontent.com');
-define('GOOGLE_CLIENT_SECRET', getenv('GOOGLE_CLIENT_SECRET') ?: 'ВСТАВЬТЕ_СЮДА_СЕКРЕТ_GOCSPX');
-define('GOOGLE_REDIRECT_URI', STUDIO_URL . '/google_callback.php');
+define('RTEAM_URL', getenv('RTEAM_URL') ?: 'https://rteam.info');                                 // аккаунты Rteam
+define('SSO_SECRET', getenv('RTEAM_SSO_SECRET') ?: 'ВСТАВЬТЕ_ОДИНАКОВУЮ_СЛУЧАЙНУЮ_СТРОКУ');
 
 // Папка с данными (пользователи, черновики). Если хостинг позволяет — вынесите её выше корня сайта.
 define('DATA_DIR', __DIR__ . '/data');
@@ -183,6 +184,23 @@ function create_user($username, $fields) {
         ], $fields);
         return $users[$username];
     });
+}
+
+// ====================================================================== единый вход (SSO)
+function b64url_decode($s) { return base64_decode(strtr($s, '-_', '+/') . str_repeat('=', (4 - strlen($s) % 4) % 4)); }
+
+function sso_ready() { return SSO_SECRET !== '' && strpos(SSO_SECRET, 'ВСТАВЬТЕ') !== 0 && strlen(SSO_SECRET) >= 32; }
+
+/** Проверить пропуск от rteam.info: подпись, срок, адресата и одноразовый state. Возвращает данные или null. */
+function sso_verify($token, $state) {
+    if (!sso_ready() || !is_string($token) || substr_count($token, '.') !== 1 || $state === '') return null;
+    list($body, $sig) = explode('.', $token);
+    $expected = rtrim(strtr(base64_encode(hash_hmac('sha256', $body, SSO_SECRET, true)), '+/', '-_'), '=');
+    if (!hash_equals($expected, $sig)) return null;
+    $p = json_decode((string)b64url_decode($body), true);
+    if (!is_array($p) || ($p['aud'] ?? '') !== 'aistudio' || !hash_equals($state, (string)($p['nonce'] ?? ''))) return null;
+    if ((int)($p['exp'] ?? 0) < time() || (int)($p['iat'] ?? 0) > time() + 60 || empty($p['sub'])) return null;
+    return $p;
 }
 
 function site_url($username) { return SITES_URL . rawurlencode($username) . '/'; }

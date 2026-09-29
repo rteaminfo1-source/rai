@@ -329,7 +329,24 @@ class HttpTest(unittest.TestCase):
         resp = self.client.get("/")
         self.assertEqual(resp.status_code, 200)
         self.assertIn(b"<title>Rai", resp.data)
+        # Вход и регистрация — на rteam.info, на странице ИИ их нет; есть вкладка Code
+        self.assertNotIn(b"authDialog", resp.data)
+        self.assertIn(b'src="code.js"', resp.data)
         resp.close()
+
+    def test_standalone_build(self):
+        import re
+        import build_standalone
+        html = build_standalone.build()
+        self.assertNotIn('src="code.js"', html)
+        self.assertIn("window.RaiCode", html)
+        scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.S)
+        # «<!--» внутри <script> ломает разбор страницы
+        self.assertFalse(any("<!--" in s for s in scripts))
+        payload = re.search(r'<script type="application/json" id="rai-files">(.*?)</script>', html, re.S).group(1)
+        files = json.loads(payload)
+        self.assertIn("codeai.py", files)
+        self.assertIn("codelib.py", files)
 
     def test_versions_endpoint(self):
         data = self.client.get("/api/versions").get_json()
@@ -365,80 +382,6 @@ class HttpTest(unittest.TestCase):
         answer = self.client.post("/api/chat", json={"message": "пароль от wifi"}).get_json()["answer"]
         self.assertEqual(answer, "Спросите у админа.")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
-class AuthTest(unittest.TestCase):
-    def setUp(self):
-        import auth
-        self.auth = auth
-        self.tmp = tempfile.TemporaryDirectory()
-        auth.store = auth.UserStore(self.tmp.name)
-        auth._attempts.clear()
-        self.client = rai_app.app.test_client()
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def post(self, path, **body):
-        return self.client.post(path, json=body)
-
-    def test_register_login_logout(self):
-        self.assertIsNone(self.client.get("/auth/me").get_json()["user"])
-        r = self.post("/auth/register", login="artem", password="1234567", email="a@b.ru")
-        self.assertEqual(r.status_code, 400)  # пароль короче 8 символов
-        r = self.post("/auth/register", login="artem", password="12345678", email="a@b.ru", name="Артём")
-        self.assertEqual(r.status_code, 200, r.get_json())
-        self.assertEqual(self.client.get("/auth/me").get_json()["user"]["name"], "Артём")
-        self.assertEqual(self.post("/auth/register", login="Artem", password="12345678").status_code, 400)
-        self.post("/auth/logout")
-        self.assertIsNone(self.client.get("/auth/me").get_json()["user"])
-        self.assertEqual(self.post("/auth/login", login="artem", password="неверный").status_code, 401)
-        self.assertEqual(self.post("/auth/login", login="a@b.ru", password="12345678").status_code, 200)
-        # пароль хранится только хешем
-        with open(os.path.join(self.tmp.name, "users.json"), encoding="utf-8") as f:
-            self.assertNotIn("12345678", f.read())
-
-    def test_rate_limit(self):
-        for _ in range(10):
-            self.post("/auth/login", login="x", password="y")
-        self.assertEqual(self.post("/auth/login", login="x", password="y").status_code, 429)
-
-    def test_chats_sync(self):
-        self.assertEqual(self.client.get("/api/chats").status_code, 401)
-        self.post("/auth/register", login="user1", password="12345678")
-        chats = [{"id": "c1", "title": "Тест", "messages": []}]
-        self.assertEqual(self.client.put("/api/chats", json={"chats": chats}).status_code, 200)
-        self.assertEqual(self.client.get("/api/chats").get_json()["chats"], chats)
-
-    def test_google_login_creates_and_links_by_email(self):
-        profile = {"sub": "g-1", "email": "a@b.ru", "email_verified": True, "name": "Артём", "picture": "https://p/1"}
-        with mock.patch.object(self.auth, "GOOGLE_CLIENT_SECRET", "test-secret"):
-            start = self.client.get("/auth/google/start")
-            self.assertEqual(start.status_code, 302)
-            self.assertIn("accounts.google.com", start.headers["Location"])
-            self.assertIn("40211315152-", start.headers["Location"])
-            self.assertNotIn("test-secret", start.headers["Location"])
-            state = urllib.parse.parse_qs(urllib.parse.urlparse(start.headers["Location"]).query)["state"][0]
-            # чужой state — отказ
-            bad = self.client.get("/auth/google/callback?state=wrong&code=x")
-            self.assertIn("auth_error=state", bad.headers["Location"])
-            self.client.get("/auth/google/start")
-            with self.client.session_transaction() as sess:
-                state = sess["google_state"]
-            with mock.patch.object(self.auth, "google_profile", return_value=profile):
-                done = self.client.get(f"/google_callback.php?state={state}&code=abc")
-            self.assertIn("auth=google", done.headers["Location"])
-            me = self.client.get("/auth/me").get_json()["user"]
-            self.assertEqual((me["login"], me["google"]), ("a", True))
-
-    def test_google_not_configured(self):
-        with mock.patch.object(self.auth, "GOOGLE_CLIENT_SECRET", ""):
-            r = self.client.get("/auth/google/start")
-            self.assertIn("google_not_configured", r.headers["Location"])
-            self.assertFalse(self.client.get("/auth/me").get_json()["google"])
 
 
 class CodeAITest(unittest.TestCase):
@@ -513,3 +456,7 @@ class CodeAITest(unittest.TestCase):
         data = client.post("/api/code", json={"action": "fix", "code": "if x == None\n    pass\n"}).get_json()
         self.assertIn("if x is None:", data["code"])
         tmp.cleanup()
+
+
+if __name__ == "__main__":
+    unittest.main()

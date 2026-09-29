@@ -24,6 +24,7 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
   <nav>
     <a href="<?= h(RAI_URL) ?>">Rai — основной ИИ</a>
     <a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
+    <a href="<?= h(RTEAM_URL) ?>/account.php">Кабинет Rteam</a>
     <span class="me"><span class="ava"><?php if (!empty($user['avatar'])): ?><img alt="" src="<?= h($user['avatar']) ?>" referrerpolicy="no-referrer"><?php else: ?><?= h($initial) ?><?php endif; ?></span><?= h($user['name'] ?: $name) ?></span>
     <form method="post" action="auth.php" style="margin:0">
       <input type="hidden" name="csrf" value="<?= h($csrf) ?>"><input type="hidden" name="action" value="logout">
@@ -72,6 +73,7 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
         <div class="row">
           <button class="btn" id="pubBtn" type="button">Опубликовать</button>
           <a class="btn ghost" id="openBtn" href="<?= h(site_url($name)) ?>" target="_blank" rel="noopener">Открыть сайт</a>
+          <a class="btn ghost" id="zipBtn" href="actions.php?a=zip">Скачать ZIP</a>
           <button class="btn ghost" id="unpubBtn" type="button">Снять с публикации</button>
         </div>
       </div>

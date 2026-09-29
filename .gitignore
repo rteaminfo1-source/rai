@@ -12,3 +12,7 @@ hosting/aistudio/data/*
 hosting/aistudio/sites/*
 !hosting/aistudio/sites/.htaccess
 !hosting/aistudio/sites/index.html
+# Главный сайт: в репозитории только защита папки с аккаунтами
+!hosting/rteam.info/data/
+hosting/rteam.info/data/*
+!hosting/rteam.info/data/.htaccess

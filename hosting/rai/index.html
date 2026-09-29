@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Rai — ИИ Rteam</title>
-<meta name="description" content="Rai — собственный ИИ-ассистент команды Rteam: вопросы, погода, валюты, перевод, картинки и презентации.">
+<meta name="description" content="Rai — собственный ИИ-ассистент команды Rteam: вопросы, погода, валюты, перевод, картинки, презентации и Code для программирования.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@800&family=Onest:wght@500;600&display=swap">
 <style>
@@ -30,13 +30,23 @@
 <header>
   <a class="brand" href="/">R<span>ai</span></a>
   <nav>
-    <a class="cta" href="https://aistudio.rteam.info/">AI Studio</a>
-    <a href="https://rteam.info/">Rteam</a>
+    <a href="#code" id="codeLink">Code</a>
+    <a class="cta" href="https://aistudio.rteam.info/sso_start.php">AI Studio</a>
+    <a href="https://rteam.info/account.php">Кабинет</a>
     <a href="https://github.com/rteaminfo1-source/rai" rel="noopener">GitHub</a>
   </nav>
 </header>
 <!-- Сам чат Rai живёт на GitHub Pages; здесь он встроен в страницу. -->
-<iframe src="https://rteaminfo1-source.github.io/rai/?back=https%3A%2F%2Frteam.info%2F"
+<iframe id="rai" src="https://rteaminfo1-source.github.io/rai/?back=https%3A%2F%2Frteam.info%2F"
         title="Чат Rai" allow="microphone; clipboard-read; clipboard-write; fullscreen"></iframe>
+<script>
+  // rai.rteam.info/#code — сразу открыть вкладку Code
+  (function () {
+    var frame = document.getElementById("rai"), base = frame.src.split("#")[0];
+    function sync() { frame.src = base + (location.hash === "#code" ? "#code" : "#chat"); }
+    if (location.hash === "#code") sync();
+    window.addEventListener("hashchange", sync);
+  })();
+</script>
 </body>
 </html>

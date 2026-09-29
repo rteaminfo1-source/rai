@@ -1,19 +1,24 @@
 # Rteam: что положить на виртуальный хостинг
 
-Три адреса, Python на хостинге не нужен:
+Три адреса, Python на хостинге не нужен (нужен только PHP 7.4+):
 
-| Адрес | Что это | Где лежит |
+| Адрес | Что это | Папка в репозитории |
 |---|---|---|
-| **rteam.info** | ваш сайт (PHP), вход, кнопка «Rai» | виртуальный хостинг |
-| **rai.rteam.info** | основной ИИ Rai: страница, в которую встроен чат с GitHub | виртуальный хостинг (1 файл) + GitHub Pages |
-| **aistudio.rteam.info** | AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов | виртуальный хостинг (PHP) |
+| **rteam.info** | главный сайт: регистрация, вход (и через Google), личный кабинет, единый вход в AI Studio | `hosting/rteam.info/` |
+| **rai.rteam.info** | основной ИИ Rai (чат и вкладка Code) — встроен с GitHub Pages | `hosting/rai/` (1 файл) |
+| **aistudio.rteam.info** | AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов | `hosting/aistudio/` |
 
 ```
-rteam.info ──«Rai»──► rai.rteam.info ── встроен чат ──► rteaminfo1-source.github.io/rai/ (Python в браузере)
-     │                      │
-     └──────────────► aistudio.rteam.info ── ИИ создаёт ──► aistudio.rteam.info/sites/<имя>/
-                            └── справа встроен тот же чат Rai с GitHub
+                 ┌──────── аккаунт, пароль, Google ────────┐
+rteam.info ──────┤                                         │
+   │  «Rai»      └─ sso.php: подписанный пропуск ──► aistudio.rteam.info ──► sites/<логин>/
+   ▼                                                        │
+rai.rteam.info ── встроен ──► rteaminfo1-source.github.io/rai/ (Python в браузере, без входа)
+                                                            └── справа в студии тот же чат Rai
 ```
+
+На странице ИИ (rai.rteam.info) **регистрации и входа нет**: чаты и проекты Code хранятся в браузере,
+а аккаунт — на rteam.info. AI Studio своих паролей не хранит: кнопка «Войти через аккаунт Rteam».
 
 ## 0. Один раз на GitHub: включить Pages
 
@@ -23,61 +28,82 @@ github.com/rteaminfo1-source/rai → **Settings → Pages** → Source: *Deploy 
 
 ## 1. Поддомены в панели хостинга
 
-Создайте поддомены **rai.rteam.info** и **aistudio.rteam.info** (каждому своя папка) и включите для них HTTPS
-(Let's Encrypt в панели хостинга). Для aistudio нужен PHP 7.4 или новее.
+Создайте поддомены **rai.rteam.info** и **aistudio.rteam.info** (каждому своя папка) и включите HTTPS
+для всех трёх адресов (Let's Encrypt в панели хостинга).
 
-## 2. rai.rteam.info — основной ИИ
+## 2. Общий секрет единого входа
 
-В папку поддомена положите **один файл**: `hosting/rai/index.html`.
-Это тонкая шапка (AI Studio, Rteam, GitHub) и чат Rai с GitHub Pages на всю страницу.
+Придумайте длинную случайную строку (от 32 символов, например 64 символа 0-9a-f) и впишите её
+**одинаковой** в `SSO_SECRET` двух файлов: `rteam.info/config.php` и `aistudio.rteam.info/config.php`.
+По этому секрету студия проверяет, что пропуск выдал именно rteam.info.
 
-## 3. aistudio.rteam.info — AI Studio
+## 3. rteam.info — главный сайт
+
+В корень сайта положите **всё содержимое** `hosting/rteam.info/`:
+
+| Файл / папка | Зачем |
+|---|---|
+| `index.php` | главная: Rai, Rai Code, AI Studio, модели Rai |
+| `login.php` | вход и регистрация (логин + пароль или Google) |
+| `auth.php` | обработка форм: вход, регистрация, выход, профиль, пароль, удаление аккаунта |
+| `account.php` | личный кабинет: профиль, пароль, привязка Google, ссылки на сервисы |
+| `logout.php` | выход по ссылке (с подтверждением) |
+| `google_start.php`, `google_callback.php` | вход через Google |
+| `sso.php` | единый вход: выдаёт AI Studio подписанный пропуск (действует 2 минуты, один раз) |
+| `chat.php` | старые ссылки на чат ведут на rai.rteam.info |
+| `config.php` | настройки — **впишите секрет Google и SSO_SECRET** |
+| `assets/site.css` | стиль (чёрно-красный) |
+| `data/` | аккаунты (пароли — только хеши). Закрыта от посетителей, нужны права на запись |
+| `.htaccess` / `web.config` | защита для Apache / IIS |
+
+Логин — латиница в нижнем регистре, цифры и дефис (3–20 символов); он же адрес сайта в студии.
+Старые аккаунты прежнего сайта сами не переносятся.
+
+## 4. rai.rteam.info — основной ИИ
+
+В папку поддомена положите **один файл**: `hosting/rai/index.html` — тонкая шапка (Code, AI Studio, Кабинет,
+GitHub) и Rai с GitHub Pages на всю страницу. Ссылка `https://rai.rteam.info/#code` сразу открывает вкладку Code.
+
+## 5. aistudio.rteam.info — AI Studio
 
 В папку поддомена положите **всё содержимое** `hosting/aistudio/`:
 
 | Файл / папка | Зачем |
 |---|---|
-| `index.php` | главная: что такое студия, вход и регистрация |
-| `studio.php` | рабочее место: ИИ-конструктор, предпросмотр, публикация, API-ключ, чат Rai |
+| `index.php` | главная студии и кнопка «Войти через аккаунт Rteam» |
+| `sso_start.php`, `sso_callback.php` | единый вход через rteam.info |
+| `studio.php` | рабочее место: ИИ-конструктор, предпросмотр, публикация, ZIP сайта, API-ключ, чат Rai |
 | `sitegen.php` | ИИ, который создаёт и правит сайты |
 | `actions.php` | кнопки студии |
 | `api.php` | API по ключу (`Authorization: Bearer rai_…`) |
-| `auth.php`, `google_start.php`, `google_callback.php` | вход, регистрация, Google |
-| `config.php` | настройки — **вставьте сюда секрет Google** (`GOOGLE_CLIENT_SECRET`) |
+| `auth.php` | выход |
+| `config.php` | настройки — **впишите SSO_SECRET** |
 | `assets/` | стили и скрипт студии |
-| `data/` | пользователи и черновики (закрыта от посетителей). Папке нужны права на запись |
-| `sites/` | сайты пользователей: `sites/<имя>/index.html`. Нужны права на запись, PHP здесь отключён |
+| `data/` | пользователи студии и черновики (закрыта от посетителей). Нужны права на запись |
+| `sites/` | сайты пользователей: `sites/<логин>/index.html`. Нужны права на запись, PHP здесь отключён |
 | `.htaccess` / `web.config` | защита для Apache / IIS |
 
-Права: папкам `data/` и `sites/` дайте запись для PHP (обычно 755 или 775 — как в панели хостинга).
+Если раньше на студии были файлы `google_start.php` и `google_callback.php` — удалите их, вход теперь через rteam.info.
 
 Как это работает:
 
-- регистрация: имя пользователя (латиница) = папка его сайта `sites/<имя>/`;
-- пользователь пишет «сайт кофейни «Зерно» с меню и отзывами» → ИИ студии собирает сайт → «Опубликовать»;
-- правки словами: «добавь раздел цены», «сделай синим», «переименуй в …», «измени раздел о нас на: …»;
-- **файлы сайтов создаёт только ИИ студии**: загрузить свои файлы нельзя, поэтому на хостинг не попадёт
-  чужой PHP-код;
-- API-ключ выдаётся в студии (показывается один раз, хранится только хеш), им можно создавать и править
-  сайт из своих программ: `POST https://aistudio.rteam.info/api.php?a=generate`.
+- «Войти через аккаунт Rteam» → rteam.info (если нужно — вход или регистрация) → обратно в студию, уже войдя;
+- логин Rteam = папка сайта `sites/<логин>/`;
+- «сайт кофейни «Зерно» с меню и отзывами» → ИИ студии собирает сайт → «Опубликовать» (или «Скачать ZIP»);
+- правки словами: «добавь раздел цены», «сделай синим», «переименуй в …»;
+- **файлы сайтов создаёт только ИИ студии**: чужой PHP-код на хостинг не попадёт;
+- API-ключ показывается один раз, хранится только его хеш: `POST https://aistudio.rteam.info/api.php?a=generate`.
 
-## 4. rteam.info — ваш сайт
-
-| Файл | Что сделать |
-|---|---|
-| `chat.php` | заменить на `php/chat.php` — ведёт на rai.rteam.info |
-| `google_start.php`, `google_callback.php` | положить из `php/` |
-| `config.php` | дописать строки из `php/config.google.example.php` и вставить секрет |
-| `chat.js`, `rai.php` | больше не нужны |
-
-## 5. Google Cloud Console
+## 6. Google Cloud Console
 
 console.cloud.google.com → APIs & Services → Credentials → клиент `40211315152-…`:
 
-- **Authorized redirect URIs**: `https://rteam.info/google_callback.php` и `https://aistudio.rteam.info/google_callback.php`
-- **Authorized JavaScript origins**: `https://rteam.info` и `https://aistudio.rteam.info`
+- **Authorized redirect URIs**: `https://rteam.info/google_callback.php`
+- **Authorized JavaScript origins**: `https://rteam.info`
+
+Старые адреса `…/aistudio.rteam.info/google_callback.php` можно удалить.
 
 ## Что не выкладывать в GitHub
 
-`config.php` с секретом, папки `data/` и `sites/` с хостинга, `users.json` с паролями.
-В репозитории `config.php` лежит без секрета.
+`config.php` с секретами, папки `data/` и `sites/` с хостинга.
+В репозитории оба `config.php` лежат без секретов.

@@ -7,30 +7,21 @@
 
 import hmac
 import os
-from datetime import timedelta
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-import auth
 import codeai
 from brain import Brain, RaiError
 from versions import DEFAULT_VERSION, VERSIONS, resolve
 
 app = Flask(__name__)
 app.json.ensure_ascii = False
-# Хостинг (Render и т.п.) стоит за прокси: так Flask видит https и правильный адрес для Google.
+# Хостинг (Render и т.п.) стоит за прокси: так Flask видит настоящий адрес и https.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-app.config.update(
-    SECRET_KEY=auth.secret_key(),
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.environ.get("RAI_COOKIE_SECURE", "1" if os.environ.get("RENDER") else "0") == "1",
-    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
-    MAX_CONTENT_LENGTH=5 * 1024 * 1024,
-)
-app.register_blueprint(auth.bp)
+# Аккаунты (регистрация, вход, Google) живут на основном сайте rteam.info, а не в Rai.
+app.config.update(MAX_CONTENT_LENGTH=5 * 1024 * 1024)
 
 _origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 CORS(app, origins=_origins or "*")
