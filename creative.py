@@ -494,7 +494,7 @@ def _bullets(lines):
         s = line.strip()
         if not s:
             continue
-        s = re.sub(r"^([•\-*]|\d+[.)])\s*", "", s)
+        s = re.sub(r"^(?:[•\-*]\s+|\d+[.)]\s*)", "", s)
         s = s.replace("**", "")
         if s.startswith("#"):
             s = s.lstrip("# ")
@@ -534,6 +534,8 @@ def _article_blocks(article):
     text = article["answers"][0].replace("{name}", "")
     if article.get("more"):
         text += "\n\n" + article["more"]
+    # Фразы Rai о себе («Я работаю на нём») на слайдах лишние
+    text = re.sub(r"(?:(?<=[.!?])|^)\s*(?:Я|Меня|Мне|Могу)\s[^.!?\n]*[.!?]", "", text, flags=re.M)
     heading = article.get("title") or "Главное"
     blocks = []
     first = True

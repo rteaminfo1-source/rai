@@ -45,6 +45,7 @@
     --ink: #ffffff;
     --ok: #3ccf7a;
     --warn: #f0b23c;
+    --ok-bg: #15803d;
     --font-display: "Unbounded", "Arial Black", system-ui, sans-serif;
     --font-body: "Onest", "Segoe UI", system-ui, -apple-system, sans-serif;
     --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -108,41 +109,9 @@
   }
   .btn.red { background: var(--red); border-color: var(--red); color: var(--ink); }
   .side-foot { padding: 12px 14px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
-  .account { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .avatar { width: 34px; height: 34px; border-radius: 50%; flex: none; background: var(--red); color: var(--ink);
-    display: grid; place-items: center; font-weight: 700; overflow: hidden; }
-  .avatar img { width: 100%; height: 100%; object-fit: cover; }
-  .account .who-am { flex: 1; min-width: 0; }
-  .account .who-am b { display: block; color: var(--fg); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .account .who-am span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #loginBtn { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--red); background: transparent; color: var(--fg); cursor: pointer; font-weight: 600; }
-  #loginBtn:hover { background: var(--red-soft); }
   .back-link { display: block; text-align: center; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--red);
     color: var(--fg); text-decoration: none; font-weight: 600; }
   .back-link:hover { background: var(--red-soft); }
-
-  /* окно входа */
-  dialog#authDialog { border: 1px solid var(--line); border-radius: 16px; padding: 0; background: var(--panel); color: var(--fg); width: min(420px, calc(100vw - 32px)); }
-  dialog#authDialog::backdrop { background: rgba(0, 0, 0, .7); }
-  .auth-card { padding: 22px 22px 20px; display: flex; flex-direction: column; gap: 14px; }
-  .auth-head { display: flex; align-items: center; justify-content: space-between; }
-  .auth-head h2 { margin: 0; font: 800 20px/1.2 var(--font-display); }
-  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--bg); padding: 4px; border-radius: 10px; }
-  .tabs button { border: 0; background: transparent; padding: 8px; border-radius: 8px; cursor: pointer; font-weight: 600; color: var(--muted); }
-  .tabs button[aria-selected="true"] { background: var(--red); color: var(--ink); }
-  .google-btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 11px; border-radius: 10px;
-    background: #ffffff; color: #1f1f1f; font-weight: 600; text-decoration: none; border: 0; }
-  .google-btn:hover { background: #f1f1f1; }
-  .google-btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
-  .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
-  .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
-  .auth-form { display: flex; flex-direction: column; gap: 10px; }
-  .auth-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-  .auth-form input { padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: 15px var(--font-body); }
-  .auth-form input:focus { border-color: var(--red); outline: none; }
-  .auth-form .btn { padding: 11px; font-size: 15px; font-weight: 600; }
-  .auth-error { margin: 0; color: var(--red-hi); font-size: 13px; }
-  .auth-note { margin: 0; font-size: 12.5px; color: var(--muted); }
 
   .photo { margin: 4px 0 0; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
   .photo img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); background: #000; }
@@ -150,11 +119,21 @@
   .photo a { color: var(--red-hi); }
 
   /* ---------- основная часть ---------- */
-  main { display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; }
+  main { display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; }
   main > * { min-width: 0; }
+  #chatView { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+  #chatView > * { min-width: 0; }
+  #chatView[hidden] { display: none; }
+  .topbar { display: flex; align-items: center; gap: 10px; padding: 10px 24px; border-bottom: 1px solid var(--line); min-width: 0; }
+  .topbar .spacer { flex: 1; }
+  .modes { display: inline-flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--panel); border: 1px solid var(--line); flex: none; }
+  .modes button { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--muted);
+    padding: 7px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; }
+  .modes button:hover { color: var(--fg); }
+  .modes button[aria-selected="true"] { background: var(--red); color: var(--ink); }
   header {
     display: flex; flex-direction: column; gap: 10px;
-    padding: 14px 24px 12px; border-bottom: 1px solid var(--line);
+    padding: 12px 24px 12px; border-bottom: 1px solid var(--line);
   }
   .bar { display: flex; align-items: center; gap: 10px; min-width: 0; }
   #menuBtn { display: none; }
@@ -178,6 +157,9 @@
   }
   .versions button:hover { border-color: var(--red); }
   .versions button[aria-pressed="true"] { background: var(--red); border-color: var(--red); color: var(--ink); }
+  .versions button.top { border-color: #7a1a1a; background: linear-gradient(135deg, rgba(225, 6, 0, .16), rgba(240, 178, 60, .10)); }
+  .versions button.top::after { content: " ✦"; color: var(--warn); }
+  .versions button.top[aria-pressed="true"] { background: linear-gradient(135deg, var(--red), #9a0400); border-color: var(--red); }
   #features { font-size: 12.5px; color: var(--muted); margin: 0; }
 
   #log { overflow-y: auto; min-height: 0; padding: 24px; display: flex; flex-direction: column; gap: 18px; }
@@ -240,6 +222,22 @@
   .art { margin: 4px 0 0; display: flex; flex-direction: column; gap: 6px; max-width: 640px; }
   .art img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); display: block; background: #000; cursor: zoom-in; }
 
+  /* код и архив */
+  .code-att { margin-top: 4px; max-width: 760px; }
+  .code-att .codeblock pre { max-height: 440px; overflow: auto; }
+  .code-att .codehead { gap: 8px; flex-wrap: wrap; }
+  .code-att .codehead .acts { display: flex; gap: 2px; flex-wrap: wrap; }
+  .code-att .open-code { color: var(--fg); background: var(--red); }
+  .code-att .open-code:hover { background: var(--red-hi); color: var(--ink); }
+  .archive { margin-top: 4px; max-width: 520px; display: flex; gap: 14px; align-items: center; padding: 14px 16px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  .archive .zip-ic { width: 44px; height: 44px; border-radius: 10px; background: var(--red); color: var(--ink); display: grid; place-items: center; flex: none; }
+  .archive .zip-ic svg { width: 22px; height: 22px; }
+  .archive .info { flex: 1; min-width: 0; }
+  .archive .info b { display: block; }
+  .archive .info span { font-size: 12.5px; color: var(--muted); }
+  .codeblock .to-code { color: var(--muted); }
+
   /* презентации */
   .deck { margin-top: 4px; max-width: 720px; display: flex; flex-direction: column; gap: 8px; }
   .stage { position: relative; aspect-ratio: 16 / 9; container-type: inline-size; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: #0b0b0c; cursor: pointer; }
@@ -247,6 +245,7 @@
   .stage:fullscreen .slide { position: relative; inset: auto; width: min(100vw, 177.78vh); height: auto; aspect-ratio: 16 / 9; }
   .deck-bar .count { font: 500 12px/1 var(--font-mono); color: var(--muted); padding: 0 6px; font-variant-numeric: tabular-nums; }
   .deck-bar .spacer { flex: 1; }
+  .deck-bar { flex-wrap: wrap; }
 
   /* ---------- ввод ---------- */
   .composer { padding: 10px 24px 18px; border-top: 1px solid var(--line); }
@@ -288,9 +287,11 @@
     body.menu-open #sidebar { transform: none; }
     body.menu-open #backdrop { display: block; position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .6); }
     #menuBtn { display: inline-flex; }
-    header, .composer { padding-inline: 16px; }
+    header, .composer, .topbar { padding-inline: 16px; }
+    .modes button { padding: 7px 11px; }
     #log { padding: 16px; }
-    .status { max-width: 42%; }
+    .status { max-width: 38%; }
+    .status #statusText { display: none; }
     .hint { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -298,47 +299,76 @@
   }
 </style>
 <style id="slide-css">
-  .slide { position: absolute; inset: 0; background: #0b0b0c; color: #f3f1f1; padding: 6cqw 7cqw 7cqw;
+  /* Цвета слайда — из темы презентации (--s-*), по умолчанию чёрно-красные */
+  .slide { position: absolute; inset: 0; background: var(--s-bg, #0b0b0c); color: var(--s-fg, #f3f1f1); padding: 6cqw 7cqw 7cqw;
     display: flex; flex-direction: column; gap: 2.4cqw; overflow: hidden;
     font-family: "Onest", "Segoe UI", system-ui, sans-serif; }
-  .slide::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: .8cqw; background: #e10600; }
-  .slide .kicker { font: 500 1.5cqw/1 "JetBrains Mono", Consolas, monospace; color: #ff2a2a; letter-spacing: .15em; text-transform: uppercase; }
-  .slide h2 { margin: 0; font: 800 4cqw/1.12 "Unbounded", "Arial Black", sans-serif; letter-spacing: -.01em; }
+  .slide::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: .8cqw; background: linear-gradient(90deg, var(--s-accent, #e10600), var(--s-accent2, #ff6a5c)); z-index: 2; }
+  .slide .kicker { font: 500 1.5cqw/1 "JetBrains Mono", Consolas, monospace; color: var(--s-accent, #ff2a2a); letter-spacing: .15em; text-transform: uppercase; position: relative; }
+  .slide h2 { margin: 0; font: 800 4cqw/1.12 "Unbounded", "Arial Black", sans-serif; letter-spacing: -.01em; position: relative; text-wrap: balance; }
   .slide ul { margin: 0; padding-left: 3cqw; font-size: 2.5cqw; line-height: 1.4; display: flex; flex-direction: column; gap: 1.3cqw; }
-  .slide li::marker { color: #e10600; }
-  .slide code { font-family: "JetBrains Mono", Consolas, monospace; background: #1d1d20; padding: 0 .5cqw; border-radius: .5cqw; }
-  .slide strong { color: #fff; }
-  .slide mark { background: rgba(225, 6, 0, .35); color: #fff; }
-  .slide pre { margin: 0; padding: 2.2cqw; background: #151517; border: 1px solid #2a2a2e; border-radius: 1cqw;
-    font: 1.9cqw/1.5 "JetBrains Mono", Consolas, monospace; white-space: pre; overflow: hidden; color: #f0e9e9; }
+  .slide li::marker { color: var(--s-accent, #e10600); }
+  .slide code { font-family: "JetBrains Mono", Consolas, monospace; background: var(--s-surface, #1d1d20); padding: 0 .5cqw; border-radius: .5cqw; }
+  .slide strong { font-weight: 800; }
+  .slide mark { background: var(--s-soft, rgba(225, 6, 0, .35)); color: inherit; }
+  .slide pre { margin: 0; padding: 2.2cqw; background: var(--s-surface, #151517); border: 1px solid var(--s-line, #2a2a2e); border-radius: 1cqw;
+    font: 1.9cqw/1.5 "JetBrains Mono", Consolas, monospace; white-space: pre; overflow: hidden; color: var(--s-fg, #f0e9e9); }
   .slide pre code { background: none; padding: 0; }
   .slide table { border-collapse: collapse; font-size: 1.9cqw; }
-  .slide th { text-align: left; color: #ff2a2a; border-bottom: .3cqw solid #e10600; }
-  .slide th, .slide td { padding: .9cqw 1.6cqw; border-bottom: 1px solid #2a2a2e; }
-  .slide.cover, .slide.end { justify-content: center; }
-  .slide.cover h1, .slide.end h1 { margin: 0; font: 800 7cqw/1.02 "Unbounded", "Arial Black", sans-serif; letter-spacing: -.02em; }
-  .slide.cover h1::after { content: ""; display: block; width: 12cqw; height: .9cqw; background: #e10600; margin-top: 2.6cqw; }
-  .slide .sub { font-size: 2.4cqw; color: #9b9599; }
-  .slide .num { position: absolute; right: 3cqw; bottom: 2.4cqw; font: 500 1.3cqw/1 "JetBrains Mono", monospace; color: #9b9599; }
+  .slide th { text-align: left; color: var(--s-accent, #ff2a2a); border-bottom: .3cqw solid var(--s-accent, #e10600); }
+  .slide th, .slide td { padding: .9cqw 1.6cqw; border-bottom: 1px solid var(--s-line, #2a2a2e); }
+  .slide .sub { font-size: 2.4cqw; color: var(--s-muted, #9b9599); position: relative; max-width: 60cqw; }
+  .slide .num { position: absolute; right: 3cqw; bottom: 2.4cqw; font: 500 1.3cqw/1 "JetBrains Mono", monospace; color: var(--s-muted, #9b9599); z-index: 2; }
   .slide > .bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .6; }
-  .slide.cover::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, #0b0b0c 32%, rgba(11, 11, 12, .55) 70%, rgba(11, 11, 12, .2)); }
-  .slide.cover > :not(.bg):not(.num) { position: relative; }
+  /* обложка и финал */
+  .slide.cover, .slide.end { justify-content: center; }
+  .slide.cover h1, .slide.end h1 { margin: 0; font: 800 6.6cqw/1.04 "Unbounded", "Arial Black", sans-serif; letter-spacing: -.02em; position: relative; max-width: 70cqw; text-wrap: balance; }
+  .slide.cover h1::after { content: ""; display: block; width: 12cqw; height: .9cqw; background: var(--s-accent, #e10600); margin-top: 2.6cqw; }
+  .slide.cover::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--s-bg, #0b0b0c) 30%, var(--s-bg-a, rgba(11, 11, 12, .55)) 68%, transparent); }
+  .slide.end { align-items: center; text-align: center; }
+  .slide.end > .bg { opacity: .22; }
+  .slide.end h1::after { content: ""; display: block; width: 10cqw; height: .8cqw; background: var(--s-accent, #e10600); margin: 2.4cqw auto 0; }
+  .slide.end .sub { margin-inline: auto; }
+  /* пункты с картинкой слева/справа */
   .slide .cols { display: grid; grid-template-columns: 1.25fr .75fr; gap: 4cqw; align-items: center; flex: 1; min-height: 0; }
-  .slide .side { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 1.4cqw; border: 1px solid #2a2a2e; }
+  .slide .cols.left { grid-template-columns: .75fr 1.25fr; }
+  .slide .cols.left .side { order: -1; }
+  .slide .side { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 1.4cqw; border: 1px solid var(--s-line, #2a2a2e);
+    box-shadow: 0 2cqw 4cqw rgba(0, 0, 0, .25); }
+  /* план */
+  .slide .agenda { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1.6cqw 2.6cqw; }
+  .slide .agenda li { display: flex; gap: 1.8cqw; align-items: center; font-size: 2.3cqw; line-height: 1.25; padding: 1.5cqw 1.8cqw;
+    background: var(--s-surface, #151517); border-left: .5cqw solid var(--s-accent, #e10600); border-radius: .8cqw; }
+  .slide .agenda b { font: 800 2.6cqw/1 "Unbounded", sans-serif; color: var(--s-accent, #e10600); flex: none; }
+  /* факт */
+  .slide .fact { margin: 0; font: 600 3.2cqw/1.32 "Onest", sans-serif; padding-left: 3cqw; border-left: .7cqw solid var(--s-accent, #e10600); text-wrap: pretty; }
+  .slide .fact::before { content: "“"; display: block; font: 800 8cqw/.6 "Unbounded", serif; color: var(--s-accent, #e10600); margin-bottom: 1cqw; }
+  /* фото на весь слайд */
+  .slide.photo { padding: 0; justify-content: flex-end; }
+  .slide.photo > .bg { opacity: 1; }
+  .slide.photo::before { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, var(--s-bg, #0b0b0c) 4%, var(--s-bg-a, rgba(11, 11, 12, .55)) 38%, transparent 72%); }
+  .slide.photo .cap { position: relative; padding: 0 7cqw 6cqw; display: flex; flex-direction: column; gap: 1.4cqw; }
+  /* итоги */
+  .slide .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 2cqw; }
+  .slide .card { display: flex; gap: 1.6cqw; align-items: flex-start; padding: 2cqw; border-radius: 1.2cqw; font-size: 2.1cqw; line-height: 1.35;
+    background: var(--s-surface, #151517); border: 1px solid var(--s-line, #2a2a2e); }
+  .slide .card b { flex: none; width: 4cqw; height: 4cqw; border-radius: 50%; display: grid; place-items: center; font: 800 1.8cqw/1 "Unbounded", sans-serif;
+    background: var(--s-accent, #e10600); color: var(--s-on, #fff); }
   /* появление элементов */
   .slide.play .kicker, .slide.play h1, .slide.play h2, .slide.play .sub { animation: rai-rise .6s cubic-bezier(.2, .8, .2, 1) both; }
   .slide.play h1, .slide.play h2 { animation-delay: .08s; }
   .slide.play .sub { animation-delay: .3s; }
-  .slide.play li { animation: rai-rise .5s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(.25s + var(--i, 0) * .14s); }
-  .slide.play pre, .slide.play table { animation: rai-rise .6s .25s both; }
+  .slide.play li, .slide.play .card { animation: rai-rise .5s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(.25s + var(--i, 0) * .13s); }
+  .slide.play pre, .slide.play table, .slide.play .fact { animation: rai-rise .6s .25s both; }
   .slide.play .side { animation: rai-pop .8s .2s cubic-bezier(.2, .8, .2, 1) both; }
   .slide.play > .bg { animation: rai-drift 14s ease-out both; }
-  .slide.play.cover h1::after { transform-origin: left; animation: rai-grow .8s .5s cubic-bezier(.2, .8, .2, 1) both; }
+  .slide.play.cover h1::after, .slide.play.end h1::after { transform-origin: left; animation: rai-grow .8s .5s cubic-bezier(.2, .8, .2, 1) both; }
   /* переходы между слайдами */
   .slide.t-fade { animation: rai-fade .6s both; }
   .slide.t-slide { animation: rai-slide .6s cubic-bezier(.2, .8, .2, 1) both; }
   .slide.t-zoom { animation: rai-zoom .6s cubic-bezier(.2, .8, .2, 1) both; }
   .slide.t-wipe { animation: rai-wipe .7s cubic-bezier(.6, 0, .2, 1) both; }
+  .slide.t-rise { animation: rai-up .7s cubic-bezier(.2, .8, .2, 1) both; }
   @keyframes rai-rise { from { opacity: 0; transform: translateY(2.5cqw); } to { opacity: 1; transform: none; } }
   @keyframes rai-pop { from { opacity: 0; transform: scale(.9) rotate(-2deg); } to { opacity: 1; transform: none; } }
   @keyframes rai-drift { from { transform: scale(1.14); } to { transform: scale(1); } }
@@ -347,8 +377,10 @@
   @keyframes rai-slide { from { opacity: 0; transform: translateX(calc(var(--dir, 1) * 10cqw)); } to { opacity: 1; transform: none; } }
   @keyframes rai-zoom { from { opacity: 0; transform: scale(1.08); } to { opacity: 1; transform: none; } }
   @keyframes rai-wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+  @keyframes rai-up { from { opacity: 0; transform: translateY(8cqw); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { .slide, .slide * { animation: none !important; } }
 </style>
+<link rel="stylesheet" href="code.css">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -365,6 +397,14 @@
   <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
   <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
   <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-zip" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M11 3v2h2v2h-2v2h2v2h-2v3"/><rect x="10" y="14" width="3" height="3" rx=".5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></symbol>
+  <symbol id="i-wand" viewBox="0 0 24 24"><path d="M4 20L15 9M14 4v3M19 9h-3M17.5 5.5l-2 2"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M9 8l-5 4 5 4M15 8l5 4-5 4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>
 </svg>
 
 <div class="app">
@@ -372,18 +412,27 @@
     <div class="brand"><div class="logo">R<span>ai</span></div><div class="byline">Rteam · свой ИИ</div></div>
     <button id="newChat" type="button"><svg class="i"><use href="#i-plus"/></svg>Новый чат</button>
     <nav id="chatList"></nav>
-    <div class="side-foot"><div id="account"></div><span id="storeNote">Чаты хранятся в этом браузере.</span></div>
+    <div class="side-foot"><a class="back-link" id="backLink" href="https://rteam.info/">← На сайт Rteam</a>
+      <span>Чаты и проекты Code хранятся в этом браузере. Аккаунт — на сайте Rteam.</span></div>
   </aside>
   <div id="backdrop"></div>
 
   <main>
+    <div class="topbar">
+      <button id="menuBtn" class="icon-btn" type="button" aria-label="Список чатов"><svg class="i"><use href="#i-menu"/></svg></button>
+      <div class="modes" role="tablist" aria-label="Режим">
+        <button type="button" role="tab" id="modeChat" aria-selected="true"><svg class="i"><use href="#i-chat"/></svg>Чат</button>
+        <button type="button" role="tab" id="modeCode" aria-selected="false"><svg class="i"><use href="#i-code"/></svg>Code</button>
+      </div>
+      <span class="spacer"></span>
+      <div class="status" id="status" data-state="loading" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span><span id="statusText">Подключение…</span>
+      </div>
+    </div>
+    <section id="chatView" aria-label="Чат">
     <header>
       <div class="bar">
-        <button id="menuBtn" class="icon-btn" type="button" aria-label="Список чатов"><svg class="i"><use href="#i-menu"/></svg></button>
         <button id="chatTitle" type="button" title="Нажмите, чтобы переименовать">Новый чат</button>
-        <div class="status" id="status" data-state="loading" role="status" aria-live="polite">
-          <span class="dot" aria-hidden="true"></span><span id="statusText">Подключение…</span>
-        </div>
       </div>
       <div class="versions" id="versions" role="group" aria-label="Версия Rai"></div>
       <p id="features"></p>
@@ -401,38 +450,13 @@
       </form>
       <p class="hint">Enter — отправить, Shift+Enter — новая строка. Микрофон — сказать голосом.</p>
     </div>
+    </section>
+    <section id="codeView" aria-label="Code" hidden></section>
   </main>
 </div>
 <div id="toast" hidden role="status"></div>
-<dialog id="authDialog" aria-labelledby="authTitle">
-  <div class="auth-card">
-    <div class="auth-head"><h2 id="authTitle">Вход в Rai</h2>
-      <button class="icon-btn" type="button" id="authClose" aria-label="Закрыть"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-    <div class="tabs" role="tablist">
-      <button type="button" role="tab" id="tabLogin" aria-selected="true">Вход</button>
-      <button type="button" role="tab" id="tabRegister" aria-selected="false">Регистрация</button>
-    </div>
-    <a class="google-btn" id="googleBtn" href="auth/google/start">
-      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.2 1.5-5 2.3-8.2 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>
-      Войти через Google</a>
-    <div class="or">или</div>
-    <form class="auth-form" id="loginForm">
-      <label>Логин или почта<input id="loginName" name="login" autocomplete="username" required></label>
-      <label>Пароль<input id="loginPass" name="password" type="password" autocomplete="current-password" required></label>
-      <button class="btn red" type="submit">Войти</button>
-    </form>
-    <form class="auth-form" id="registerForm" hidden>
-      <label>Логин<input id="regLogin" name="login" autocomplete="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_.\-]{3,32}" title="Латинские буквы, цифры, точка, дефис, подчёркивание"></label>
-      <label>Имя<input id="regName" name="name" autocomplete="name" maxlength="60"></label>
-      <label>Почта (необязательно)<input id="regEmail" name="email" type="email" autocomplete="email"></label>
-      <label>Пароль (от 8 символов)<input id="regPass" name="password" type="password" autocomplete="new-password" required minlength="8"></label>
-      <button class="btn red" type="submit">Зарегистрироваться</button>
-    </form>
-    <p class="auth-error" id="authError" hidden></p>
-    <p class="auth-note" id="authNote"></p>
-  </div>
-</dialog>
 
+<script src="code.js"></script>
 <script>
 (function () {
   "use strict";
@@ -443,7 +467,7 @@
   if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
   if (params.get("py")) CFG.pyBase = params.get("py");
   // Ссылка «назад на сайт»: chat.php на хостинге передаёт ?back=https://ваш-сайт/
-  let backUrl = null;
+  let backUrl = null;  // адрес сайта, с которого пришли
   try {
     const b = params.get("back");
     if (b && /^https?:\/\/[^\s]+$/i.test(b)) localStorage.setItem("rai_back", b);
@@ -453,8 +477,8 @@
     backUrl = b && /^https?:\/\/[^\s]+$/i.test(b) ? b : null;
   }
 
-  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py", "brain.py",
-                    "knowledge.json", "glossary.json"];
+  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py",
+                    "codeai.py", "codelib.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -462,17 +486,19 @@
     {id: "pro", name: "Rai Pro", features: ["поиск по смыслу", "погода", "валюты", "перевод", "поиск в интернете", "таблицы", "картинки"]},
     {id: "pro-fast", name: "Rai Pro Fast", features: ["поиск по ключевым словам", "калькулятор", "погода", "валюты", "перевод"]},
     {id: "pro-plus", name: "Rai Pro Plus", features: ["понимает опечатки", "все навыки", "картинки", "презентации", "помнит имя", "«подробнее» по теме", "подсказки"]},
-    {id: "pro-sun", name: "Rai Pro Sun", features: ["всё из Pro Plus", "память фактов («запомни, что …»)", "несколько вопросов сразу", "подробные ответы", "большие презентации"]}
+    {id: "pro-sun", name: "Rai Pro Sun", features: ["всё из Pro Plus", "память фактов («запомни, что …»)", "несколько вопросов сразу", "подробные ответы", "большие презентации"]},
+    {id: "pro-quasar", name: "Rai Pro Quasar", features: ["всё из Pro Sun", "режим Code: проверка, исправление и написание программ", "факты из интернета в ответах", "презентации до 16 слайдов с фото"]}
   ];
+  const TOP_VERSION = "pro-quasar";
   const EXAMPLES = [
     ["Погода в Москве", "погода с картинкой"],
     ["100 долларов в рублях", "курсы валют"],
     ["Переведи на английский: доброе утро", "перевод"],
     ["Нарисуй закат над морем", "картинка"],
-    ["Сделай презентацию про космос", "презентация · Pro Plus / Sun"],
-    ["Hello World на Rust", "языки программирования"],
+    ["Презентация про космос в синих тонах", "презентация в ваших цветах"],
+    ["Напиши игру змейка", "код · Pro Plus / Sun / Quasar"],
     ["Найди в интернете Эйфелева башня", "поиск в интернете"],
-    ["Что ты умеешь?", "все возможности"]
+    ["Сделай архив чата", "ZIP: ответы, картинки, слайды, код"]
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -527,10 +553,22 @@
     cells.push(cur.trim());
     return cells;
   }
-  function codeBlock(code, lang) {
-    return `<div class="codeblock"><div class="codehead"><span>${esc(lang || "код")}</span>` +
-      `<button class="icon-btn copy-code" type="button">${icon("copy")}Копировать</button></div>` +
-      `<pre><code>${esc(code)}</code></pre></div>`;
+  const FENCE = {py: "python", python: "python", js: "javascript", javascript: "javascript", ts: "typescript", typescript: "typescript",
+    html: "html", css: "css", php: "php", json: "json", cpp: "cpp", "c++": "cpp", c: "c", java: "java", cs: "csharp", csharp: "csharp",
+    "c#": "csharp", go: "go", rust: "rust", rs: "rust", sql: "sql", bash: "bash", sh: "bash", shell: "bash", kotlin: "kotlin", kt: "kotlin"};
+  const EXT_OF = {python: "py", javascript: "js", typescript: "ts", html: "html", css: "css", php: "php", json: "json", cpp: "cpp",
+    c: "c", java: "java", csharp: "cs", go: "go", rust: "rs", sql: "sql", bash: "sh", kotlin: "kt"};
+  const LANG_NAME = {python: "Python", javascript: "JavaScript", typescript: "TypeScript", html: "HTML", css: "CSS", php: "PHP",
+    json: "JSON", cpp: "C++", c: "C", java: "Java", csharp: "C#", go: "Go", rust: "Rust", sql: "SQL", bash: "Bash", kotlin: "Kotlin"};
+  function hl(code, lang) {
+    return window.RaiCode ? window.RaiCode.highlight(code, lang) : esc(code);
+  }
+  function codeBlock(code, tag) {
+    const lang = FENCE[(tag || "").toLowerCase()];
+    return `<div class="codeblock"${lang ? ` data-lang="${lang}"` : ""}><div class="codehead"><span>${esc(LANG_NAME[lang] || tag || "код")}</span><span>` +
+      (lang ? `<button class="icon-btn to-code" type="button" title="Открыть во вкладке Code">${icon("code")}В Code</button>` : "") +
+      `<button class="icon-btn copy-code" type="button">${icon("copy")}Копировать</button></span></div>` +
+      `<pre><code>${lang ? hl(code, lang) : esc(code)}</code></pre></div>`;
   }
   function renderMarkdown(md) {
     const lines = String(md || "").replace(/\r/g, "").split("\n");
@@ -673,11 +711,10 @@
   });
 
   // ---------------------------------------------------------------- чаты
-  let chats = [], currentId = null, lastVersion = "pro";
+  let chats = [], currentId = null, lastVersion = TOP_VERSION;
   function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify({chats: chats, current: currentId, version: lastVersion})); }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({chats: chats, current: currentId, version: lastVersion, quasar: 1})); }
     catch (e) { toast("В браузере не хватает места — удалите старые чаты"); }
-    schedulePush();
   }
   function load() {
     try {
@@ -685,7 +722,8 @@
       if (d && Array.isArray(d.chats)) {
         chats = d.chats.filter((c) => c && c.id && Array.isArray(c.messages));
         currentId = d.current;
-        lastVersion = d.version || lastVersion;
+        // Новые чаты — на самой сильной версии (один раз переключаем тех, кто был до Quasar)
+        lastVersion = d.quasar ? d.version || lastVersion : TOP_VERSION;
       }
     } catch (e) { /* начнём с чистого листа */ }
     if (!chats.length) chats.push(makeChat());
@@ -698,6 +736,7 @@
 
   function newChat() {
     const cur = current();
+    if ($("chatView").hidden) setMode("chat");
     if (cur && !cur.messages.length) { closeMenu(); input.focus(); return; }
     const c = makeChat();
     chats.unshift(c);
@@ -706,6 +745,7 @@
   }
   function openChat(id) {
     currentId = id; save(); renderAll(); closeMenu();
+    if ($("chatView").hidden) setMode("chat");
   }
   function deleteChat(id) {
     chats = chats.filter((c) => c.id !== id);
@@ -773,6 +813,7 @@
       b.type = "button";
       b.id = "ver-" + v.id;
       b.textContent = v.name.replace(/^Rai\s+/, "");
+      if (v.id === TOP_VERSION) b.className = "top";
       b.title = v.description || v.name;
       b.setAttribute("aria-pressed", String(v.id === chat.version));
       b.addEventListener("click", () => {
@@ -790,7 +831,8 @@
     const w = document.createElement("div");
     w.className = "inner welcome";
     w.innerHTML = `<h1>Чем займёмся<span>?</span></h1>` +
-      `<p>Rai отвечает на вопросы, считает, делает таблицы, рисует картинки и собирает презентации. Можно писать или говорить голосом.</p>` +
+      `<p>Rai отвечает на вопросы, считает, делает таблицы, рисует картинки, собирает презентации в любых цветах и пишет код. ` +
+      `Можно писать или говорить голосом. Для программирования — вкладка <b>Code</b> сверху.</p>` +
       `<div class="examples"></div>`;
     const ex = w.querySelector(".examples");
     for (const [q, note] of EXAMPLES) {
@@ -821,6 +863,8 @@
       if (a.type === "image" && a.svg) wrap.append(renderImage(a));
       if (a.type === "photo" && /^https:\/\//.test(a.url || "")) wrap.append(renderPhoto(a));
       if (a.type === "slides" && Array.isArray(a.slides)) wrap.append(renderDeck(a));
+      if (a.type === "code" && typeof a.code === "string") wrap.append(renderCode(a));
+      if (a.type === "archive") wrap.append(renderArchive(a, current()));
     }
     const acts = document.createElement("div");
     acts.className = "actions";
@@ -875,25 +919,61 @@
     return fig;
   }
 
-  // презентация
-  function slideHTML(s, n, total, dir) {
-    const num = `<div class="num">${n} / ${total}</div>`;
-    const cls = `slide play t-${esc(s.transition || "fade")}`;
-    const attrs = ` data-t="${esc(s.transition || "fade")}" style="--dir:${dir || 1}"`;
-    const pic = (c) => s.image ? `<img class="${c}" alt="" src="${svgUrl(s.image)}">` : "";
-    if (s.kind === "title") return `<section class="${cls} cover"${attrs}>${pic("bg")}<div class="kicker">Презентация</div><h1>${esc(s.title)}</h1><div class="sub">${esc(s.subtitle || "")}</div>${num}</section>`;
-    if (s.kind === "end") return `<section class="${cls} end"${attrs}><h1>${esc(s.title)}</h1><div class="sub">${esc(s.subtitle || "")}</div>${num}</section>`;
-    let body = "";
-    if (s.kind === "code") body = `<pre><code>${esc(s.code || "")}</code></pre>`;
-    else if (s.kind === "table") {
-      const [head, ...rows] = s.rows && s.rows.length ? s.rows : [[]];
-      body = "<table><thead><tr>" + head.map((c) => "<th>" + inline(c) + "</th>").join("") + "</tr></thead><tbody>" +
-        rows.map((r) => "<tr>" + head.map((_, k) => "<td>" + inline(r[k] || "") + "</td>").join("") + "</tr>").join("") + "</tbody></table>";
-    } else {
-      body = "<ul>" + (s.bullets || []).map((b, i) => `<li style="--i:${i}">` + inline(b) + "</li>").join("") + "</ul>";
-      if (s.image) body = `<div class="cols">${body}${pic("side")}</div>`;
+  // ---------------------------------------------------------------- презентация
+  const HEX = /^#[0-9a-f]{6}$/i;
+  function themeVars(t) {
+    if (!t) return "";
+    const v = [];
+    for (const [k, name] of [["bg", "bg"], ["fg", "fg"], ["accent", "accent"], ["accent2", "accent2"], ["muted", "muted"],
+                             ["surface", "surface"], ["line", "line"], ["on_accent", "on"]]) {
+      if (HEX.test(t[k] || "")) v.push(`--s-${name}:${t[k]}`);
     }
-    return `<section class="${cls}"${attrs}><div class="kicker">${String(n).padStart(2, "0")}</div><h2>${esc(s.title || "")}</h2>${body}${num}</section>`;
+    if (HEX.test(t.bg || "")) v.push(`--s-bg-a:${t.bg}8c`);
+    if (HEX.test(t.accent || "")) v.push(`--s-soft:${t.accent}59`);
+    return v.join(";");
+  }
+  function slideHTML(s, n, total, dir, theme) {
+    const num = `<div class="num">${n} / ${total}</div>`;
+    const t = esc(s.transition || "fade");
+    const cls = `slide play t-${t}`;
+    const attrs = ` data-t="${t}" style="--dir:${dir || 1};${themeVars(theme)}"`;
+    const pic = (c) => s.image ? `<img class="${c}" alt="" src="${svgUrl(s.image)}">` : "";
+    const items = (list, tag) => (list || []).map((x, i) => `<${tag} style="--i:${i}">` + (tag === "div" ? `<b>${i + 1}</b><span>${inline(x)}</span>` : tag === "li" && s.kind === "agenda" ? `<b>${String(i + 1).padStart(2, "0")}</b><span>${inline(x)}</span>` : inline(x)) + `</${tag}>`).join("");
+    const kicker = `<div class="kicker">${String(n).padStart(2, "0")}</div>`;
+    switch (s.kind) {
+      case "title":
+        return `<section class="${cls} cover"${attrs}>${pic("bg")}<div class="kicker">Презентация</div><h1>${esc(s.title)}</h1>` +
+          (s.subtitle ? `<div class="sub">${esc(s.subtitle)}</div>` : "") + `${num}</section>`;
+      case "end":
+        return `<section class="${cls} end"${attrs}>${pic("bg")}<h1>${esc(s.title)}</h1><div class="sub">${esc(s.subtitle || "")}</div>${num}</section>`;
+      case "photo":
+        if (!/^https:\/\//.test(s.photo || "")) break;
+        return `<section class="${cls} photo"${attrs}><img class="bg" alt="" src="${esc(s.photo)}" referrerpolicy="no-referrer" onerror="this.remove()">` +
+          `<div class="cap"><div class="kicker">${String(n).padStart(2, "0")}</div><h2>${esc(s.title || "")}</h2>` +
+          (s.caption ? `<div class="sub">${esc(s.caption)}</div>` : "") + `</div>${num}</section>`;
+      case "agenda":
+        return `<section class="${cls}"${attrs}>${kicker}<h2>${esc(s.title || "План")}</h2><ol class="agenda">${items(s.items, "li")}</ol>${num}</section>`;
+      case "summary":
+        return `<section class="${cls}"${attrs}>${kicker}<h2>${esc(s.title || "Главное")}</h2><div class="cards">` +
+          (s.items || []).map((x, i) => `<div class="card" style="--i:${i}"><b>${i + 1}</b><span>${inline(x)}</span></div>`).join("") + `</div>${num}</section>`;
+      case "fact": {
+        const body = `<p class="fact">${inline(s.text || "")}</p>`;
+        return `<section class="${cls}"${attrs}>${kicker}<h2>${esc(s.title || "")}</h2>` +
+          (s.image ? `<div class="cols">${body}${pic("side")}</div>` : body) + `${num}</section>`;
+      }
+      case "code":
+        return `<section class="${cls}"${attrs}>${kicker}<h2>${esc(s.title || "")}</h2><pre><code>${esc(s.code || "")}</code></pre>${num}</section>`;
+      case "table": {
+        const [head, ...rows] = s.rows && s.rows.length ? s.rows : [[]];
+        return `<section class="${cls}"${attrs}>${kicker}<h2>${esc(s.title || "")}</h2><table><thead><tr>` +
+          head.map((c) => "<th>" + inline(c) + "</th>").join("") + "</tr></thead><tbody>" +
+          rows.map((r) => "<tr>" + head.map((_, k) => "<td>" + inline(r[k] || "") + "</td>").join("") + "</tr>").join("") +
+          `</tbody></table>${num}</section>`;
+      }
+    }
+    let body = `<ul>${items(s.bullets, "li")}</ul>`;
+    if (s.image) body = `<div class="cols${s.side === "left" ? " left" : ""}">${body}${pic("side")}</div>`;
+    return `<section class="${cls}"${attrs}>${kicker}<h2>${esc(s.title || "")}</h2>${body}${num}</section>`;
   }
   function renderDeck(a) {
     const deck = document.createElement("div");
@@ -905,12 +985,14 @@
       `<button class="icon-btn next" type="button" aria-label="Следующий слайд">${icon("right")}</button>` +
       `<span class="spacer"></span>` +
       `<button class="icon-btn full" type="button">${icon("full")}На весь экран</button>` +
-      `<button class="icon-btn dl" type="button">${icon("down")}Скачать</button></div>`;
+      `<button class="icon-btn dl" type="button">${icon("down")}HTML</button>` +
+      `<button class="icon-btn zip" type="button">${icon("zip")}ZIP</button></div>`;
     const stage = deck.querySelector(".stage");
+    if (a.theme && HEX.test(a.theme.bg || "")) stage.style.background = a.theme.bg;
     let k = 0;
     const total = a.slides.length;
     const show = (dir) => {
-      stage.innerHTML = slideHTML(a.slides[k], k + 1, total, dir);
+      stage.innerHTML = slideHTML(a.slides[k], k + 1, total, dir, a.theme);
       deck.querySelector(".count").textContent = (k + 1) + " / " + total;
     };
     const go = (d) => {
@@ -920,36 +1002,167 @@
     };
     deck.querySelector(".prev").addEventListener("click", () => go(-1));
     deck.querySelector(".next").addEventListener("click", () => go(1));
-    stage.addEventListener("click", () => go(1));
+    let x0 = null;
+    stage.addEventListener("pointerdown", (e) => { x0 = e.clientX; });
+    stage.addEventListener("pointerup", (e) => {
+      if (x0 === null) return;
+      const dx = e.clientX - x0;
+      x0 = null;
+      go(Math.abs(dx) > 40 ? (dx < 0 ? 1 : -1) : 1);
+    });
     stage.addEventListener("dblclick", (e) => e.preventDefault());
     stage.addEventListener("keydown", (e) => {
       if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(1); }
       if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); go(-1); }
+      if (e.key === "Home") { e.preventDefault(); k = 0; show(-1); }
+      if (e.key === "End") { e.preventDefault(); k = total - 1; show(1); }
     });
     deck.querySelector(".full").addEventListener("click", () => {
       (stage.requestFullscreen ? stage.requestFullscreen() : Promise.reject()).then(() => stage.focus()).catch(() => toast("Полный экран недоступен"));
     });
     deck.querySelector(".dl").addEventListener("click", () =>
       download(safeName(a.title) + ".html", new Blob([deckFile(a)], {type: "text/html"})));
+    deck.querySelector(".zip").addEventListener("click", () =>
+      download(safeName(a.title) + ".zip", makeZip(deckFiles(a, ""))));
     show();
     return deck;
   }
   function deckFile(a) {
     const total = a.slides.length;
-    const slides = a.slides.map((s, n) => slideHTML(s, n + 1, total).replace(/class="slide play t-[a-z]+/, 'class="slide')).join("\n");
+    const slides = a.slides.map((s, n) => slideHTML(s, n + 1, total, 1, a.theme).replace(/class="slide play t-[a-z]+/, 'class="slide')).join("\n");
     const css = $("slide-css").textContent;
+    const bg = a.theme && HEX.test(a.theme.bg || "") ? a.theme.bg : "#000";
     return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(a.title)}</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Onest:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
-<style>html,body{margin:0;height:100%;background:#000}
-.deck{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(100vw,177.78vh);aspect-ratio:16/9;container-type:inline-size;overflow:hidden}
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Onest:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}
+.deck{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(100vw,177.78vh);aspect-ratio:16/9;container-type:inline-size;overflow:hidden;background:${bg}}
 .deck .slide{display:none}.deck .slide.on{display:flex}
-${css}</style></head><body><div class="deck">${slides}</div>
-<script>var s=document.querySelectorAll('.slide'),k=0;
-function show(d){s.forEach(function(e,i){var on=i===k;e.classList.toggle('on',on);if(on){e.classList.remove('play','t-'+e.dataset.t);e.style.setProperty('--dir',d||1);void e.offsetWidth;e.classList.add('play','t-'+e.dataset.t)}})}
+.bar{position:fixed;left:0;bottom:0;height:3px;background:rgba(255,255,255,.5);transition:width .3s;z-index:9}
+${css}
+@media print{@page{size:landscape;margin:0}html,body{height:auto;overflow:visible;background:#fff}.bar{display:none}
+.deck{position:static;transform:none;width:100%;aspect-ratio:auto;overflow:visible}.deck .slide{display:flex!important;position:relative;inset:auto;aspect-ratio:16/9;break-after:page;animation:none!important}
+.deck .slide *{animation:none!important}}</style></head><body><div class="deck">${slides}</div><div class="bar"></div>
+<script>var s=document.querySelectorAll('.slide'),k=0,bar=document.querySelector('.bar'),x0=null;
+function show(d){s.forEach(function(e,i){var on=i===k;e.classList.toggle('on',on);if(on){e.classList.remove('play','t-'+e.dataset.t);e.style.setProperty('--dir',d||1);void e.offsetWidth;e.classList.add('play','t-'+e.dataset.t)}});bar.style.width=((k+1)/s.length*100)+'%'}
 function go(d){var n=Math.max(0,Math.min(s.length-1,k+d));if(n!==k){k=n;show(d)}}
-document.addEventListener('keydown',function(e){if(['ArrowRight','PageDown',' '].indexOf(e.key)>=0)go(1);if(['ArrowLeft','PageUp'].indexOf(e.key)>=0)go(-1);if(e.key==='f'&&document.documentElement.requestFullscreen)document.documentElement.requestFullscreen()});
-document.addEventListener('click',function(){go(1)});show();<\/script></body></html>`;
+document.addEventListener('keydown',function(e){if(['ArrowRight','PageDown',' ','Enter'].indexOf(e.key)>=0)go(1);if(['ArrowLeft','PageUp','Backspace'].indexOf(e.key)>=0)go(-1);if(e.key==='Home'){k=0;show(-1)}if(e.key==='End'){k=s.length-1;show(1)}if(e.key==='f'&&document.documentElement.requestFullscreen)document.documentElement.requestFullscreen()});
+document.addEventListener('pointerdown',function(e){x0=e.clientX});
+document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.clientX-x0;x0=null;go(Math.abs(dx)>40?(dx<0?1:-1):1)});show();<\/script></body></html>`;
+  }
+  // Файлы презентации для ZIP: сама презентация + картинки слайдов отдельными SVG
+  function deckFiles(a, dir) {
+    const files = [{name: dir + safeName(a.title) + ".html", data: deckFile(a)}];
+    a.slides.forEach((s, n) => {
+      if (s.image) files.push({name: dir + "картинки/слайд-" + String(n + 1).padStart(2, "0") + ".svg", data: s.image});
+    });
+    return files;
+  }
+
+  // ---------------------------------------------------------------- код в ответе
+  function renderCode(a) {
+    const box = document.createElement("div");
+    box.className = "code-att";
+    const lang = a.lang || "text";
+    const name = a.filename || "main." + (EXT_OF[lang] || "txt");
+    box.innerHTML = `<div class="codeblock"><div class="codehead"><span>${esc(name)} · ${esc(LANG_NAME[lang] || lang)}</span><span class="acts">` +
+      `<button class="icon-btn open-code" type="button">${icon("code")}Открыть в Code</button>` +
+      `<button class="icon-btn dl" type="button">${icon("down")}Скачать</button>` +
+      `<button class="icon-btn cp" type="button">${icon("copy")}Копировать</button></span></div>` +
+      `<pre><code>${hl(a.code, lang)}</code></pre></div>`;
+    box.querySelector(".open-code").addEventListener("click", () => openInCode(name, a.code));
+    box.querySelector(".dl").addEventListener("click", () => download(name, new Blob([a.code], {type: "text/plain;charset=utf-8"})));
+    box.querySelector(".cp").addEventListener("click", () => copyRich(a.code, "<pre>" + esc(a.code) + "</pre>", box.querySelector("code")));
+    return box;
+  }
+
+  // ---------------------------------------------------------------- архив чата
+  function archiveFiles(chat) {
+    const files = [], used = new Set();
+    const put = (name, data) => {
+      let n = name, k = 2;
+      while (used.has(n)) n = name.replace(/(\.[^./]+)?$/, "-" + (k++) + "$1");
+      used.add(n);
+      files.push({name: n, data: data});
+      return n;
+    };
+    const md = ["# " + chat.title, "", "Экспорт из Rai · " + new Date().toLocaleString("ru-RU"), ""];
+    let pics = 0;
+    for (const m of chat.messages) {
+      if (m.role === "user") { md.push("**Вы:** " + m.text, ""); continue; }
+      md.push("**Rai:** " + m.text, "");
+      for (const a of m.attachments || []) {
+        if (a.type === "image" && a.svg) md.push("🖼 " + put("картинки/" + String(++pics).padStart(2, "0") + "-" + safeName(a.title) + ".svg", a.svg), "");
+        if (a.type === "photo" && a.url) md.push("📷 [" + (a.title || "Фото") + "](" + a.url + ")", "");
+        if (a.type === "code" && a.code) md.push("💾 " + put("код/" + (a.filename || "main.txt"), a.code), "");
+        if (a.type === "slides" && Array.isArray(a.slides)) {
+          const dir = "презентации/" + safeName(a.title) + "/";
+          for (const f of deckFiles(a, dir)) put(f.name, f.data);
+          md.push("📊 " + dir + safeName(a.title) + ".html", "");
+        }
+      }
+    }
+    files.unshift({name: "чат.md", data: md.join("\n")});
+    return files;
+  }
+  function renderArchive(a, chat) {
+    const box = document.createElement("div");
+    box.className = "archive";
+    const count = (type) => chat.messages.reduce((n, m) => n + (m.attachments || []).filter((x) => x.type === type).length, 0);
+    const parts = [chat.messages.length + " сообщ."];
+    if (count("image")) parts.push(count("image") + " карт.");
+    if (count("slides")) parts.push(count("slides") + " презент.");
+    if (count("code")) parts.push(count("code") + " файл(ов) кода");
+    box.innerHTML = `<div class="zip-ic">${icon("zip")}</div><div class="info"><b>${esc(a.title || "Архив чата")}</b>` +
+      `<span>${esc(parts.join(" · "))}</span></div><button class="btn red" type="button">Скачать архив</button>`;
+    box.querySelector("button").addEventListener("click", () =>
+      download(safeName(chat.title) + ".zip", makeZip(archiveFiles(chat))));
+    return box;
+  }
+
+  // ---------------------------------------------------------------- ZIP (без сжатия, имена в UTF-8)
+  const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(buf) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function makeZip(files) {
+    const enc = new TextEncoder(), parts = [], central = [];
+    const d = new Date();
+    const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    let offset = 0;
+    for (const f of files) {
+      const name = enc.encode(f.name);
+      const data = typeof f.data === "string" ? enc.encode(f.data) : f.data;
+      const crc = crc32(data);
+      const loc = new DataView(new ArrayBuffer(30));
+      loc.setUint32(0, 0x04034b50, true); loc.setUint16(4, 20, true); loc.setUint16(6, 0x0800, true);
+      loc.setUint16(10, time, true); loc.setUint16(12, date, true); loc.setUint32(14, crc, true);
+      loc.setUint32(18, data.length, true); loc.setUint32(22, data.length, true); loc.setUint16(26, name.length, true);
+      parts.push(loc.buffer, name, data);
+      const cen = new DataView(new ArrayBuffer(46));
+      cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true); cen.setUint16(8, 0x0800, true);
+      cen.setUint16(12, time, true); cen.setUint16(14, date, true); cen.setUint32(16, crc, true);
+      cen.setUint32(20, data.length, true); cen.setUint32(24, data.length, true); cen.setUint16(28, name.length, true);
+      cen.setUint32(42, offset, true);
+      central.push(cen.buffer, name);
+      offset += 30 + name.length + data.length;
+    }
+    const size = central.reduce((n, b) => n + b.byteLength, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, size, true); end.setUint32(16, offset, true);
+    return new Blob(parts.concat(central, [end.buffer]), {type: "application/zip"});
   }
 
   function renderChat() {
@@ -990,6 +1203,16 @@ document.addEventListener('click',function(){go(1)});show();<\/script></body></h
           body: JSON.stringify({message: message, version: v, session_id: sessionId, history: history})
         });
         return await r.json();
+      },
+      async code(action, code, lang, prompt) {
+        const r = await fetch(root + "api/code", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({action: action, code: code, lang: lang, prompt: prompt})
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || "ошибка " + r.status);
+        return data;
       }
     };
   }
@@ -1015,6 +1238,19 @@ document.addEventListener('click',function(){go(1)});show();<\/script></body></h
     }));
   }
 
+  // Откуда Python для запуска программ во вкладке Code: сначала тот источник, что уже сработал.
+  let pyodideOK = null;
+  function pyodideSources() {
+    const list = pyodideOK ? [pyodideOK] : [];
+    for (const src of [CFG.pyodide].concat(window.RAI_PYODIDE_SOURCES)) {
+      if (!src) continue;
+      const url = new URL(src.replace(/\/?$/, "/"), location.href).href;
+      if (list.some((x) => x.url === url)) continue;
+      list.push({url: url, stdlib: CFG.stdlib && src === CFG.pyodide ? new URL(CFG.stdlib, location.href).href : undefined});
+    }
+    return list;
+  }
+
   // Загрузить Pyodide: пробуем источники по очереди, каждый с ограничением по времени.
   async function loadPython(onStep) {
     const sources = [];
@@ -1030,7 +1266,9 @@ document.addEventListener('click',function(){go(1)});show();<\/script></body></h
         if (!window.loadPyodide) await withTimeout(loadScript(base + "pyodide.js"), 20000);
         const opts = {indexURL: base};
         if (CFG.stdlib && src === CFG.pyodide) opts.stdLibURL = new URL(CFG.stdlib, location.href).href;
-        return await withTimeout(window.loadPyodide(opts), 120000);
+        const py = await withTimeout(window.loadPyodide(opts), 120000);
+        pyodideOK = {url: base, stdlib: opts.stdLibURL};
+        return py;
       } catch (e) {
         problems.push(where + ": " + (e && e.message === "timeout" ? "слишком долго" : (e && e.message) || e));
         try { delete window.loadPyodide; } catch (_) { window.loadPyodide = undefined; }
@@ -1076,13 +1314,22 @@ def rai_ask(version_id, message, session_id, history_json="[]"):
 
 def rai_versions():
     return json.dumps([v.public() for v in versions.VERSIONS.values()], ensure_ascii=False)
+
+def rai_code(action, code, lang, prompt):
+    import codeai
+    try:
+        return json.dumps(codeai.run_action(action, code or "", lang or None, prompt or ""), ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"answer": "Не получилось разобрать код: " + str(e)}, ensure_ascii=False)
 `);
     const pyAsk = pyodide.globals.get("rai_ask");
     const pyVersions = pyodide.globals.get("rai_versions");
+    const pyCode = pyodide.globals.get("rai_code");
     return {
       mode: "browser",
       async versions() { return JSON.parse(pyVersions()); },
-      async ask(v, message, sessionId, history) { return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history))); }
+      async ask(v, message, sessionId, history) { return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history))); },
+      async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); }
     };
   }
 
@@ -1173,161 +1420,63 @@ def rai_versions():
   });
   input.addEventListener("input", autosize);
   log.addEventListener("click", (e) => {
+    const toCode = e.target.closest(".to-code");
+    if (toCode) {
+      const block = toCode.closest(".codeblock");
+      openInCode("main." + (EXT_OF[block.dataset.lang] || "txt"), block.querySelector("code").textContent);
+      return;
+    }
     const btn = e.target.closest(".copy-code");
     if (!btn) return;
     const code = btn.closest(".codeblock").querySelector("code");
     copyRich(code.textContent, "<pre>" + esc(code.textContent) + "</pre>", code);
   });
 
-  // ---------------------------------------------------------------- аккаунт
-  let authUser = null, authAvailable = false, googleEnabled = false, pushTimer = null, pulling = false;
-  const dialog = $("authDialog");
+  // ---------------------------------------------------------------- режимы: Чат / Code
+  let codeStarted = false;
+  function startCode() {
+    if (codeStarted || !window.RaiCode) return !!window.RaiCode;
+    codeStarted = true;
+    window.RaiCode.init({
+      api: async (action, code, lang, prompt) => (await enginePromise).code(action, code, lang, prompt),
+      ready: () => engineReady,
+      md: renderMarkdown,
+      toast: toast,
+      download: download,
+      zip: makeZip,
+      copy: (text) => copyRich(text, "<pre>" + esc(text) + "</pre>", document.body),
+      pyodideSources: pyodideSources
+    });
+    return true;
+  }
+  function setMode(mode) {
+    if (mode === "code" && !startCode()) { toast("Не удалось загрузить code.js"); mode = "chat"; }
+    const code = mode === "code";
+    $("chatView").hidden = code;
+    $("codeView").hidden = !code;
+    $("modeChat").setAttribute("aria-selected", String(!code));
+    $("modeCode").setAttribute("aria-selected", String(code));
+    document.title = code ? "Rai Code" : "Rai";
+    try { localStorage.setItem("rai_mode", mode); } catch (e) { /* не страшно */ }
+    if ((location.hash === "#code") !== code) history.replaceState(null, "", code ? "#code" : location.pathname + location.search);
+    if (code) window.RaiCode.focus(); else input.focus();
+  }
+  function openInCode(name, text) {
+    startCode();
+    const added = window.RaiCode.addFile(name, text);
+    setMode("code");
+    toast("Открыто в Code: " + added);
+  }
+  $("modeChat").addEventListener("click", () => setMode("chat"));
+  $("modeCode").addEventListener("click", () => setMode("code"));
+  window.addEventListener("hashchange", () => setMode(location.hash === "#code" ? "code" : "chat"));
 
-  function renderAccount() {
-    const box = $("account");
-    if (authUser) {
-      const initial = esc((authUser.name || authUser.login || "?").trim().charAt(0).toUpperCase());
-      box.className = "account";
-      box.innerHTML = `<div class="avatar">${authUser.avatar ? `<img alt="" src="${esc(authUser.avatar)}" referrerpolicy="no-referrer">` : initial}</div>` +
-        `<div class="who-am"><b>${esc(authUser.name || authUser.login)}</b><span>${esc(authUser.email || "@" + authUser.login)}</span></div>` +
-        `<button class="icon-btn" type="button" id="logoutBtn">Выйти</button>`;
-      $("logoutBtn").addEventListener("click", logout);
-      $("storeNote").textContent = "Чаты сохраняются в вашем аккаунте.";
-    } else {
-      box.className = "";
-      if (backUrl && !authAvailable) {
-        // Пришли с сайта Rteam: вход уже был там, показываем дорогу назад.
-        box.className = "";
-        box.innerHTML = `<a class="back-link" href="${esc(backUrl)}">← На сайт Rteam</a>`;
-        $("storeNote").textContent = "Чаты хранятся в этом браузере.";
-        return;
-      }
-      box.innerHTML = `<button id="loginBtn" type="button">Войти или зарегистрироваться</button>`;
-      $("loginBtn").addEventListener("click", () => openAuth("login"));
-      $("storeNote").textContent = "Чаты хранятся в этом браузере.";
-    }
-  }
-
-  function openAuth(tab) {
-    showTab(tab);
-    $("authError").hidden = true;
-    $("googleBtn").setAttribute("aria-disabled", String(!(authAvailable && googleEnabled)));
-    $("authNote").textContent = !authAvailable
-      ? "Вход и регистрация работают, когда Rai запущен на своём сервере (python app.py или хостинг). Сейчас Rai работает прямо в браузере, чаты хранятся только здесь."
-      : googleEnabled ? "" : "Вход через Google появится, когда на сервере задан GOOGLE_CLIENT_SECRET.";
-    for (const f of dialog.querySelectorAll("input, .auth-form button")) f.disabled = !authAvailable;
-    if (dialog.showModal) dialog.showModal(); else dialog.setAttribute("open", "");
-  }
-  function showTab(tab) {
-    const reg = tab === "register";
-    $("tabLogin").setAttribute("aria-selected", String(!reg));
-    $("tabRegister").setAttribute("aria-selected", String(reg));
-    $("loginForm").hidden = reg;
-    $("registerForm").hidden = !reg;
-    $("authTitle").textContent = reg ? "Регистрация" : "Вход в Rai";
-  }
-  $("tabLogin").addEventListener("click", () => showTab("login"));
-  $("tabRegister").addEventListener("click", () => showTab("register"));
-  $("authClose").addEventListener("click", () => dialog.close());
-
-  async function authPost(path, body) {
-    const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"},
-                                 credentials: "same-origin", body: JSON.stringify(body)});
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || "Ошибка " + r.status);
-    return data;
-  }
-  async function submitAuth(e, path, body) {
-    e.preventDefault();
-    $("authError").hidden = true;
-    try {
-      const data = await authPost(path, body);
-      authUser = data.user;
-      dialog.close();
-      renderAccount();
-      toast("Здравствуйте, " + (authUser.name || authUser.login) + "!");
-      await pullChats();
-    } catch (err) {
-      $("authError").textContent = err.message;
-      $("authError").hidden = false;
-    }
-  }
-  $("loginForm").addEventListener("submit", (e) => submitAuth(e, "auth/login",
-    {login: $("loginName").value.trim(), password: $("loginPass").value}));
-  $("registerForm").addEventListener("submit", (e) => submitAuth(e, "auth/register",
-    {login: $("regLogin").value.trim(), name: $("regName").value.trim(), email: $("regEmail").value.trim(), password: $("regPass").value}));
-
-  async function logout() {
-    try { await authPost("auth/logout", {}); } catch (e) { /* всё равно выходим */ }
-    authUser = null;
-    // Чаты остаются в аккаунте; с этого устройства убираем, чтобы их не увидел следующий человек.
-    chats = [makeChat()];
-    currentId = chats[0].id;
-    try { localStorage.removeItem(STORE_KEY); } catch (e) { /* нет доступа к хранилищу */ }
-    renderAccount(); renderAll();
-    toast("Вы вышли из аккаунта");
-  }
-
-  // Слияние: у каждого чата берём более свежую версию (из браузера или с сервера).
-  async function pullChats() {
-    if (!authUser) return;
-    pulling = true;
-    try {
-      const r = await fetch("api/chats", {credentials: "same-origin"});
-      if (!r.ok) return;
-      const remote = (await r.json()).chats || [];
-      const byId = new Map(remote.filter((c) => c && c.id && Array.isArray(c.messages)).map((c) => [c.id, c]));
-      for (const c of chats) {
-        if (!c.messages.length) continue;
-        const other = byId.get(c.id);
-        if (!other || (c.updated || 0) > (other.updated || 0)) byId.set(c.id, c);
-      }
-      if (byId.size) {
-        chats = Array.from(byId.values()).sort((a, b) => b.updated - a.updated);
-        if (!chats.some((c) => c.id === currentId)) currentId = chats[0].id;
-      }
-      renderAll();
-    } finally {
-      pulling = false;
-    }
-    save();
-  }
-  function schedulePush() {
-    if (!authUser || pulling) return;
-    clearTimeout(pushTimer);
-    pushTimer = setTimeout(async () => {
-      try {
-        const r = await fetch("api/chats", {method: "PUT", headers: {"Content-Type": "application/json"}, credentials: "same-origin",
-                                            body: JSON.stringify({chats: chats.filter((c) => c.messages.length)})});
-        if (!r.ok) toast((await r.json().catch(() => ({}))).error || "Не удалось сохранить чаты в аккаунт");
-      } catch (e) { toast("Нет связи с сервером — чаты сохранены в браузере"); }
-    }, 1200);
-  }
-
-  async function initAuth(engine) {
-    authAvailable = engine.mode === "server" && engine.root === "";
-    if (!authAvailable) return;
-    try {
-      const r = await fetch("auth/me", {credentials: "same-origin"});
-      const d = await r.json();
-      googleEnabled = !!d.google;
-      authUser = d.user;
-      renderAccount();
-      if (authUser) await pullChats();
-    } catch (e) { authAvailable = false; }
-    const q = new URLSearchParams(location.search);
-    const errors = {state: "Вход через Google не удался: устаревшая ссылка, попробуйте ещё раз.",
-                    cancelled: "Вход через Google отменён.", google: "Google не подтвердил вход. Попробуйте ещё раз.",
-                    already_linked: "Этот Google уже привязан к другому аккаунту.",
-                    google_not_configured: "Вход через Google ещё не настроен на сервере."};
-    if (q.get("auth") === "google" && authUser) toast("Вы вошли через Google");
-    if (q.get("auth_error")) toast(errors[q.get("auth_error")] || "Не удалось войти");
-    if (q.has("auth") || q.has("auth_error")) history.replaceState(null, "", location.pathname);
-  }
-
+  if (backUrl) $("backLink").href = backUrl;
   load();
   renderAll();
-  renderAccount();
+  let startMode = "chat";
+  try { startMode = location.hash === "#code" ? "code" : location.hash ? "chat" : localStorage.getItem("rai_mode") || "chat"; } catch (e) { /* чат */ }
+  if (startMode === "code") setMode("code");
 
   const enginePromise = startEngine().then(async (engine) => {
     try {
@@ -1336,7 +1485,7 @@ def rai_versions():
     } catch (e) { /* остаёмся со встроенным списком */ }
     engineReady = true;
     setStatus("ready", engine.mode === "server" ? "Сервер Rai" : "Rai работает в браузере");
-    initAuth(engine);
+    if (window.RaiCode) window.RaiCode.engineReady();
     return engine;
   }).catch((err) => {
     setStatus("error", "Rai не запустился");

@@ -14,20 +14,29 @@ import os
 import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py", "brain.py",
-         "knowledge.json", "glossary.json"]
+FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py",
+         "codeai.py", "codelib.py", "brain.py", "knowledge.json", "glossary.json"]
 
 
 def build(pyodide=None, fragment=False, stdlib=None):
     with open(os.path.join(BASE_DIR, "index.html"), encoding="utf-8") as f:
         html = f.read()
 
+    # Вкладка Code (code.css и code.js) встраивается прямо в страницу — файл остаётся один.
+    with open(os.path.join(BASE_DIR, "code.css"), encoding="utf-8") as f:
+        html = html.replace('<link rel="stylesheet" href="code.css">', "<style>\n" + f.read() + "</style>", 1)
+    with open(os.path.join(BASE_DIR, "code.js"), encoding="utf-8") as f:
+        js = f.read()
+        # «<!--» внутри <script> переводит HTML-парсер в особый режим, и тег может не закрыться
+        assert "<!--" not in js, "code.js не должен содержать <!--"
+        html = html.replace('<script src="code.js"></script>', "<script>\n" + js.replace("</script", "<\\/script") + "</script>", 1)
+
     files = {}
     for name in FILES:
         with open(os.path.join(BASE_DIR, name), encoding="utf-8") as f:
             files[name] = f.read()
-    # "</" экранируется, чтобы код не мог закрыть тег <script> раньше времени.
-    payload = json.dumps(files, ensure_ascii=False).replace("</", "<\\/")
+    # "</" и "<!--" экранируются, чтобы код не мог закрыть тег <script> раньше времени.
+    payload = json.dumps(files, ensure_ascii=False).replace("</", "<\\/").replace("<!--", "<\\u0021--")
     embedded = f'<script type="application/json" id="rai-files">{payload}</script>\n'
     html = html.replace("<script>\n(function () {", embedded + "<script>\n(function () {", 1)
 
