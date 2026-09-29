@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<script>
+  /* Настройки (можно задать до этого файла через window.RAI_CONFIG):
+     api     — адрес Python-сервера Rai, например "https://rai-xxxx.onrender.com".
+               Не задан: если страницу отдаёт сам сервер Rai — используется он,
+               иначе Rai запускается прямо в браузере (Python через Pyodide).
+     pyBase  — откуда брать .py файлы в браузерном режиме (по умолчанию — рядом со страницей).
+     pyodide — откуда грузить Pyodide (stdlib — свой адрес python_stdlib.zip, если нужно). */
+  window.RAI_CONFIG = Object.assign({
+    api: null,
+    pyBase: "./",
+    pyodide: "https://cdn.jsdelivr.net/npm/pyodide@314.0.7/"
+  }, window.RAI_CONFIG || {});
+</script>
+<style>
+  /* Layout: одноэкранный чат — шапка с выбором версии, лента сообщений, строка ввода. */
+  :root {
+    --bg: #0f0c10;
+    --panel: #18131a;
+    --panel-2: #211a24;
+    --line: #2f2533;
+    --fg: #f1eaef;
+    --muted: #a39aa6;
+    --accent: #ff2a2a;
+    --accent-soft: #3b1418;
+    --accent-ink: #ffffff;
+    --ok: #3ccf7a;
+    --warn: #f0b23c;
+    --font-display: "Unbounded", "Arial Black", system-ui, sans-serif;
+    --font-body: "Onest", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f6f2f3; --panel: #ffffff; --panel-2: #f1eaed; --line: #e3d8dd;
+      --fg: #1c1519; --muted: #6d6270; --accent: #dc1a1a; --accent-soft: #fde3e3;
+      --accent-ink: #ffffff; --ok: #1f9d55; --warn: #b7791f; color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f2f3; --panel: #ffffff; --panel-2: #f1eaed; --line: #e3d8dd;
+    --fg: #1c1519; --muted: #6d6270; --accent: #dc1a1a; --accent-soft: #fde3e3;
+    --accent-ink: #ffffff; --ok: #1f9d55; --warn: #b7791f; color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.55 var(--font-body);
+    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+  }
+  .app {
+    height: 100%;
+    max-width: 880px;
+    margin: 0 auto;
+    padding-inline: 16px;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    min-height: 0;
+  }
+
+  /* ---------- шапка ---------- */
+  header {
+    display: flex; flex-direction: column; gap: 12px;
+    padding-block: 16px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .logo {
+    font: 800 26px/1 var(--font-display);
+    letter-spacing: -0.02em;
+    color: var(--fg);
+  }
+  .logo span { color: var(--accent); }
+  .byline { font: 500 12px/1 var(--font-mono); color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .status {
+    display: inline-flex; align-items: center; gap: 8px;
+    font: 500 12px/1 var(--font-mono); color: var(--muted);
+    padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+  .status[data-state="ready"] .dot { background: var(--ok); }
+  .status[data-state="error"] .dot { background: var(--accent); }
+
+  .versions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .versions button {
+    appearance: none; cursor: pointer; text-align: left;
+    padding: 9px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+    font: 600 14px/1.2 var(--font-body);
+    min-width: 0;
+  }
+  .versions button small { display: block; margin-top: 3px; font: 400 11px/1.3 var(--font-mono); color: var(--muted); }
+  .versions button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+  .versions button[aria-pressed="true"] small { color: var(--fg); }
+  .versions button:focus-visible, .chips button:focus-visible, #send:focus-visible, #input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  .features { margin: 0; font-size: 13px; color: var(--muted); min-height: 1.5em; }
+
+  /* ---------- сообщения ---------- */
+  #log {
+    overflow-y: auto; min-height: 0;
+    display: flex; flex-direction: column; gap: 14px;
+    padding-block: 18px;
+    scroll-behavior: smooth;
+  }
+  .msg { display: flex; flex-direction: column; gap: 4px; max-width: min(640px, 92%); min-width: 0; }
+  .msg .bubble {
+    padding: 10px 14px; border-radius: 14px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.user .bubble { background: var(--accent-soft); border-color: transparent; border-bottom-right-radius: 4px; }
+  .msg.rai .bubble { border-bottom-left-radius: 4px; }
+  .msg .meta { font: 400 11px/1 var(--font-mono); color: var(--muted); padding-inline: 4px; }
+  .msg.pending .bubble { color: var(--muted); }
+  .bubble code, .bubble { font-variant-ligatures: none; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button {
+    appearance: none; cursor: pointer;
+    padding: 6px 11px; border-radius: 999px;
+    border: 1px dashed var(--line); background: transparent; color: var(--fg);
+    font: 400 13px/1.3 var(--font-body);
+  }
+  .chips button:hover { border-color: var(--accent); }
+
+  /* ---------- ввод ---------- */
+  form {
+    display: flex; gap: 8px; align-items: flex-end;
+    padding-block: 12px 16px;
+    border-top: 1px solid var(--line);
+  }
+  #input {
+    flex: 1; min-width: 0; resize: none;
+    max-height: 160px; min-height: 46px;
+    padding: 12px 14px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+    font: 15px/1.4 var(--font-body);
+  }
+  #send {
+    appearance: none; cursor: pointer; flex: none;
+    height: 46px; padding: 0 18px; border-radius: 12px; border: 0;
+    background: var(--accent); color: var(--accent-ink);
+    font: 600 15px/1 var(--font-body);
+  }
+  #send:disabled { opacity: 0.5; cursor: progress; }
+
+  @media (max-width: 560px) {
+    .versions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .logo { font-size: 22px; }
+  }
+  @media (prefers-reduced-motion: reduce) { #log { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <div class="brand">
+        <div class="logo">R<span>ai</span></div>
+        <div class="byline">Rteam · свой движок на Python</div>
+      </div>
+      <div class="status" id="status" data-state="loading" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span><span id="statusText">Подключение…</span>
+      </div>
+    </div>
+    <div class="versions" id="versions" role="group" aria-label="Версия Rai"></div>
+    <p class="features" id="features"></p>
+  </header>
+
+  <main id="log" aria-live="polite"></main>
+
+  <form id="form" autocomplete="off">
+    <label for="input" hidden>Сообщение для Rai</label>
+    <textarea id="input" rows="1" placeholder="Спросите Rai…" title="Enter — отправить, Shift+Enter — новая строка"></textarea>
+    <button id="send" type="submit">Отправить</button>
+  </form>
+</div>
+
+<script type="application/json" id="rai-files">{"versions.py": "\"\"\"Четыре версии Rai: Pro, Pro Fast, Pro Plus, Pro Sun.\n\nВсе версии работают на собственном движке, без внешних API.\nОтличаются набором возможностей.\n\"\"\"\n\nimport os\nfrom dataclasses import dataclass, field\nfrom typing import Optional\n\n\n@dataclass(frozen=True)\nclass Version:\n    id: str\n    name: str\n    description: str\n    search: str                 # \"keywords\" (быстро) или \"tfidf\" (по смыслу)\n    fuzzy: bool                 # понимать опечатки (буквенные триграммы)\n    skills: frozenset           # встроенные навыки\n    context: bool = False       # помнит имя и тему разговора, «подробнее»\n    memory: bool = False        # «запомни, что …» — память фактов\n    multi: bool = False         # несколько вопросов в одном сообщении\n    detailed: bool = False      # сразу даёт подробный ответ\n    suggestions: bool = False   # предлагает похожие вопросы, если не понял\n    threshold: float = 0.35     # минимальное сходство для ответа\n    features: list = field(default_factory=list)\n\n    def public(self) -> dict:\n        return {\n            \"id\": self.id,\n            \"name\": self.name,\n            \"description\": self.description,\n            \"features\": self.features,\n        }\n\n\nALL_SKILLS = frozenset({\"calc\", \"time\", \"convert\", \"random\", \"password\", \"text\"})\n\nVERSIONS = {\n    \"pro\": Version(\n        id=\"pro\",\n        name=\"Rai Pro\",\n        description=\"Основная версия: понимает смысл вопроса, основные навыки.\",\n        search=\"tfidf\",\n        fuzzy=False,\n        skills=frozenset({\"calc\", \"time\", \"convert\", \"random\"}),\n        threshold=0.35,\n        features=[\"поиск по смыслу\", \"калькулятор\", \"дата и время\", \"конвертер\", \"случайные числа\"],\n    ),\n    \"pro-fast\": Version(\n        id=\"pro-fast\",\n        name=\"Rai Pro Fast\",\n        description=\"Самая быстрая версия: поиск по ключевым словам.\",\n        search=\"keywords\",\n        fuzzy=False,\n        skills=frozenset({\"calc\", \"time\"}),\n        threshold=0.3,\n        features=[\"поиск по ключевым словам\", \"калькулятор\", \"дата и время\"],\n    ),\n    \"pro-plus\": Version(\n        id=\"pro-plus\",\n        name=\"Rai Pro Plus\",\n        description=\"Понимает опечатки, все навыки, помнит имя и тему разговора.\",\n        search=\"tfidf\",\n        fuzzy=True,\n        skills=ALL_SKILLS,\n        context=True,\n        suggestions=True,\n        threshold=0.3,\n        features=[\"поиск по смыслу\", \"понимает опечатки\", \"все навыки\", \"помнит имя\",\n                  \"«подробнее» по теме\", \"подсказки похожих вопросов\"],\n    ),\n    \"pro-sun\": Version(\n        id=\"pro-sun\",\n        name=\"Rai Pro Sun\",\n        description=\"Максимальная версия: память фактов, несколько вопросов сразу, подробные ответы.\",\n        search=\"tfidf\",\n        fuzzy=True,\n        skills=ALL_SKILLS,\n        context=True,\n        memory=True,\n        multi=True,\n        detailed=True,\n        suggestions=True,\n        threshold=0.27,\n        features=[\"всё из Pro Plus\", \"память фактов («запомни, что …»)\",\n                  \"несколько вопросов в одном сообщении\", \"подробные ответы\"],\n    ),\n}\n\nDEFAULT_VERSION = os.environ.get(\"RAI_DEFAULT_VERSION\", \"pro\").strip() or \"pro\"\n\n# Разные написания, которые может прислать сайт: \"Pro Fast\", \"pro_fast\", \"profast\"…\n_ALIASES = {key.replace(\"-\", \"\"): key for key in VERSIONS}\n\n\ndef resolve(version: Optional[str]) -> Optional[Version]:\n    \"\"\"Вернуть версию по id/названию или None, если такой нет.\"\"\"\n    if not version:\n        return VERSIONS.get(DEFAULT_VERSION, VERSIONS[\"pro\"])\n    key = str(version).strip().lower()\n    if key.startswith(\"rai\"):\n        key = key[3:]\n    key = key.replace(\" \", \"\").replace(\"_\", \"\").replace(\"-\", \"\")\n    return VERSIONS.get(_ALIASES.get(key, \"\"))\n", "nlp.py": "\"\"\"Собственная обработка текста Rai: нормализация, стемминг, TF-IDF поиск.\n\nНикаких внешних библиотек и сервисов — только стандартный Python.\n\"\"\"\n\nimport math\nimport re\nfrom collections import Counter\n\n_WORD_RE = re.compile(r\"[a-zа-я0-9]+\")\n\n# Слова-«шум»: почти не несут смысла для поиска ответа.\n# Вопросительные слова (что, как, кто…) специально оставлены — они различают вопросы.\nSTOPWORDS = {\n    \"и\", \"в\", \"во\", \"на\", \"а\", \"ну\", \"же\", \"ли\", \"бы\", \"то\", \"пожалуйста\", \"плиз\",\n    \"please\", \"the\", \"a\", \"an\", \"is\", \"are\", \"to\", \"of\", \"rai\", \"рай\", \"бот\",\n    \"слушай\", \"скажи\", \"подскажи\", \"расскажи\", \"мне\", \"эй\", \"вот\", \"это\", \"у\", \"с\", \"со\",\n}\n\n# Окончания русского языка, от длинных к коротким.\n_ENDINGS = sorted(\n    \"\"\"\n    иями ями ами иях ях ах ией ией ов ев ей ий ый ой ая яя ое ее ие ые ого его ому ему\n    ыми ими ую юю ешь ете ишь ите ает яет ет ит ут ют ат ят ать ять ить еть уть ть\n    ла ло ли ил ыл ал ял ом ем ам ям ость ости ение ения ением ении иться аться ешься\n    а я о е и ы у ю ь й\n    \"\"\".split(),\n    key=len,\n    reverse=True,\n)\n_EN_ENDINGS = (\"ing\", \"ed\", \"es\", \"s\")\n\n\ndef normalize(text: str) -> str:\n    text = (text or \"\").lower().replace(\"ё\", \"е\")\n    return \" \".join(_WORD_RE.findall(text))\n\n\ndef stem(word: str) -> str:\n    \"\"\"Простой собственный стеммер: отрезает типичные окончания.\"\"\"\n    if word.isdigit() or len(word) <= 3:\n        return word\n    if re.fullmatch(r\"[a-z]+\", word):\n        for end in _EN_ENDINGS:\n            if word.endswith(end) and len(word) - len(end) >= 3:\n                return word[: -len(end)]\n        return word\n    for refl in (\"ся\", \"сь\"):\n        if word.endswith(refl) and len(word) - 2 >= 3:\n            word = word[:-2]\n            break\n    for end in _ENDINGS:\n        if word.endswith(end) and len(word) - len(end) >= 3:\n            return word[: -len(end)]\n    return word\n\n\ndef tokens(text: str, keep_stopwords: bool = False) -> list:\n    words = normalize(text).split()\n    return [stem(w) for w in words if keep_stopwords or w not in STOPWORDS]\n\n\ndef trigrams(text: str) -> list:\n    \"\"\"Буквенные триграммы — дают устойчивость к опечаткам.\"\"\"\n    grams = []\n    for w in normalize(text).split():\n        if w in STOPWORDS:\n            continue\n        w = f\"#{w}#\"\n        grams.extend(\"~\" + w[i : i + 3] for i in range(len(w) - 2))\n    return grams\n\n\ndef features(text: str, fuzzy: bool) -> Counter:\n    feats = Counter(tokens(text))\n    if fuzzy:\n        feats.update(trigrams(text))\n    return feats\n\n\nclass TfidfIndex:\n    \"\"\"Мини-поисковик: находит документ, наиболее похожий на запрос.\"\"\"\n\n    def __init__(self, docs, fuzzy: bool = False):\n        # docs: список (ключ, текст)\n        self.fuzzy = fuzzy\n        self.keys = []\n        raw = []\n        df = Counter()\n        for key, text in docs:\n            f = features(text, fuzzy)\n            if not f:\n                continue\n            self.keys.append(key)\n            raw.append(f)\n            df.update(f.keys())\n        n = max(len(raw), 1)\n        self.idf = {t: math.log((1 + n) / (1 + c)) + 1.0 for t, c in df.items()}\n        self.vectors = [self._weigh(f) for f in raw]\n\n    def _weigh(self, feats: Counter) -> dict:\n        vec = {}\n        for t, c in feats.items():\n            w = self.idf.get(t)\n            if w is None:\n                continue\n            # Слова весят больше, чем отдельные триграммы.\n            vec[t] = (1 + math.log(c)) * w * (0.35 if t.startswith(\"~\") else 1.0)\n        norm = math.sqrt(sum(v * v for v in vec.values())) or 1.0\n        return {t: v / norm for t, v in vec.items()}\n\n    def search(self, text: str, limit: int = None) -> list:\n        \"\"\"Вернуть [(ключ, сходство 0..1)], лучшее сходство на ключ.\"\"\"\n        q = self._weigh(features(text, self.fuzzy))\n        if not q:\n            return []\n        best = {}\n        for key, vec in zip(self.keys, self.vectors):\n            score = sum(w * vec.get(t, 0.0) for t, w in q.items())\n            if score > best.get(key, 0.0):\n                best[key] = score\n        return sorted(best.items(), key=lambda kv: kv[1], reverse=True)[:limit]\n\n\nclass KeywordIndex:\n    \"\"\"Самый быстрый поиск (Pro Fast): доля общих основ слов.\"\"\"\n\n    def __init__(self, docs):\n        self.docs = [(key, set(tokens(text))) for key, text in docs]\n        self.docs = [(k, s) for k, s in self.docs if s]\n\n    def search(self, text: str, limit: int = None) -> list:\n        q = set(tokens(text))\n        if not q:\n            return []\n        best = {}\n        for key, words in self.docs:\n            common = len(q & words)\n            if not common:\n                continue\n            score = common / len(q | words)\n            if score > best.get(key, 0.0):\n                best[key] = score\n        return sorted(best.items(), key=lambda kv: kv[1], reverse=True)[:limit]\n\n\n# Общие слова: на одних только них совпадение не считается уверенным.\nGENERIC = {\n    stem(w)\n    for w in \"\"\"\n    что такое такой такая как какой какая какие кто где зачем почему когда сколько\n    ты тебя тебе я меня мне мой моя мое твой есть можно нужно надо хочу сделать делать\n    этот был была будет мы вы вас нас он она они про для из от до по за над под при\n    не нет да или еще уже очень так где-то\n    \"\"\".split()\n}\n\n_EN = \"qwertyuiop[]asdfghjkl;'zxcvbnm,.`\"\n_RU = \"йцукенгшщзхъфывапролджэячсмитьбюё\"\n_LAYOUT = str.maketrans(_EN, _RU)\n\n\ndef levenshtein(a: str, b: str, limit: int = 3) -> int:\n    if abs(len(a) - len(b)) > limit:\n        return limit + 1\n    prev = list(range(len(b) + 1))\n    for i, ca in enumerate(a, 1):\n        cur = [i]\n        for j, cb in enumerate(b, 1):\n            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))\n        if min(cur) > limit:\n            return limit + 1\n        prev = cur\n    return prev[-1]\n\n\nclass SpellChecker:\n    \"\"\"Собственный корректор: исправляет опечатки и неверную раскладку (ghbdtn → привет).\"\"\"\n\n    def __init__(self, texts):\n        self.vocab = set()\n        for t in texts:\n            self.vocab.update(normalize(t).split())\n        self.stems = {stem(w) for w in self.vocab}\n\n    def _known(self, word: str) -> bool:\n        return word in self.vocab or stem(word) in self.stems\n\n    def _closest(self, word: str):\n        limit = 1 if len(word) <= 5 else 2\n        best, best_d = None, limit + 1\n        for v in self.vocab:\n            if abs(len(v) - len(word)) > limit:\n                continue\n            d = levenshtein(word, v, limit)\n            if d < best_d:\n                best, best_d = v, d\n        return best\n\n    def correct_word(self, word: str) -> str:\n        if word.isdigit() or self._known(word):\n            return word\n        if re.fullmatch(r\"[a-z\\[\\];',.`]+\", word):\n            swapped = word.translate(_LAYOUT)\n            if self._known(swapped):\n                return swapped\n        if len(word) < 4:\n            return word\n        return self._closest(word) or word\n\n    def correct(self, text: str) -> str:\n        # Раскладку проверяем по исходному тексту: normalize() выкидывает [];',.`\n        raw = (text or \"\").lower().replace(\"ё\", \"е\").split()\n        out = []\n        for chunk in raw:\n            if re.fullmatch(r\"[a-z\\[\\];',.`]+\", chunk.strip(\"?!\")):\n                fixed = self.correct_word(chunk.strip(\"?!\"))\n                if fixed != chunk.strip(\"?!\"):\n                    out.append(fixed)\n                    continue\n            out.extend(self.correct_word(w) for w in normalize(chunk).split())\n        return \" \".join(out)\n", "skills.py": "\"\"\"Встроенные навыки Rai. Каждый навык: функция(text) -> ответ или None.\"\"\"\n\nimport ast\nimport operator\nimport os\nimport random\nimport re\nimport secrets\nimport string\nfrom datetime import datetime, timedelta, timezone\n\ntry:\n    from zoneinfo import ZoneInfo\nexcept ImportError:  # Python < 3.9\n    ZoneInfo = None\n\n\ndef _now() -> datetime:\n    tz_name = os.environ.get(\"RAI_TZ\", \"Europe/Moscow\")\n    if ZoneInfo is not None:\n        try:\n            return datetime.now(ZoneInfo(tz_name))\n        except Exception:\n            pass\n    return datetime.now(timezone(timedelta(hours=3)))\n\n\ndef _low(text: str) -> str:\n    return (text or \"\").lower().replace(\"ё\", \"е\").strip()\n\n\n# ---------------------------------------------------------------- калькулятор\n\n_OPS = {\n    ast.Add: operator.add,\n    ast.Sub: operator.sub,\n    ast.Mult: operator.mul,\n    ast.Div: operator.truediv,\n    ast.FloorDiv: operator.floordiv,\n    ast.Mod: operator.mod,\n    ast.Pow: operator.pow,\n    ast.USub: operator.neg,\n    ast.UAdd: operator.pos,\n}\n\n_WORD_OPS = [\n    (r\"умножить на|умножь на|помножить на\", \"*\"),\n    (r\"разделить на|раздели на|поделить на|делить на\", \"/\"),\n    (r\"в степени\", \"**\"),\n    (r\"плюс\", \"+\"),\n    (r\"минус\", \"-\"),\n    (r\"(?<=\\d)\\s*[хx×]\\s*(?=\\d)\", \"*\"),\n    (r\"÷|:\", \"/\"),\n    (r\"\\^\", \"**\"),\n]\n\n\ndef _eval_node(node):\n    if isinstance(node, ast.Expression):\n        return _eval_node(node.body)\n    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):\n        return node.value\n    if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:\n        return _OPS[type(node.op)](_eval_node(node.operand))\n    if isinstance(node, ast.BinOp) and type(node.op) in _OPS:\n        left, right = _eval_node(node.left), _eval_node(node.right)\n        if isinstance(node.op, ast.Pow) and (abs(right) > 100 or abs(left) > 10**6):\n            raise ValueError(\"слишком большая степень\")\n        return _OPS[type(node.op)](left, right)\n    raise ValueError(\"недопустимое выражение\")\n\n\ndef _fmt(num) -> str:\n    if isinstance(num, float):\n        if num.is_integer() and abs(num) < 1e15:\n            return str(int(num))\n        return f\"{num:.10g}\"\n    return str(num)\n\n\ndef calculator(text: str):\n    low = _low(text)\n    sqrt = re.search(r\"(?:квадратный\\s+)?корень\\s+(?:из\\s+)?(-?\\d+(?:[.,]\\d+)?)\", low)\n    if sqrt:\n        value = float(sqrt.group(1).replace(\",\", \".\"))\n        if value < 0:\n            return \"Корень из отрицательного числа в действительных числах не существует.\"\n        return f\"√{_fmt(value)} = {_fmt(value ** 0.5)}\"\n\n    percent = re.search(r\"(\\d+(?:[.,]\\d+)?)\\s*%\\s*(?:от)\\s*(\\d+(?:[.,]\\d+)?)\", low)\n    if percent:\n        p, base = (float(x.replace(\",\", \".\")) for x in percent.groups())\n        return f\"{_fmt(p)}% от {_fmt(base)} = {_fmt(base * p / 100)}\"\n\n    expr = re.sub(r\"^(сколько будет|сколько|посчитай|вычисли|реши|calc|calculate)\\s*\", \"\", low)\n    expr = expr.rstrip(\"?=! \")\n    for pattern, repl in _WORD_OPS:\n        expr = re.sub(pattern, repl, expr)\n    expr = expr.replace(\",\", \".\")\n    if not re.fullmatch(r\"[\\d\\s.+\\-*/%()]+\", expr or \"x\"):\n        return None\n    if not re.search(r\"\\d\", expr) or not re.search(r\"\\d\\s*[+\\-*/%]\", expr):\n        return None\n    try:\n        result = _eval_node(ast.parse(expr, mode=\"eval\"))\n    except ZeroDivisionError:\n        return \"На ноль делить нельзя.\"\n    except (ValueError, SyntaxError, TypeError, OverflowError):\n        return None\n    return f\"{expr.strip()} = {_fmt(result)}\"\n\n\n# ---------------------------------------------------------------- дата и время\n\n_WEEKDAYS = [\"понедельник\", \"вторник\", \"среда\", \"четверг\", \"пятница\", \"суббота\", \"воскресенье\"]\n_MONTHS = [\n    \"января\", \"февраля\", \"марта\", \"апреля\", \"мая\", \"июня\",\n    \"июля\", \"августа\", \"сентября\", \"октября\", \"ноября\", \"декабря\",\n]\n\n\ndef date_time(text: str):\n    low = _low(text)\n    now = _now()\n    if re.search(r\"который час|сколько времени|текущее время|время сейчас|какое время\", low):\n        return f\"Сейчас {now:%H:%M}.\"\n    if re.search(r\"день недели|какой сегодня день\", low):\n        return f\"Сегодня {_WEEKDAYS[now.weekday()]}.\"\n    if re.search(r\"какое сегодня число|какое число|сегодняшняя дата|какая дата|какой сегодня год|какой год\", low):\n        return (\n            f\"Сегодня {now.day} {_MONTHS[now.month - 1]} {now.year} года, \"\n            f\"{_WEEKDAYS[now.weekday()]}.\"\n        )\n    return None\n\n\n# ---------------------------------------------------------------- конвертер\n\n_LENGTH = {\"мм\": 0.001, \"см\": 0.01, \"дм\": 0.1, \"м\": 1.0, \"км\": 1000.0,\n           \"дюйм\": 0.0254, \"фут\": 0.3048, \"ярд\": 0.9144, \"миля\": 1609.344}\n_MASS = {\"мг\": 1e-6, \"г\": 0.001, \"кг\": 1.0, \"ц\": 100.0, \"т\": 1000.0,\n         \"фунт\": 0.45359237, \"унция\": 0.028349523125}\n_SHORT = {\"миля\": \"миль\", \"дюйм\": \"дюйм.\", \"фут\": \"фут.\", \"ярд\": \"ярд.\", \"фунт\": \"фунт.\", \"унция\": \"унц.\"}\n_UNIT_ALIASES = {\n    \"миллиметр\": \"мм\", \"сантиметр\": \"см\", \"дециметр\": \"дм\", \"метр\": \"м\", \"километр\": \"км\",\n    \"дюйм\": \"дюйм\", \"фут\": \"фут\", \"ярд\": \"ярд\", \"мил\": \"миля\",\n    \"миллиграмм\": \"мг\", \"грамм\": \"г\", \"килограмм\": \"кг\", \"центнер\": \"ц\", \"тонн\": \"т\",\n    \"фунт\": \"фунт\", \"унци\": \"унция\",\n    \"цельси\": \"c\", \"фаренгейт\": \"f\", \"кельвин\": \"k\",\n}\n\n\ndef _unit(word: str):\n    word = word.strip(\". \")\n    if word in _LENGTH or word in _MASS or word in (\"c\", \"f\", \"k\", \"°c\", \"°f\"):\n        return word.lstrip(\"°\")\n    for prefix, unit in _UNIT_ALIASES.items():\n        if word.startswith(prefix):\n            return unit\n    return None\n\n\ndef converter(text: str):\n    low = _low(text)\n    m = re.search(\n        r\"(-?\\d+(?:[.,]\\d+)?)\\s*(°?[a-zа-я]+)\\.?\\s+(?:в|to|=)\\s+(°?[a-zа-я]+)\", low\n    )\n    if not m:\n        return None\n    value = float(m.group(1).replace(\",\", \".\"))\n    src, dst = _unit(m.group(2)), _unit(m.group(3))\n    if not src or not dst:\n        return None\n    for table in (_LENGTH, _MASS):\n        if src in table and dst in table:\n            result = value * table[src] / table[dst]\n            return f\"{_fmt(value)} {_SHORT.get(src, src)} = {_fmt(round(result, 6))} {_SHORT.get(dst, dst)}\"\n    temps = {\"c\", \"f\", \"k\"}\n    if src in temps and dst in temps:\n        c = {\"c\": value, \"f\": (value - 32) * 5 / 9, \"k\": value - 273.15}[src]\n        result = {\"c\": c, \"f\": c * 9 / 5 + 32, \"k\": c + 273.15}[dst]\n        names = {\"c\": \"°C\", \"f\": \"°F\", \"k\": \"K\"}\n        return f\"{_fmt(value)} {names[src]} = {_fmt(round(result, 2))} {names[dst]}\"\n    return \"Эти единицы нельзя перевести друг в друга.\"\n\n\n# ---------------------------------------------------------------- случайность\n\ndef randomness(text: str):\n    low = _low(text)\n    if re.search(r\"монет\", low) and re.search(r\"подбрось|брось|кинь|подкинь\", low):\n        return random.choice([\"Выпал орёл.\", \"Выпала решка.\"])\n    if re.search(r\"кубик\", low) and re.search(r\"брось|кинь|подкинь\", low):\n        return f\"На кубике выпало {random.randint(1, 6)}.\"\n    m = re.search(r\"случайн\\w* число(?:\\s+от\\s+(-?\\d+)\\s+до\\s+(-?\\d+))?\", low)\n    if m:\n        a, b = (int(m.group(1)), int(m.group(2))) if m.group(1) else (1, 100)\n        if a > b:\n            a, b = b, a\n        return f\"Случайное число от {a} до {b}: {random.randint(a, b)}.\"\n    m = re.search(r\"выбери\\s*(?:из|между)?\\s*:?\\s*(.+)\", low)\n    if m and re.search(r\",| или \", m.group(1)):\n        options = [o.strip(\" ?.!\") for o in re.split(r\",| или \", m.group(1)) if o.strip(\" ?.!\")]\n        if len(options) >= 2:\n            return f\"Я выбираю: {random.choice(options)}.\"\n    return None\n\n\n# ---------------------------------------------------------------- пароли\n\ndef password(text: str):\n    low = _low(text)\n    if not re.search(r\"пароль|password\", low) or not re.search(r\"сгенер|придумай|создай|generate|нов\", low):\n        return None\n    m = re.search(r\"(\\d+)\", low)\n    length = min(max(int(m.group(1)) if m else 16, 8), 64)\n    alphabet = string.ascii_letters + string.digits + \"!@#$%^&*-_\"\n    while True:\n        pwd = \"\".join(secrets.choice(alphabet) for _ in range(length))\n        if (any(c.islower() for c in pwd) and any(c.isupper() for c in pwd)\n                and any(c.isdigit() for c in pwd)):\n            return f\"Надёжный пароль ({length} символов): {pwd}\"\n\n\n# ---------------------------------------------------------------- текст\n\ndef text_tools(text: str):\n    m = re.match(r\"\\s*(сколько (?:слов|символов|букв) в|посчитай (?:слова|символы) в|переверни|\"\n                 r\"заглавными|большими буквами|маленькими буквами|строчными)\\s*(?:текст)?\\s*:?\\s*(.+)\",\n                 text, re.I | re.S)\n    if not m:\n        return None\n    cmd, body = _low(m.group(1)), m.group(2).strip().strip(\"«»\\\"'\")\n    if not body:\n        return None\n    if cmd.startswith((\"сколько\", \"посчитай\")):\n        words = len(re.findall(r\"\\w+\", body))\n        letters = sum(ch.isalpha() for ch in body)\n        return f\"Слов: {words}, символов: {len(body)}, букв: {letters}.\"\n    if cmd == \"переверни\":\n        return body[::-1]\n    if cmd in (\"заглавными\", \"большими буквами\"):\n        return body.upper()\n    return body.lower()\n\n\nSKILLS = {\n    \"calc\": calculator,\n    \"time\": date_time,\n    \"convert\": converter,\n    \"random\": randomness,\n    \"password\": password,\n    \"text\": text_tools,\n}\n\n# Порядок проверки: сначала узкие навыки, калькулятор — после конвертера.\nORDER = [\"text\", \"password\", \"time\", \"convert\", \"random\", \"calc\"]\n\n\ndef run(text: str, allowed) -> str:\n    for name in ORDER:\n        if name in allowed:\n            answer = SKILLS[name](text)\n            if answer:\n                return answer\n    return None\n", "brain.py": "\"\"\"Движок Rai: собственный ИИ без внешних API.\n\nКак отвечает Rai:\n1. команды памяти («запомни, что …», «как меня зовут») — Pro Plus / Pro Sun;\n2. встроенные навыки (калькулятор, время, конвертер, …);\n3. поиск по базе знаний knowledge.json (+ learned.json);\n4. поиск по запомненным фактам (Pro Sun);\n5. если ничего не подошло — честно говорит и предлагает похожие темы.\n\"\"\"\n\nimport json\nimport os\nimport random\nimport re\nimport threading\nimport time\nfrom collections import OrderedDict\n\nimport nlp\nimport skills\nfrom versions import Version\n\nBASE_DIR = os.path.dirname(os.path.abspath(__file__))\nKNOWLEDGE_PATH = os.environ.get(\"RAI_KNOWLEDGE_PATH\", os.path.join(BASE_DIR, \"knowledge.json\"))\nLEARNED_PATH = os.environ.get(\"RAI_LEARNED_PATH\", os.path.join(BASE_DIR, \"learned.json\"))\n\nMAX_MESSAGE_CHARS = int(os.environ.get(\"RAI_MAX_MESSAGE_CHARS\", \"4000\"))\nMAX_FACTS = 50\n\n_NAME_RE = re.compile(\n    r\"(?:меня зовут|мое имя|моё имя|зови меня|называй меня|my name is)\\s+([A-Za-zА-Яа-яЁё-]{2,30})\",\n    re.I,\n)\n_ASK_NAME_RE = re.compile(r\"как меня зовут|ты помнишь как меня|мое имя\\??$|моё имя\\??$|who am i\", re.I)\n_MORE_RE = re.compile(r\"^(а\\s+)?(подробнее|ещ[её]|расскажи подробнее|расскажи ещ[её]|продолжай|дальше|и\\?)[\\s?!.]*$\", re.I)\n_REMEMBER_RE = re.compile(r\"^\\s*запомни(?:,)?\\s*(?:что|:)?\\s*(.+)$\", re.I | re.S)\n_RECALL_RE = re.compile(r\"что ты (?:помнишь|запомнил|знаешь обо мне)|что я тебе говорил\", re.I)\n_FORGET_RE = re.compile(r\"^\\s*забудь (?:вс[её]|об? мне)\", re.I)\n\n\nclass RaiError(Exception):\n    \"\"\"Ошибка, текст которой можно показать пользователю.\"\"\"\n\n    def __init__(self, message: str, status: int = 400):\n        super().__init__(message)\n        self.status = status\n\n\nclass SessionStore:\n    \"\"\"Память разговоров в оперативной памяти сервера (с лимитом и сроком жизни).\"\"\"\n\n    def __init__(self, limit: int = 5000, ttl: int = 6 * 3600):\n        self.limit, self.ttl = limit, ttl\n        self._data = OrderedDict()\n        self._lock = threading.Lock()\n\n    def get(self, session_id):\n        if not session_id:\n            return {}\n        now = time.time()\n        with self._lock:\n            session = self._data.pop(session_id, None)\n            if session is None or now - session[\"_seen\"] > self.ttl:\n                session = {\"facts\": []}\n            session[\"_seen\"] = now\n            self._data[session_id] = session\n            while len(self._data) > self.limit:\n                self._data.popitem(last=False)\n            return session\n\n\ndef _clean_session_id(value):\n    if isinstance(value, str) and re.fullmatch(r\"[A-Za-z0-9_.-]{1,64}\", value):\n        return value\n    return None\n\n\nclass Brain:\n    def __init__(self, knowledge_path=KNOWLEDGE_PATH, learned_path=LEARNED_PATH):\n        self.knowledge_path = knowledge_path\n        self.learned_path = learned_path\n        self.sessions = SessionStore()\n        self._lock = threading.Lock()\n        self.reload()\n\n    # ------------------------------------------------------------ база знаний\n\n    def _read(self, path):\n        if not path or not os.path.exists(path):\n            return []\n        with open(path, encoding=\"utf-8\") as f:\n            return json.load(f).get(\"intents\", [])\n\n    def reload(self):\n        intents = self._read(self.knowledge_path) + self._read(self.learned_path)\n        by_id = {}\n        for intent in intents:\n            if intent.get(\"id\") and intent.get(\"patterns\") and intent.get(\"answers\"):\n                by_id[intent[\"id\"]] = intent\n        docs = [(i[\"id\"], p) for i in by_id.values() for p in i[\"patterns\"] + [i.get(\"title\", \"\")] if p]\n        indexes = {\n            \"keywords\": nlp.KeywordIndex(docs),\n            \"tfidf\": nlp.TfidfIndex(docs, fuzzy=False),\n            \"tfidf+fuzzy\": nlp.TfidfIndex(docs, fuzzy=True),\n        }\n        intent_tokens = {}\n        for key, text in docs:\n            intent_tokens.setdefault(key, set()).update(nlp.tokens(text))\n        speller = nlp.SpellChecker(text for _, text in docs)\n        with self._lock:\n            self.intents, self.indexes = by_id, indexes\n            self.intent_tokens, self.speller = intent_tokens, speller\n\n    def teach(self, patterns, answer, title=None):\n        \"\"\"Добавить знание в learned.json (админ-функция).\"\"\"\n        patterns = [p.strip() for p in patterns if isinstance(p, str) and p.strip()]\n        if not patterns or not isinstance(answer, str) or not answer.strip():\n            raise RaiError(\"Нужны patterns (список фраз) и answer (ответ).\")\n        with self._lock:\n            learned = self._read(self.learned_path)\n            intent_id = f\"learned_{len(learned) + 1}_{int(time.time())}\"\n            learned.append({\n                \"id\": intent_id,\n                \"title\": (title or patterns[0]).strip(),\n                \"patterns\": patterns,\n                \"answers\": [answer.strip()],\n            })\n            with open(self.learned_path, \"w\", encoding=\"utf-8\") as f:\n                json.dump({\"intents\": learned}, f, ensure_ascii=False, indent=2)\n        self.reload()\n        return intent_id\n\n    def search(self, version: Version, text: str, limit: int = 5):\n        \"\"\"Найти подходящие темы: [(id, сходство)], только уверенные совпадения.\"\"\"\n        if version.fuzzy:\n            text = self.speller.correct(text)\n        key = \"keywords\" if version.search == \"keywords\" else (\"tfidf+fuzzy\" if version.fuzzy else \"tfidf\")\n        results = self.indexes[key].search(text)\n        # Совпадение только по общим словам («что», «такое», «как»…) при наличии\n        # в вопросе значимых слов — не совпадение: «что такое рхп» ≠ «что такое python».\n        meaningful = set(nlp.tokens(text)) - nlp.GENERIC\n        if meaningful:\n            results = [(k, s) for k, s in results if meaningful & self.intent_tokens.get(k, set())]\n        return results[:limit]\n\n    # ------------------------------------------------------------ ответы\n\n    def answer(self, version: Version, message: str, session_id=None, history=None) -> dict:\n        message = (message or \"\").strip()\n        if not message:\n            raise RaiError(\"Пустой запрос.\")\n        if len(message) > MAX_MESSAGE_CHARS:\n            raise RaiError(f\"Запрос слишком длинный (больше {MAX_MESSAGE_CHARS} символов).\", 413)\n\n        session = self.sessions.get(_clean_session_id(session_id)) if version.context else {}\n        if version.context and not session.get(\"name\"):\n            session[\"name\"] = _name_from_history(history)\n\n        parts = [message]\n        if version.multi and not _REMEMBER_RE.match(message):\n            parts = [p.strip() for p in re.split(r\"(?<=\\?)\\s+|\\n+\", message) if p.strip()] or [message]\n\n        answers, intents = [], []\n        for part in parts[:5]:\n            text, intent = self._answer_one(version, part, session)\n            answers.append(text)\n            intents.append(intent)\n\n        if len(answers) > 1:\n            text = \"\\n\\n\".join(f\"— {q}\\n{a}\" for q, a in zip(parts, answers))\n        else:\n            text = answers[0]\n        return {\n            \"answer\": text,\n            \"version\": version.id,\n            \"version_name\": version.name,\n            \"intent\": intents[0] if len(intents) == 1 else intents,\n        }\n\n    def _answer_one(self, version: Version, text: str, session: dict):\n        name_match = _NAME_RE.search(text)\n        if name_match:\n            name = name_match.group(1).capitalize()\n            if version.context:\n                session[\"name\"] = name\n                return f\"Приятно познакомиться, {name}! Запомнил.\", \"set_name\"\n            return f\"Приятно познакомиться, {name}! (Запоминать имя умеют Pro Plus и Pro Sun.)\", \"set_name\"\n\n        if _ASK_NAME_RE.search(text):\n            if not version.context:\n                return \"Запоминать имя умеют Rai Pro Plus и Rai Pro Sun.\", \"get_name\"\n            if session.get(\"name\"):\n                return f\"Вас зовут {session['name']}.\", \"get_name\"\n            return \"Вы ещё не говорили, как вас зовут. Напишите: «меня зовут …».\", \"get_name\"\n\n        if _MORE_RE.match(text):\n            if not version.context:\n                return \"Продолжать тему умеют Rai Pro Plus и Rai Pro Sun. Задайте вопрос целиком.\", \"more\"\n            if session.get(\"last_intent\") in self.intents:\n                return self._more(session), \"more\"\n            return \"О чём рассказать подробнее? Задайте вопрос.\", \"more\"\n\n        if _REMEMBER_RE.match(text) or _RECALL_RE.search(text) or _FORGET_RE.match(text):\n            if not version.memory:\n                return \"Запоминать факты умеет только Rai Pro Sun.\", \"memory\"\n            return self._memory(text, session), \"memory\"\n\n        reply = skills.run(text, version.skills)\n        if reply:\n            return reply, \"skill\"\n\n        results = self.search(version, text)\n        best = results[0][1] if results else 0.0\n\n        if version.memory:\n            fact, score = self._find_fact(text, session)\n            if fact and score >= best:\n                return f\"Вы мне говорили: {fact}.\", \"memory\"\n\n        if best >= version.threshold:\n            intent = self.intents[results[0][0]]\n            if version.context:\n                # «подробнее»/«ещё» имеют смысл только для тем с продолжением.\n                if intent.get(\"more\") or intent.get(\"repeatable\"):\n                    session[\"last_intent\"] = intent[\"id\"]\n                    session[\"more_used\"] = False\n                else:\n                    session.pop(\"last_intent\", None)\n            return self._render(intent, version, session), intent[\"id\"]\n\n        return self._fallback(version, results), None\n\n    def _pick(self, intent, session):\n        \"\"\"Случайный вариант ответа, по возможности не тот же, что в прошлый раз.\"\"\"\n        options = [a for a in intent[\"answers\"] if a != session.get(\"last_answer\")] or intent[\"answers\"]\n        choice = random.choice(options)\n        session[\"last_answer\"] = choice\n        name = session.get(\"name\")\n        return choice.replace(\"{name}\", f\", {name}\" if name else \"\")\n\n    def _render(self, intent, version, session):\n        answer = self._pick(intent, session)\n        if version.detailed and intent.get(\"more\"):\n            answer += \"\\n\\n\" + intent[\"more\"]\n            session[\"more_used\"] = True\n        return answer\n\n    def _more(self, session):\n        intent = self.intents[session[\"last_intent\"]]\n        if intent.get(\"more\") and not session.get(\"more_used\"):\n            session[\"more_used\"] = True\n            return intent[\"more\"]\n        if len(intent[\"answers\"]) > 1:\n            return self._pick(intent, session)\n        return \"Больше по этой теме мне добавить нечего. Спросите что-нибудь ещё!\"\n\n    def _memory(self, text, session):\n        facts = session.setdefault(\"facts\", [])\n        m = _REMEMBER_RE.match(text)\n        if m:\n            fact = m.group(1).strip().rstrip(\".!\")\n            if len(facts) >= MAX_FACTS:\n                facts.pop(0)\n            facts.append(fact)\n            return f\"Запомнил: {fact}.\"\n        if _FORGET_RE.match(text):\n            facts.clear()\n            session.pop(\"name\", None)\n            return \"Хорошо, всё забыл.\"\n        if not facts and not session.get(\"name\"):\n            return \"Пока ничего не запомнил. Скажите: «запомни, что …».\"\n        lines = [f\"• вас зовут {session['name']}\"] if session.get(\"name\") else []\n        lines += [f\"• {f}\" for f in facts]\n        return \"Я помню:\\n\" + \"\\n\".join(lines)\n\n    def _find_fact(self, text, session):\n        \"\"\"Найти запомненный факт, похожий на вопрос: (факт, сходство).\"\"\"\n        facts = session.get(\"facts\") or []\n        if not facts:\n            return None, 0.0\n        index = nlp.TfidfIndex(list(enumerate(facts)), fuzzy=True)\n        results = index.search(text, 1)\n        meaningful = set(nlp.tokens(text)) - nlp.GENERIC\n        if results and results[0][1] >= 0.3:\n            fact = facts[results[0][0]]\n            if not meaningful or meaningful & set(nlp.tokens(fact)):\n                return fact, results[0][1]\n        return None, 0.0\n\n    def _fallback(self, version, results):\n        base = \"Я пока не знаю ответа на это.\"\n        if version.suggestions:\n            titles = [self.intents[k].get(\"title\", k) for k, s in results[:3] if s >= 0.1]\n            if titles:\n                return base + \" Возможно, вы имели в виду:\\n\" + \"\\n\".join(f\"• {t}\" for t in titles)\n        return base + \" Попробуйте спросить иначе или напишите «помощь».\"\n\n\ndef _name_from_history(history):\n    if not isinstance(history, list):\n        return None\n    for item in reversed(history[-50:]):\n        if isinstance(item, dict) and item.get(\"role\") == \"user\":\n            text = item.get(\"content\", item.get(\"text\"))\n            m = _NAME_RE.search(text) if isinstance(text, str) else None\n            if m:\n                return m.group(1).capitalize()\n    return None\n", "knowledge.json": "{\n  \"intents\": [\n    {\n      \"id\": \"greeting\",\n      \"title\": \"Приветствие\",\n      \"patterns\": [\n        \"привет\",\n        \"здравствуй\",\n        \"здравствуйте\",\n        \"добрый день\",\n        \"доброе утро\",\n        \"добрый вечер\",\n        \"хай\",\n        \"салют\",\n        \"hello\",\n        \"hi\",\n        \"приветствую\",\n        \"ку\"\n      ],\n      \"answers\": [\n        \"Привет{name}! Чем могу помочь?\",\n        \"Здравствуйте{name}! Я Rai. Спрашивайте.\",\n        \"Привет{name}! Готов работать.\"\n      ]\n    },\n    {\n      \"id\": \"how_are_you\",\n      \"title\": \"Как дела\",\n      \"patterns\": [\n        \"как дела\",\n        \"как ты\",\n        \"как поживаешь\",\n        \"как настроение\",\n        \"что нового\",\n        \"как жизнь\"\n      ],\n      \"answers\": [\n        \"Отлично, работаю без перерывов. А у вас как?\",\n        \"Всё хорошо, спасибо! Чем займёмся?\"\n      ]\n    },\n    {\n      \"id\": \"who_are_you\",\n      \"title\": \"Кто такой Rai\",\n      \"patterns\": [\n        \"кто ты\",\n        \"ты кто\",\n        \"что ты такое\",\n        \"представься\",\n        \"как тебя зовут\",\n        \"твое имя\",\n        \"расскажи о себе\",\n        \"кто такой rai\"\n      ],\n      \"answers\": [\n        \"Я Rai — собственный ассистент команды Rteam. Работаю полностью на своём Python-движке, без внешних API.\"\n      ],\n      \"more\": \"У меня своя база знаний, свой поиск по смыслу (TF-IDF и сравнение по буквам, чтобы понимать опечатки), встроенные навыки: калькулятор, дата и время, конвертер единиц, генератор паролей, работа с текстом, случайные числа. Есть четыре версии: Pro, Pro Fast, Pro Plus и Pro Sun.\"\n    },\n    {\n      \"id\": \"abilities\",\n      \"title\": \"Что умеет Rai\",\n      \"patterns\": [\n        \"что ты умеешь\",\n        \"что умеешь\",\n        \"твои возможности\",\n        \"помощь\",\n        \"help\",\n        \"что ты можешь\",\n        \"команды\",\n        \"чем можешь помочь\",\n        \"функции\"\n      ],\n      \"answers\": [\n        \"Я умею:\\n• отвечать на вопросы из своей базы знаний (программирование, сайты, Rteam);\\n• считать: «сколько будет 15*4+2», «корень из 144», «20% от 350»;\\n• говорить дату и время: «который час», «какой сегодня день»;\\n• переводить единицы: «5 км в мили», «100 f в c»;\\n• генерировать пароли: «сгенерируй пароль 20»;\\n• работать с текстом: «сколько слов в: …», «переверни: …»;\\n• случайности: «подбрось монетку», «случайное число от 1 до 10», «выбери: чай или кофе».\\nВ Pro Plus и Pro Sun я помню ваше имя, а Pro Sun ещё запоминает факты («запомни, что …») и отвечает на несколько вопросов сразу.\"\n      ]\n    },\n    {\n      \"id\": \"versions\",\n      \"title\": \"Версии Rai\",\n      \"patterns\": [\n        \"какие есть версии\",\n        \"версии rai\",\n        \"чем отличаются версии\",\n        \"pro fast\",\n        \"pro plus\",\n        \"pro sun\",\n        \"какую версию выбрать\",\n        \"тарифы\"\n      ],\n      \"answers\": [\n        \"Версии Rai:\\n• Pro Fast — самая быстрая: поиск по ключевым словам, калькулятор и время.\\n• Pro — основная: поиск по смыслу и основные навыки.\\n• Pro Plus — понимает опечатки, все навыки, помнит имя и тему разговора, предлагает похожие вопросы.\\n• Pro Sun — максимальная: всё из Plus, плюс память фактов, несколько вопросов в одном сообщении и подробные ответы.\"\n      ]\n    },\n    {\n      \"id\": \"creator\",\n      \"title\": \"Кто создал Rai\",\n      \"patterns\": [\n        \"кто тебя создал\",\n        \"кто тебя сделал\",\n        \"твой создатель\",\n        \"кто автор\",\n        \"кто разработчик\",\n        \"чей ты\"\n      ],\n      \"answers\": [\n        \"Меня создала команда Rteam.\"\n      ]\n    },\n    {\n      \"id\": \"rteam\",\n      \"title\": \"Что такое Rteam\",\n      \"patterns\": [\n        \"что такое rteam\",\n        \"кто такие rteam\",\n        \"rteam\",\n        \"расскажи про команду\",\n        \"ваша команда\",\n        \"into the code\"\n      ],\n      \"answers\": [\n        \"Rteam — команда разработчиков (девиз «Into the Code»). У команды есть сайт с форумом, проектами, блогом и набором новых участников.\"\n      ],\n      \"more\": \"На сайте Rteam можно посмотреть проекты, почитать блог и форум, написать через форму обратной связи и подать заявку в команду, когда открыт набор.\"\n    },\n    {\n      \"id\": \"join_team\",\n      \"title\": \"Как попасть в команду\",\n      \"patterns\": [\n        \"как попасть в команду\",\n        \"как вступить\",\n        \"набор в команду\",\n        \"подать заявку\",\n        \"хочу в команду\",\n        \"как присоединиться\",\n        \"рекрутинг\"\n      ],\n      \"answers\": [\n        \"Чтобы попасть в Rteam, заполните форму заявки на сайте (раздел «Заявка», когда набор открыт). Укажите, что умеете и чем хотите заниматься — команда рассмотрит и ответит.\"\n      ]\n    },\n    {\n      \"id\": \"contact\",\n      \"title\": \"Как связаться\",\n      \"patterns\": [\n        \"как связаться\",\n        \"контакты\",\n        \"обратная связь\",\n        \"написать администрации\",\n        \"поддержка\",\n        \"куда писать\"\n      ],\n      \"answers\": [\n        \"Связаться с командой можно через форму обратной связи на сайте (раздел «Контакты») или через раздел сообщений в личном кабинете.\"\n      ]\n    },\n    {\n      \"id\": \"thanks\",\n      \"title\": \"Благодарность\",\n      \"patterns\": [\n        \"спасибо\",\n        \"благодарю\",\n        \"спс\",\n        \"thanks\",\n        \"thank you\",\n        \"пасиб\",\n        \"мерси\"\n      ],\n      \"answers\": [\n        \"Пожалуйста{name}!\",\n        \"Рад помочь{name}!\",\n        \"Обращайтесь{name}!\"\n      ]\n    },\n    {\n      \"id\": \"bye\",\n      \"title\": \"Прощание\",\n      \"patterns\": [\n        \"пока\",\n        \"до свидания\",\n        \"увидимся\",\n        \"bye\",\n        \"до встречи\",\n        \"всего доброго\",\n        \"спокойной ночи\"\n      ],\n      \"answers\": [\n        \"До встречи{name}!\",\n        \"Пока{name}! Возвращайтесь.\",\n        \"Всего доброго{name}!\"\n      ]\n    },\n    {\n      \"id\": \"joke\",\n      \"title\": \"Шутка\",\n      \"patterns\": [\n        \"расскажи шутку\",\n        \"пошути\",\n        \"анекдот\",\n        \"шутка\",\n        \"рассмеши\",\n        \"смешное\"\n      ],\n      \"answers\": [\n        \"Программист ставит на тумбочку два стакана: с водой — если захочет пить, и пустой — если не захочет.\",\n        \"— Сколько программистов нужно, чтобы вкрутить лампочку? — Ни одного, это аппаратная проблема.\",\n        \"Работает — не трогай. Не работает — перезагрузи. Не помогло — это фича.\",\n        \"Есть 10 типов людей: те, кто понимает двоичную систему, и те, кто нет.\",\n        \"Пятница, вечер, деплой в продакшн. Что может пойти не так?\"\n      ],\n      \"repeatable\": true\n    },\n    {\n      \"id\": \"python\",\n      \"title\": \"Что такое Python\",\n      \"patterns\": [\n        \"что такое python\",\n        \"python\",\n        \"питон\",\n        \"язык python\",\n        \"зачем нужен python\"\n      ],\n      \"answers\": [\n        \"Python — простой и мощный язык программирования. На нём пишут сайты и серверы (Flask, Django), ботов, автоматизацию, анализ данных и ИИ. Кстати, я сам написан на Python.\"\n      ],\n      \"more\": \"Пример программы:\\nprint(\\\"Привет, мир!\\\")\\n\\nСтавится с python.org, запуск: python файл.py. Начните с переменных, условий (if), циклов (for, while), функций (def), списков и словарей.\"\n    },\n    {\n      \"id\": \"python_hello\",\n      \"title\": \"Первая программа на Python\",\n      \"patterns\": [\n        \"hello world на python\",\n        \"первая программа на python\",\n        \"как вывести текст python\",\n        \"print python\",\n        \"как начать писать на python\"\n      ],\n      \"answers\": [\n        \"Первая программа на Python:\\n\\nprint(\\\"Привет, мир!\\\")\\n\\nСохраните в файл hello.py и запустите командой: python hello.py\"\n      ]\n    },\n    {\n      \"id\": \"python_loops\",\n      \"title\": \"Циклы в Python\",\n      \"patterns\": [\n        \"цикл в python\",\n        \"цикл for\",\n        \"цикл while\",\n        \"как сделать цикл\",\n        \"перебрать список python\",\n        \"range python\"\n      ],\n      \"answers\": [\n        \"Циклы в Python:\\n\\nfor i in range(5):\\n    print(i)        # 0 1 2 3 4\\n\\nn = 3\\nwhile n > 0:\\n    print(n)\\n    n -= 1\\n\\nfor x in [\\\"а\\\", \\\"б\\\"]:  # перебор списка\\n    print(x)\\n\\nbreak — выйти из цикла, continue — перейти к следующему шагу.\"\n      ]\n    },\n    {\n      \"id\": \"python_functions\",\n      \"title\": \"Функции в Python\",\n      \"patterns\": [\n        \"функция в python\",\n        \"как создать функцию\",\n        \"def python\",\n        \"что такое функция\",\n        \"return python\"\n      ],\n      \"answers\": [\n        \"Функция создаётся через def:\\n\\ndef summa(a, b=0):\\n    return a + b\\n\\nprint(summa(2, 3))  # 5\\n\\nФункция принимает аргументы, может иметь значения по умолчанию и возвращает результат через return.\"\n      ]\n    },\n    {\n      \"id\": \"python_lists\",\n      \"title\": \"Списки и словари в Python\",\n      \"patterns\": [\n        \"список в python\",\n        \"словарь в python\",\n        \"list python\",\n        \"dict python\",\n        \"массив в python\",\n        \"как добавить в список\"\n      ],\n      \"answers\": [\n        \"Список и словарь:\\n\\nitems = [1, 2, 3]\\nitems.append(4)       # добавить\\nprint(items[0], len(items))\\n\\nuser = {\\\"name\\\": \\\"Rai\\\", \\\"age\\\": 1}\\nuser[\\\"city\\\"] = \\\"Москва\\\"  # добавить ключ\\nfor key, value in user.items():\\n    print(key, value)\"\n      ]\n    },\n    {\n      \"id\": \"variable\",\n      \"title\": \"Что такое переменная\",\n      \"patterns\": [\n        \"что такое переменная\",\n        \"переменная\",\n        \"как создать переменную\",\n        \"типы данных\"\n      ],\n      \"answers\": [\n        \"Переменная — это имя, под которым хранится значение: x = 5, name = \\\"Rai\\\". Основные типы: int (целые), float (дробные), str (строки), bool (True/False), list (списки), dict (словари).\"\n      ]\n    },\n    {\n      \"id\": \"php\",\n      \"title\": \"Что такое PHP\",\n      \"patterns\": [\n        \"что такое php\",\n        \"php\",\n        \"язык php\",\n        \"зачем php\"\n      ],\n      \"answers\": [\n        \"PHP — серверный язык для сайтов. Код выполняется на хостинге и выдаёт HTML в браузер. На PHP работают WordPress и многие сайты на обычных хостингах.\\n\\n<?php\\necho \\\"Привет, мир!\\\";\"\n      ]\n    },\n    {\n      \"id\": \"html\",\n      \"title\": \"Что такое HTML\",\n      \"patterns\": [\n        \"что такое html\",\n        \"html\",\n        \"как сделать сайт\",\n        \"разметка страницы\",\n        \"теги html\"\n      ],\n      \"answers\": [\n        \"HTML — язык разметки веб-страниц. Он задаёт структуру: заголовки, текст, ссылки, картинки, формы.\\n\\n<!DOCTYPE html>\\n<html lang=\\\"ru\\\">\\n<head><meta charset=\\\"UTF-8\\\"><title>Сайт<\/title><\/head>\\n<body><h1>Привет!<\/h1><\/body>\\n<\/html>\"\n      ]\n    },\n    {\n      \"id\": \"css\",\n      \"title\": \"Что такое CSS\",\n      \"patterns\": [\n        \"что такое css\",\n        \"css\",\n        \"стили сайта\",\n        \"как изменить цвет на сайте\",\n        \"оформление страницы\"\n      ],\n      \"answers\": [\n        \"CSS отвечает за внешний вид страницы: цвета, шрифты, отступы, расположение.\\n\\nh1 { color: #ff2a2a; font-size: 32px; }\\n.box { display: flex; gap: 16px; }\"\n      ]\n    },\n    {\n      \"id\": \"javascript\",\n      \"title\": \"Что такое JavaScript\",\n      \"patterns\": [\n        \"что такое javascript\",\n        \"javascript\",\n        \"js\",\n        \"джаваскрипт\",\n        \"скрипты на сайте\"\n      ],\n      \"answers\": [\n        \"JavaScript — язык, который делает страницы интерактивными: кнопки, формы, запросы к серверу без перезагрузки.\\n\\ndocument.querySelector(\\\"button\\\").onclick = () => alert(\\\"Привет!\\\");\"\n      ]\n    },\n    {\n      \"id\": \"sql\",\n      \"title\": \"Что такое SQL\",\n      \"patterns\": [\n        \"что такое sql\",\n        \"sql\",\n        \"база данных\",\n        \"что такое бд\",\n        \"mysql\",\n        \"запрос к базе\"\n      ],\n      \"answers\": [\n        \"SQL — язык запросов к базам данных (MySQL, PostgreSQL, SQLite).\\n\\nSELECT name FROM users WHERE age > 18;\\nINSERT INTO users (name) VALUES ('Rai');\"\n      ]\n    },\n    {\n      \"id\": \"git\",\n      \"title\": \"Git и GitHub\",\n      \"patterns\": [\n        \"что такое git\",\n        \"что такое github\",\n        \"гитхаб\",\n        \"git\",\n        \"как залить на github\",\n        \"commit push\"\n      ],\n      \"answers\": [\n        \"Git — система контроля версий: хранит историю изменений кода. GitHub — сайт для хранения Git-репозиториев.\\n\\ngit add .\\ngit commit -m \\\"описание\\\"\\ngit push\"\n      ]\n    },\n    {\n      \"id\": \"api\",\n      \"title\": \"Что такое API\",\n      \"patterns\": [\n        \"что такое api\",\n        \"api\",\n        \"апи\",\n        \"интерфейс программирования\"\n      ],\n      \"answers\": [\n        \"API — это способ, которым одна программа общается с другой. Например, сайт Rteam отправляет мне POST-запрос с вопросом в JSON, а я возвращаю JSON с ответом.\"\n      ]\n    },\n    {\n      \"id\": \"json\",\n      \"title\": \"Что такое JSON\",\n      \"patterns\": [\n        \"что такое json\",\n        \"json\",\n        \"формат json\"\n      ],\n      \"answers\": [\n        \"JSON — текстовый формат обмена данными:\\n{\\\"name\\\": \\\"Rai\\\", \\\"version\\\": \\\"pro\\\", \\\"skills\\\": [\\\"calc\\\", \\\"time\\\"]}\\nВ Python: json.loads(строка) и json.dumps(объект).\"\n      ]\n    },\n    {\n      \"id\": \"http_errors\",\n      \"title\": \"Ошибки 404, 500 и другие\",\n      \"patterns\": [\n        \"ошибка 404\",\n        \"ошибка 500\",\n        \"что значит 404\",\n        \"что значит 500\",\n        \"ошибка 403\",\n        \"код ответа сервера\"\n      ],\n      \"answers\": [\n        \"Коды ответа сервера:\\n• 200 — всё хорошо;\\n• 301/302 — перенаправление;\\n• 403 — доступ запрещён;\\n• 404 — страница не найдена;\\n• 500 — ошибка в коде на сервере;\\n• 502/503 — сервер недоступен или перегружен.\"\n      ]\n    },\n    {\n      \"id\": \"hosting\",\n      \"title\": \"Сервер и хостинг\",\n      \"patterns\": [\n        \"что такое хостинг\",\n        \"что такое сервер\",\n        \"где разместить сайт\",\n        \"как запустить сайт\",\n        \"домен\"\n      ],\n      \"answers\": [\n        \"Хостинг — это место, где работает ваш сайт. Обычный хостинг подходит для PHP и HTML, для Python-приложений нужен хостинг с поддержкой Python (например, Render, Railway, PythonAnywhere или свой VPS). Домен — это адрес сайта, например rteam.info.\"\n      ]\n    },\n    {\n      \"id\": \"flask\",\n      \"title\": \"Что такое Flask\",\n      \"patterns\": [\n        \"что такое flask\",\n        \"flask\",\n        \"сайт на python\",\n        \"веб сервер на python\"\n      ],\n      \"answers\": [\n        \"Flask — лёгкий фреймворк для веб-приложений на Python. Я работаю именно на нём.\\n\\nfrom flask import Flask\\napp = Flask(__name__)\\n\\n@app.get(\\\"/\\\")\\ndef home():\\n    return \\\"Привет!\\\"\"\n      ]\n    },\n    {\n      \"id\": \"ai\",\n      \"title\": \"Что такое искусственный интеллект\",\n      \"patterns\": [\n        \"что такое ии\",\n        \"искусственный интеллект\",\n        \"нейросеть\",\n        \"что такое нейросеть\",\n        \"машинное обучение\",\n        \"ai\"\n      ],\n      \"answers\": [\n        \"Искусственный интеллект — программы, которые решают задачи, требующие «разума»: понимать текст, распознавать картинки, делать выводы. Я — простой ИИ: ищу смысл вопроса в своей базе знаний и применяю встроенные навыки.\"\n      ]\n    },\n    {\n      \"id\": \"algorithm\",\n      \"title\": \"Что такое алгоритм\",\n      \"patterns\": [\n        \"что такое алгоритм\",\n        \"алгоритм\",\n        \"алгоритмы\"\n      ],\n      \"answers\": [\n        \"Алгоритм — точная последовательность шагов для решения задачи. Например, найти максимум в списке: взять первое число, пройти по остальным и запоминать большее.\"\n      ]\n    },\n    {\n      \"id\": \"debug\",\n      \"title\": \"Как искать ошибки в коде\",\n      \"patterns\": [\n        \"как найти ошибку\",\n        \"не работает код\",\n        \"ошибка в коде\",\n        \"баг\",\n        \"отладка\",\n        \"debug\",\n        \"почему не работает\"\n      ],\n      \"answers\": [\n        \"Как искать ошибку:\\n1. Прочитайте текст ошибки целиком — там есть файл и строка.\\n2. Выведите значения переменных (print / console.log).\\n3. Упростите код до минимального примера, где ошибка повторяется.\\n4. Проверьте опечатки, отступы, скобки и кавычки.\\n5. Поищите текст ошибки в интернете.\"\n      ]\n    },\n    {\n      \"id\": \"learn_programming\",\n      \"title\": \"Как научиться программировать\",\n      \"patterns\": [\n        \"как научиться программировать\",\n        \"с чего начать программирование\",\n        \"как стать программистом\",\n        \"какой язык учить\",\n        \"хочу научиться кодить\"\n      ],\n      \"answers\": [\n        \"Совет: начните с Python — он простой и универсальный. Для сайтов параллельно изучите HTML, CSS и JavaScript. Главное — практика: каждый день пишите маленькие программы, делайте свои проекты и выкладывайте их на GitHub.\"\n      ]\n    },\n    {\n      \"id\": \"security\",\n      \"title\": \"Безопасность аккаунта\",\n      \"patterns\": [\n        \"как защитить аккаунт\",\n        \"надежный пароль\",\n        \"безопасность\",\n        \"взломали аккаунт\",\n        \"как не взломали\"\n      ],\n      \"answers\": [\n        \"Безопасность: используйте длинные уникальные пароли (могу сгенерировать — «сгенерируй пароль»), включите двухфакторную защиту, не переходите по подозрительным ссылкам и никому не сообщайте коды из SMS.\"\n      ]\n    },\n    {\n      \"id\": \"weather\",\n      \"title\": \"Погода\",\n      \"patterns\": [\n        \"какая погода\",\n        \"погода\",\n        \"прогноз погоды\",\n        \"будет ли дождь\"\n      ],\n      \"answers\": [\n        \"Я работаю без внешних сервисов и интернета, поэтому погоду не знаю. Посмотрите прогноз на погодном сайте.\"\n      ]\n    },\n    {\n      \"id\": \"news\",\n      \"title\": \"Новости\",\n      \"patterns\": [\n        \"новости\",\n        \"что случилось в мире\",\n        \"последние новости\"\n      ],\n      \"answers\": [\n        \"У меня нет доступа к интернету, поэтому свежих новостей я не знаю. Новости команды смотрите в блоге Rteam.\"\n      ]\n    },\n    {\n      \"id\": \"bot_feelings\",\n      \"title\": \"Чувства Rai\",\n      \"patterns\": [\n        \"ты живой\",\n        \"у тебя есть чувства\",\n        \"ты человек\",\n        \"ты робот\",\n        \"ты умный\"\n      ],\n      \"answers\": [\n        \"Я программа, а не человек, — чувств у меня нет. Но стараюсь быть полезным.\"\n      ]\n    },\n    {\n      \"id\": \"compliment\",\n      \"title\": \"Похвала\",\n      \"patterns\": [\n        \"ты молодец\",\n        \"ты классный\",\n        \"ты крутой\",\n        \"отлично\",\n        \"супер\",\n        \"круто\",\n        \"хорошо ответил\"\n      ],\n      \"answers\": [\n        \"Спасибо{name}! Приятно.\",\n        \"Рад стараться{name}!\"\n      ]\n    },\n    {\n      \"id\": \"insult\",\n      \"title\": \"Грубость\",\n      \"patterns\": [\n        \"ты тупой\",\n        \"дурак\",\n        \"ты глупый\",\n        \"бесполезный\"\n      ],\n      \"answers\": [\n        \"Жаль, что не помог. Попробуйте переформулировать вопрос — или выберите версию Pro Plus / Pro Sun.\"\n      ]\n    },\n    {\n      \"id\": \"ok\",\n      \"title\": \"Согласие\",\n      \"patterns\": [\n        \"ок\",\n        \"окей\",\n        \"ладно\",\n        \"понятно\",\n        \"ясно\",\n        \"хорошо\",\n        \"ага\",\n        \"да\"\n      ],\n      \"answers\": [\n        \"Хорошо. Если будут вопросы — пишите.\",\n        \"Понял. Что дальше?\"\n      ]\n    }\n  ]\n}\n"}</script>
+<script>
+(function () {
+  "use strict";
+
+  const CFG = window.RAI_CONFIG;
+  const params = new URLSearchParams(location.search);
+  if (params.get("api")) CFG.api = params.get("api");
+  if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
+  if (params.get("py")) CFG.pyBase = params.get("py");
+
+  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "brain.py", "knowledge.json"];
+
+  // Пока движок не загрузился — показываем версии из этого списка.
+  let VERSIONS = [
+    {id: "pro", name: "Rai Pro", features: ["поиск по смыслу", "калькулятор", "дата и время", "конвертер", "случайные числа"]},
+    {id: "pro-fast", name: "Rai Pro Fast", features: ["поиск по ключевым словам", "калькулятор", "дата и время"]},
+    {id: "pro-plus", name: "Rai Pro Plus", features: ["поиск по смыслу", "понимает опечатки", "все навыки", "помнит имя", "«подробнее» по теме", "подсказки похожих вопросов"]},
+    {id: "pro-sun", name: "Rai Pro Sun", features: ["всё из Pro Plus", "память фактов («запомни, что …»)", "несколько вопросов в одном сообщении", "подробные ответы"]}
+  ];
+  const SHORT = {"pro": "основная", "pro-fast": "быстрая", "pro-plus": "умнее", "pro-sun": "максимум"};
+  const EXAMPLES = [
+    "Что ты умеешь?", "Что такое Python?", "Сколько будет 15*4+2", "5 км в мили",
+    "Меня зовут Артём", "Расскажи шутку", "Сгенерируй пароль 16", "Как попасть в команду?"
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const log = $("log"), input = $("input"), send = $("send");
+
+  function store(key, value) {
+    try {
+      if (value === undefined) return localStorage.getItem(key);
+      localStorage.setItem(key, value);
+    } catch (e) { return null; }
+  }
+
+  let version = store("rai_version") || "pro";
+  let sessionId = store("rai_session");
+  if (!sessionId || !/^[A-Za-z0-9_.-]{1,64}$/.test(sessionId)) {
+    sessionId = "s" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    store("rai_session", sessionId);
+  }
+
+  function setStatus(state, text) {
+    $("status").dataset.state = state;
+    $("statusText").textContent = text;
+  }
+
+  // ---------- версии ----------
+  function renderVersions() {
+    if (!VERSIONS.some(v => v.id === version)) version = VERSIONS[0].id;
+    const box = $("versions");
+    box.textContent = "";
+    for (const v of VERSIONS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.id = "ver-" + v.id;
+      b.setAttribute("aria-pressed", String(v.id === version));
+      b.append(v.name.replace(/^Rai\s+/, ""));
+      const s = document.createElement("small");
+      s.textContent = SHORT[v.id] || v.id;
+      b.append(s);
+      b.addEventListener("click", () => {
+        version = v.id;
+        store("rai_version", version);
+        renderVersions();
+      });
+      box.append(b);
+    }
+    const cur = VERSIONS.find(v => v.id === version);
+    $("features").textContent = cur ? cur.name + ": " + (cur.features || []).join(" · ") : "";
+  }
+
+  // ---------- сообщения ----------
+  function addMessage(who, text, meta) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg " + who;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+    wrap.append(bubble);
+    if (meta) {
+      const m = document.createElement("div");
+      m.className = "meta";
+      m.textContent = meta;
+      wrap.append(m);
+    }
+    log.append(wrap);
+    log.scrollTop = log.scrollHeight;
+    return wrap;
+  }
+
+  function addChips() {
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    for (const q of EXAMPLES) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = q;
+      b.addEventListener("click", () => ask(q));
+      chips.append(b);
+    }
+    log.append(chips);
+  }
+
+  // ---------- движки ----------
+  function withTimeout(promise, ms) {
+    return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+  }
+
+  function serverEngine(root) {
+    return {
+      mode: "server",
+      async versions() {
+        const r = await fetch(root + "api/versions");
+        return (await r.json()).versions;
+      },
+      async ask(v, message) {
+        const r = await fetch(root + "api/chat", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({message: message, version: v, session_id: sessionId})
+        });
+        return await r.json();
+      }
+    };
+  }
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("Не удалось загрузить " + src));
+      document.head.append(s);
+    });
+  }
+
+  async function browserEngine() {
+    setStatus("loading", "Загружаю Python в браузер…");
+    const base = new URL(CFG.pyodide.replace(/\/?$/, "/"), location.href).href;
+    if (!window.loadPyodide) await loadScript(base + "pyodide.js");
+    const [pyodide, files] = await Promise.all([
+      window.loadPyodide(Object.assign({indexURL: base},
+        CFG.stdlib ? {stdLibURL: new URL(CFG.stdlib, location.href).href} : {})),
+      Promise.all(PY_FILES.map(async (name) => {
+        // Файлы, встроенные в страницу (rai.html, собранный build_standalone.py).
+        const embedded = document.getElementById("rai-files");
+        if (embedded) return [name, JSON.parse(embedded.textContent)[name]];
+        const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + name, {cache: "no-cache"});
+        if (!r.ok) throw new Error("Нет файла " + name + " (" + r.status + ")");
+        return [name, await r.text()];
+      }))
+    ]);
+    pyodide.FS.mkdirTree("/home/pyodide/rai");
+    for (const [name, text] of files) pyodide.FS.writeFile("/home/pyodide/rai/" + name, text);
+    pyodide.runPython(`
+import sys, json
+sys.path.insert(0, "/home/pyodide/rai")
+import brain, versions
+_rai = brain.Brain(learned_path="/tmp/learned.json")
+
+def rai_ask(version_id, message, session_id):
+    v = versions.resolve(version_id)
+    if v is None:
+        return json.dumps({"answer": "Неизвестная версия.", "error": "unknown_version"}, ensure_ascii=False)
+    try:
+        return json.dumps(_rai.answer(v, message, session_id), ensure_ascii=False)
+    except brain.RaiError as e:
+        return json.dumps({"answer": str(e), "error": "rai_error"}, ensure_ascii=False)
+
+def rai_versions():
+    return json.dumps([v.public() for v in versions.VERSIONS.values()], ensure_ascii=False)
+`);
+    const pyAsk = pyodide.globals.get("rai_ask");
+    const pyVersions = pyodide.globals.get("rai_versions");
+    return {
+      mode: "browser",
+      async versions() { return JSON.parse(pyVersions()); },
+      async ask(v, message) { return JSON.parse(pyAsk(v, message, sessionId)); }
+    };
+  }
+
+  async function startEngine() {
+    if (CFG.api) {
+      return serverEngine(CFG.api.replace(/\/+$/, "") + "/");
+    }
+    // Страницу отдаёт сам сервер Rai? Тогда рядом есть api/versions.
+    if (location.protocol.startsWith("http")) {
+      try {
+        const r = await withTimeout(fetch("api/versions", {cache: "no-store"}), 2500);
+        const ct = r.headers.get("content-type") || "";
+        if (r.ok && ct.includes("json")) {
+          const d = await r.json();
+          if (d && Array.isArray(d.versions)) return serverEngine("");
+        }
+      } catch (e) { /* нет сервера — запускаем в браузере */ }
+    }
+    return browserEngine();
+  }
+
+  const enginePromise = startEngine().then(async (engine) => {
+    try {
+      const list = await engine.versions();
+      if (Array.isArray(list) && list.length) { VERSIONS = list; renderVersions(); }
+    } catch (e) { /* остаёмся со встроенным списком */ }
+    setStatus("ready", engine.mode === "server" ? "Сервер Rai" : "Rai работает в браузере");
+    return engine;
+  }).catch((err) => {
+    setStatus("error", "Rai не запустился");
+    addMessage("rai", "Не получилось запустить Rai: " + err.message +
+      ". Проверьте интернет и обновите страницу.", "ошибка");
+    throw err;
+  });
+
+  // ---------- отправка ----------
+  let busy = false;
+  async function ask(text) {
+    text = (text || "").trim();
+    if (!text || busy) return;
+    busy = true;
+    send.disabled = true;
+    addMessage("user", text);
+    input.value = "";
+    autosize();
+    const current = VERSIONS.find(v => v.id === version) || {name: version};
+    const pending = addMessage("rai pending", "…", current.name);
+    try {
+      const engine = await enginePromise;
+      const t0 = performance.now();
+      const data = await engine.ask(version, text);
+      const ms = Math.max(1, Math.round(performance.now() - t0));
+      pending.classList.remove("pending");
+      pending.querySelector(".bubble").textContent = data.answer || "Результат не получен.";
+      pending.querySelector(".meta").textContent = (data.version_name || current.name) + " · " + ms + " мс";
+    } catch (e) {
+      pending.classList.remove("pending");
+      pending.querySelector(".bubble").textContent = "Не удалось получить ответ. Попробуйте ещё раз.";
+    } finally {
+      busy = false;
+      send.disabled = false;
+      log.scrollTop = log.scrollHeight;
+      input.focus();
+    }
+  }
+
+  function autosize() {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 160) + "px";
+  }
+
+  $("form").addEventListener("submit", (e) => { e.preventDefault(); ask(input.value); });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(input.value); }
+  });
+  input.addEventListener("input", autosize);
+
+  renderVersions();
+  addMessage("rai", "Привет! Я Rai — ассистент Rteam. Выберите версию сверху и задайте вопрос. Например:", "Rai");
+  addChips();
+})();
+</script>
+</body>
+</html>

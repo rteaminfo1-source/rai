@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Rai — Rteam</title>
+<title>Rai</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -13,7 +13,7 @@
                Не задан: если страницу отдаёт сам сервер Rai — используется он,
                иначе Rai запускается прямо в браузере (Python через Pyodide).
      pyBase  — откуда брать .py файлы в браузерном режиме (по умолчанию — рядом со страницей).
-     pyodide — откуда грузить Pyodide. */
+     pyodide — откуда грузить Pyodide (stdlib — свой адрес python_stdlib.zip, если нужно). */
   window.RAI_CONFIG = Object.assign({
     api: null,
     pyBase: "./",
@@ -332,11 +332,15 @@
 
   async function browserEngine() {
     setStatus("loading", "Загружаю Python в браузер…");
-    const base = CFG.pyodide.replace(/\/?$/, "/");
+    const base = new URL(CFG.pyodide.replace(/\/?$/, "/"), location.href).href;
     if (!window.loadPyodide) await loadScript(base + "pyodide.js");
     const [pyodide, files] = await Promise.all([
-      window.loadPyodide({indexURL: base}),
+      window.loadPyodide(Object.assign({indexURL: base},
+        CFG.stdlib ? {stdLibURL: new URL(CFG.stdlib, location.href).href} : {})),
       Promise.all(PY_FILES.map(async (name) => {
+        // Файлы, встроенные в страницу (rai.html, собранный build_standalone.py).
+        const embedded = document.getElementById("rai-files");
+        if (embedded) return [name, JSON.parse(embedded.textContent)[name]];
         const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + name, {cache: "no-cache"});
         if (!r.ok) throw new Error("Нет файла " + name + " (" + r.status + ")");
         return [name, await r.text()];
