@@ -340,6 +340,7 @@ class HttpTest(unittest.TestCase):
         html = build_standalone.build()
         self.assertNotIn('src="code.js"', html)
         self.assertIn("window.RaiCode", html)
+        self.assertIn("window.RaiNeuro", html)  # нейросеть в браузере встроена в страницу
         scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.S)
         # «<!--» внутри <script> ломает разбор страницы
         self.assertFalse(any("<!--" in s for s in scripts))

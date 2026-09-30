@@ -976,9 +976,87 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     scheduleCheck();
     return true;
   }
+  // ---------------------------------------------------------------- нейросеть в Code
+  const NEURO_TASK = {
+    fix: "Найди и исправь все ошибки в этом коде. Верни весь исправленный файл.",
+    explain: "Объясни по-русски, что делает этот код, по шагам и простыми словами. Код целиком не повторяй.",
+    comment: "Добавь понятные комментарии на русском к этому коду. Верни весь файл с комментариями.",
+    edit: "Внеси изменение в этот файл. Верни весь файл целиком."
+  };
+  const LANG_EXT = {python: "py", py: "py", javascript: "js", js: "js", typescript: "ts", ts: "ts", html: "html", css: "css", php: "php",
+    json: "json", cpp: "cpp", "c++": "cpp", c: "c", java: "java", csharp: "cs", cs: "cs", go: "go", rust: "rs", rs: "rs", sql: "sql",
+    bash: "sh", sh: "sh", kotlin: "kt", kt: "kt", swift: "swift", ruby: "rb", lua: "lua", dart: "dart"};
+  const CHANGE_WORDS = /измени|добав|исправ|переделай|убери|удали|поменяй|допиши|улучши|сделай(?! новую| новый)|перепиши|замени|ускорь|оптимизируй/;
+  function neuroFileName(block) {
+    const l = (block.lang || "").toLowerCase();
+    if (l === "html" || /<(?:!doctype|html|body)\b/i.test(block.code)) return "index.html";
+    if (l === "java") return "Main.java";
+    return "main." + (LANG_EXT[l] || (/^\s*(def |import |print\()/m.test(block.code) ? "py" : "txt"));
+  }
+  async function neuroAi(action, prompt) {
+    const f = active();
+    showPane("ai");
+    const me = aiMsg("me");
+    me.textContent = prompt || ACT_LABEL[action] + " · " + f.name;
+    const pend = aiMsg("rai", `<span class="typing" aria-label="Нейросеть думает"><span></span><span></span><span></span></span>`);
+    const stopBtn = document.createElement("button");
+    stopBtn.type = "button"; stopBtn.className = "tb"; stopBtn.textContent = "Остановить";
+    stopBtn.addEventListener("click", () => H.neuro.stop());
+    // Работаем с открытым файлом, если просят изменить его (или это кнопки «Исправить», «Объяснить», «Комментарии»)
+    const withFile = !!f.text.trim() && (action !== "generate" || CHANGE_WORDS.test((prompt || "").toLowerCase()));
+    const task = action === "generate" ? (withFile ? NEURO_TASK.edit + " Задание: " + prompt : prompt) : NEURO_TASK[action];
+    const content = (withFile ? `Файл ${f.name}:\n\`\`\`${lang()}\n${f.text.slice(0, 14000)}\n\`\`\`\n\n` : "") + task;
+    const target = f.name;
+    let text = "", queued = false, done = false;
+    const paint = () => { queued = false; if (done) return; pend.innerHTML = `<div class="md">${H.md(text)}</div>`; pend.append(stopBtn); el.cAiLog.scrollTop = el.cAiLog.scrollHeight; };
+    try {
+      text = await H.neuro.chat([{role: "user", content: content}], (full) => { text = full; if (!queued) { queued = true; requestAnimationFrame(paint); } },
+                                {system: H.neuro.CODE_SYSTEM, temperature: 0.2, maxTokens: 3500});
+    } catch (e) {
+      done = true;
+      pend.innerHTML = H.md("Нейросеть не ответила: " + ((e && e.message) || e));
+      return;
+    }
+    done = true;  // последняя отрисовка по кадру не должна затереть кнопки ниже
+    const blocks = H.neuro.codeBlocks(text);
+    const main = blocks.sort((a, b) => b.code.length - a.code.length)[0];
+    pend.innerHTML = `<div class="md">${H.md(main && action !== "explain" ? text.replace(/```[\s\S]*?(?:```|$)/, "*(код — ниже)*") : text)}</div>`;
+    if (!main || action === "explain") return;
+    const box = document.createElement("div");
+    const l = FAMILY[main.lang] ? main.lang : langOf(neuroFileName(main));
+    box.innerHTML = `<div class="codeblock ai-code"><div class="codehead"><span>${esc(withFile ? target : neuroFileName(main))}</span></div>` +
+      `<pre><code>${highlight(main.code, l)}</code></pre></div>`;
+    const row = document.createElement("div");
+    row.className = "row";
+    const btn = (label, fn, red) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "tb" + (red ? " run" : ""); b.textContent = label;
+      b.addEventListener("click", fn);
+      row.append(b);
+    };
+    if (withFile) {
+      btn("Применить к " + target, (e) => {
+        if (!applyCode(target, main.code)) return;
+        e.currentTarget.textContent = "Применено"; e.currentTarget.disabled = true;
+        if (langOf(target) === "html") run();
+      }, true);
+    }
+    btn((withFile ? "Новым файлом " : "Создать файл ") + neuroFileName(main), (e) => {
+      const name = addFile(neuroFileName(main), main.code);
+      e.currentTarget.textContent = "Создан: " + name; e.currentTarget.disabled = true;
+      if (langOf(name) === "html") run();
+      else if (["python", "javascript"].includes(langOf(name))) H.toast("Готово — нажмите «Запустить»");
+    }, !withFile);
+    btn("Копировать", () => H.copy(main.code));
+    pend.append(box, row);
+    el.cAiLog.scrollTop = el.cAiLog.scrollHeight;
+  }
+
   async function ai(action, prompt) {
     const f = active();
     if (action !== "generate" && !f.text.trim()) { H.toast("Файл пустой — сначала напишите код"); return; }
+    // Нейросеть включена — пишет и правит код сама; «Проверить» остаётся за быстрым анализатором
+    if (H.neuro && H.neuro.ready() && action !== "check") return neuroAi(action === "edit" ? "generate" : action, prompt);
     showPane("ai");
     const me = aiMsg("me");
     me.textContent = prompt || ACT_LABEL[action] + " · " + f.name;
@@ -1095,6 +1173,7 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     };
     el.cAiForm.addEventListener("submit", (e) => { e.preventDefault(); send(); });
     aiInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+    if (window.RaiCode && window.RaiCode.neuroChanged) setTimeout(window.RaiCode.neuroChanged, 0);
     aiMsg("rai", H.md("Я — ИИ-помощник Rai для кода. **Проверю** и найду ошибки, **исправлю**, **объясню** по строкам, " +
       "**добавлю комментарии** или **напишу программу** по описанию. Горячие клавиши: `Ctrl+Enter` — запуск, " +
       "`Ctrl+/` — закомментировать, `Tab` / `Shift+Tab` — отступ."));
@@ -1104,6 +1183,12 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     init: init,
     addFile: addFile,
     engineReady: () => { if (el.ta) scheduleCheck(); },
+    neuroChanged: () => {
+      if (!el.cAiInput) return;
+      el.cAiInput.placeholder = H.neuro && H.neuro.ready()
+        ? "Нейросеть напишет что угодно: «игра гонки на canvas», «бот для Telegram на Python», «добавь в этот код счёт очков»…"
+        : "Что написать? Сайт кофейни в тёмных тонах, игра тетрис, погода, функция среднего… Для сайта: «добавь раздел цены»";
+    },
     focus: () => { if (el.ta) { refresh(); el.ta.focus(); } },
     highlight: highlight,
     langOf: langOf

@@ -300,6 +300,38 @@
   .shots img { height: 120px; max-width: 220px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); cursor: zoom-in; background: #000; }
   .shots video { max-width: 100%; width: 420px; border-radius: 10px; border: 1px solid var(--line); background: #000; }
   .shots .vnote { font-size: 12.5px; color: var(--muted); }
+  /* нейросеть */
+  .neuro-btn { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 7px 12px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); font: 600 12.5px/1 var(--font-body); color: var(--fg); max-width: 46%; }
+  .neuro-btn #neuroText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .neuro-btn:hover { border-color: var(--red); }
+  .neuro-btn .nd { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .neuro-btn[data-state="loading"] .nd { background: var(--warn); animation: blink 1s infinite; }
+  .neuro-btn[data-state="ready"] { border-color: #1f6e43; }
+  .neuro-btn[data-state="ready"] .nd { background: var(--ok); }
+  .neuro-btn[data-state="error"] .nd { background: var(--red-hi); }
+  dialog#neuroDialog { border: 1px solid var(--line); border-radius: 16px; padding: 0; background: var(--panel); color: var(--fg); width: min(520px, calc(100vw - 24px)); }
+  dialog#neuroDialog::backdrop { background: rgba(0, 0, 0, .7); }
+  .neuro-card { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .neuro-card p { margin: 0; font-size: 14px; line-height: 1.5; }
+  .neuro-head { display: flex; align-items: center; justify-content: space-between; }
+  .neuro-head h2 { margin: 0; font: 800 19px/1.2 var(--font-display); }
+  .neuro-models { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .neuro-models label { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; font-size: 13px; }
+  .neuro-models label:has(input:checked) { border-color: var(--red); background: var(--red-soft); }
+  .neuro-models input { position: absolute; opacity: 0; pointer-events: none; }
+  .neuro-models b { font-size: 14px; }
+  .neuro-models span { color: var(--muted); }
+  .neuro-progress { height: 8px; border-radius: 99px; background: var(--bg); overflow: hidden; border: 1px solid var(--line); }
+  .neuro-progress div { height: 100%; width: 0; background: var(--red); transition: width .3s; }
+  .neuro-status { color: var(--muted); min-height: 1.2em; }
+  .neuro-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .neuro-actions .btn { padding: 10px 16px; font-size: 14px; font-weight: 600; }
+  .neuro-note { color: var(--muted); font-size: 12.5px !important; }
+  .neuro-tip { display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer; padding: 12px 14px; border-radius: 12px;
+    border: 1px solid var(--red); background: linear-gradient(135deg, rgba(225, 6, 0, .18), rgba(240, 178, 60, .08)); }
+  .neuro-tip small { color: var(--muted); font-size: 12.5px; }
+  #send.stop { background: var(--panel-2); border-color: var(--red); color: var(--red-hi); }
   #send { background: var(--red); border-color: var(--red); color: var(--ink); }
   #send:hover { background: var(--red-hi); }
   #send:disabled { opacity: .5; cursor: progress; }
@@ -329,6 +361,8 @@
     .round.side { width: 40px; height: 44px; }
     form { gap: 6px; }
     .status { max-width: 38%; }
+    .neuro-btn { padding: 7px 9px; }
+    .neuro-btn #neuroText { max-width: 90px; }
     .status #statusText { display: none; }
     .hint { display: none; }
   }
@@ -472,6 +506,8 @@
         <button type="button" role="tab" id="modeSlides" aria-selected="false"><svg class="i"><use href="#i-full"/></svg>Слайды</button>
       </div>
       <span class="spacer"></span>
+      <button id="neuroBtn" class="neuro-btn" type="button" data-state="off" title="Нейросеть в браузере: сама пишет код и отвечает на любые вопросы">
+        <span class="nd" aria-hidden="true"></span><span id="neuroText">Нейросеть</span></button>
       <div class="status" id="status" data-state="loading" role="status" aria-live="polite">
         <span class="dot" aria-hidden="true"></span><span id="statusText">Подключение…</span>
       </div>
@@ -513,10 +549,29 @@
   </main>
 </div>
 <div id="toast" hidden role="status"></div>
+<dialog id="neuroDialog" aria-labelledby="neuroTitle">
+  <div class="neuro-card">
+    <div class="neuro-head"><h2 id="neuroTitle">Нейросеть в браузере</h2>
+      <button class="icon-btn" type="button" id="neuroClose" aria-label="Закрыть"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <p>С нейросетью Rai <b>сам пишет код</b> — сайты, игры, программы на любом языке — и отвечает на любые вопросы.
+      Это открытая модель <b>Qwen2.5-Coder</b>: работает прямо на вашем компьютере, без API и ключей, ваши сообщения никуда не уходят.
+      Модель скачивается один раз, дальше берётся из кэша браузера.</p>
+    <div class="neuro-models" id="neuroModels" role="radiogroup" aria-label="Модель"></div>
+    <div class="neuro-progress" id="neuroProgress" hidden><div id="neuroBar"></div></div>
+    <p class="neuro-status" id="neuroStatus" role="status"></p>
+    <div class="neuro-actions">
+      <button class="btn red" type="button" id="neuroOn">Включить</button>
+      <button class="btn" type="button" id="neuroOff">Выключить</button>
+    </div>
+    <p class="neuro-note">Нужен Chrome или Edge с WebGPU (компьютер или новый Android) и свободная видеопамять.
+      Погоду, курсы валют, перевод, картинки и презентации по-прежнему делает движок Rai — там нужны точные данные.</p>
+  </div>
+</dialog>
 
 <script src="code.js"></script>
 <script src="slides.js"></script>
 <script src="screen.js"></script>
+<script src="neuro.js"></script>
 <script>
 (function () {
   "use strict";
@@ -902,6 +957,15 @@
       `Можно писать или говорить голосом. Для программирования — вкладка <b>Code</b> сверху.</p>` +
       `<div class="examples"></div>`;
     const ex = w.querySelector(".examples");
+    if (window.RaiNeuro && !window.RaiNeuro.ready()) {
+      // Подсказка: с нейросетью Rai сам пишет любой код и отвечает на любые вопросы
+      const tip = document.createElement("button");
+      tip.type = "button";
+      tip.className = "neuro-tip";
+      tip.innerHTML = `<b>🧠 Включить нейросеть</b><small>Rai сам напишет любой код и ответит на любой вопрос. Работает в браузере, без API.</small>`;
+      tip.addEventListener("click", () => $("neuroBtn").click());
+      w.insertBefore(tip, ex);
+    }
     for (const [q, note] of EXAMPLES) {
       const b = document.createElement("button");
       b.type = "button";
@@ -1531,10 +1595,9 @@ def rai_code(action, code, lang, prompt):
       const engine = await enginePromise;
       await new Promise((r) => setTimeout(r, 40));  // успеть показать «печатает…»
       const t0 = performance.now();
-      let message = text;
+      let message = text, ocr = "";
       if (shots.length) {
         const bubble = pending.querySelector(".bubble");
-        let ocr = "";
         try {
           ocr = await screen.readAll(shots, (step) => { bubble.textContent = step; });
         } catch (e) {
@@ -1543,10 +1606,17 @@ def rai_code(action, code, lang, prompt):
         bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
         message = text + "\n[[screen]]\n" + ocr;
       }
-      const data = await engine.ask(chat.version, message, chat.id, history);
-      const ms = Math.max(1, Math.round(performance.now() - t0));
-      reply = {role: "rai", text: data.answer || "Результат не получен.", attachments: data.attachments || [],
-               meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс"};
+      const neuro = window.RaiNeuro && window.RaiNeuro.ready();
+      // Погода, курсы, перевод, картинки, презентации, калькулятор — у движка Rai (точные данные);
+      // разговор, вопросы, код, сайты и игры — у нейросети, если она включена.
+      const data = shots.length && neuro ? null : await engine.ask(chat.version, message, chat.id, history);
+      if (neuro && (!data || !isToolAnswer(data))) {
+        reply = await neuroAnswer(pending, history, shots.length ? `${text}\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""` : text, t0);
+      } else {
+        const ms = Math.max(1, Math.round(performance.now() - t0));
+        reply = {role: "rai", text: data.answer || "Результат не получен.", attachments: data.attachments || [],
+                 meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс"};
+      }
     } catch (e) {
       const ocrFail = e && String(e.message).startsWith("ocr:");
       reply = {role: "rai", text: ocrFail
@@ -1564,6 +1634,81 @@ def rai_code(action, code, lang, prompt):
     input.focus();
   }
 
+  // ---------------------------------------------------------------- нейросеть в чате
+  const TOOL_INTENTS = new Set(["weather", "currency", "translate", "image", "slides", "archive", "skill", "web", "set_name", "get_name", "memory"]);
+  function isToolAnswer(data) {
+    const intents = Array.isArray(data.intent) ? data.intent : [data.intent];
+    return intents.every((i) => TOOL_INTENTS.has(i)) || (data.attachments || []).some((a) => a.type === "slides" || a.type === "image" || a.type === "archive");
+  }
+  function sendAsStop(on) {
+    sendBtn.classList.toggle("stop", on);
+    sendBtn.disabled = !on && busy;
+    sendBtn.innerHTML = icon(on ? "stop" : "send");
+    sendBtn.setAttribute("aria-label", on ? "Остановить ответ" : "Отправить");
+  }
+  async function neuroAnswer(pending, history, prompt, t0) {
+    const bubble = pending.querySelector(".bubble");
+    pending.classList.remove("pending");
+    bubble.classList.add("md");
+    const msgs = history.slice(-8).map((m) => ({role: m.role, content: String(m.content || "").slice(0, 3000)}));
+    msgs.push({role: "user", content: prompt});
+    let queued = false, latest = "", done = false;
+    const paint = () => { queued = false; if (done) return; bubble.innerHTML = renderMarkdown(latest); log.scrollTop = log.scrollHeight; };
+    sendAsStop(true);
+    let text = "";
+    try {
+      text = await window.RaiNeuro.chat(msgs, (full) => { latest = full; if (!queued) { queued = true; requestAnimationFrame(paint); } });
+    } finally {
+      done = true;
+      sendAsStop(false);
+      sendBtn.disabled = true;
+    }
+    const secs = ((performance.now() - t0) / 1000).toFixed(1).replace(".", ",");
+    const attachments = [];
+    // Готовая страница или игра — карточка с «Просмотром» и кнопкой «Открыть в Code»
+    const page = window.RaiNeuro.codeBlocks(text).find((b) => (b.lang === "html" || !b.lang) && /<(?:!doctype|html|body)\b/i.test(b.code));
+    if (page) {
+      attachments.push({type: "code", lang: "html", code: page.code, filename: "index.html", title: "Страница от нейросети", site: true});
+      text = text.replace(/```(?:html)?[^\n]*\n[\s\S]*?(?:```|$)/i, "*Код страницы — в карточке ниже: «Просмотр», «Открыть в Code», «Скачать».*");
+    }
+    return {role: "rai", text: text.trim() || "Нейросеть не ответила — попробуйте ещё раз.", attachments: attachments,
+            meta: "Нейросеть " + (window.RaiNeuro.status().label || "") + " · " + secs + " с"};
+  }
+
+  // Кнопка и окно нейросети
+  function renderNeuroModels() {
+    const box = $("neuroModels");
+    const chosen = window.RaiNeuro.status().model || window.RaiNeuro.saved() || "normal";
+    box.innerHTML = Object.entries(window.RaiNeuro.MODELS).map(([key, m]) =>
+      `<label><input type="radio" name="neuroModel" value="${key}"${key === chosen ? " checked" : ""}>` +
+      `<b>${esc(m.name)}${key === "normal" ? " ✦" : ""}</b><span>${esc(m.label)}</span><span>скачать ${esc(m.size)} · видеопамять ${esc(m.memory)}</span></label>`).join("");
+  }
+  function initNeuro() {
+    const N = window.RaiNeuro;
+    if (!N) { $("neuroBtn").hidden = true; return; }
+    const dialog = $("neuroDialog");
+    N.onChange((st) => {
+      $("neuroBtn").dataset.state = st.state;
+      $("neuroText").textContent = st.state === "ready" ? (st.label || "Нейросеть") : st.state === "loading" ? Math.round((st.progress || 0) * 100) + "%" : "Нейросеть";
+      $("neuroProgress").hidden = st.state !== "loading";
+      $("neuroBar").style.width = Math.round((st.progress || 0) * 100) + "%";
+      $("neuroStatus").textContent = st.state === "off" ? "" : st.text;
+      $("neuroOn").disabled = st.state === "loading";
+      $("neuroOn").textContent = st.state === "ready" ? "Сменить модель" : "Включить";
+      $("neuroOff").hidden = st.state === "off";
+      if (window.RaiCode && window.RaiCode.neuroChanged) window.RaiCode.neuroChanged();
+    });
+    $("neuroBtn").addEventListener("click", () => { renderNeuroModels(); dialog.showModal ? dialog.showModal() : dialog.setAttribute("open", ""); });
+    $("neuroClose").addEventListener("click", () => dialog.close());
+    $("neuroOn").addEventListener("click", () => {
+      const key = (dialog.querySelector("input[name=neuroModel]:checked") || {}).value || "normal";
+      N.enable(key).then(() => toast("Нейросеть включена — пишите что угодно")).catch((e) => toast("Нейросеть не запустилась: " + e.message));
+    });
+    $("neuroOff").addEventListener("click", () => { N.disable(); toast("Нейросеть выключена — отвечает движок Rai"); });
+    const saved = N.saved();
+    if (saved) N.enable(saved).catch(() => { /* причина видна в окне нейросети */ });
+  }
+
   function autosize() {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 180) + "px";
@@ -1578,9 +1723,13 @@ def rai_code(action, code, lang, prompt):
     const item = $("chatList").querySelector(".chat-item.active");
     if (item) { document.body.classList.add("menu-open"); startRename(item, current()); }
   });
-  $("form").addEventListener("submit", (e) => { e.preventDefault(); ask(input.value); });
+  $("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (sendBtn.classList.contains("stop")) { window.RaiNeuro.stop(); return; }
+    ask(input.value);
+  });
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(input.value); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!sendBtn.classList.contains("stop")) ask(input.value); }
   });
   input.addEventListener("input", autosize);
   log.addEventListener("click", (e) => {
@@ -1694,7 +1843,8 @@ def rai_code(action, code, lang, prompt):
       download: download,
       zip: makeZip,
       copy: (text) => copyRich(text, "<pre>" + esc(text) + "</pre>", document.body),
-      pyodideSources: pyodideSources
+      pyodideSources: pyodideSources,
+      neuro: window.RaiNeuro
     });
     return true;
   }
@@ -1739,6 +1889,7 @@ def rai_code(action, code, lang, prompt):
   window.addEventListener("hashchange", () => setMode(location.hash.slice(1) || "chat"));
 
   initAccount();
+  initNeuro();
   if (window.RaiScreen) {
     window.RaiScreen.init({input: input, dropZone: $("composer"), toast: toast, download: download, icon: icon});
   }
