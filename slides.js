@@ -5,8 +5,8 @@
 
   const STORE = "rai_slides_v1";
   const KINDS = {
-    title: "Обложка", bullets: "Пункты", fact: "Факт", agenda: "План", summary: "Итоги", code: "Код",
-    table: "Таблица", photo: "Фото", end: "Финал"
+    title: "Обложка", bullets: "Пункты", fact: "Факт", agenda: "План", summary: "Итоги", stats: "Цифры",
+    timeline: "Хронология", quote: "Цитата", compare: "Сравнение", code: "Код", table: "Таблица", photo: "Фото", end: "Финал"
   };
   const TRANSITIONS = {fade: "Растворение", slide: "Сдвиг", zoom: "Приближение", wipe: "Шторка", rise: "Подъём"};
   const PRESETS = [
@@ -81,6 +81,7 @@
   <select id="slDecks" aria-label="Мои презентации"></select>
   <span class="spacer"></span>
   <button class="tb" id="slShow" type="button" title="Показ на весь экран (F5)">${ICON("full")}<span class="lbl">Показ</span></button>
+  <button class="tb" id="slPptx" type="button" title="Скачать для PowerPoint, Google Slides, Keynote">${ICON("deck")}<span class="lbl">PowerPoint</span></button>
   <button class="tb" id="slHtml" type="button" title="Скачать одним HTML-файлом">${ICON("down")}<span class="lbl">HTML</span></button>
   <button class="tb" id="slZip" type="button" title="Скачать ZIP с картинками">${ICON("zip")}<span class="lbl">ZIP</span></button>
   <button class="tb" id="slPdf" type="button" title="Печать или сохранение в PDF">${ICON("book")}<span class="lbl">PDF</span></button>
@@ -102,7 +103,7 @@
   </div>
   <aside class="sl-side" id="slSide" aria-label="Настройки слайда"></aside>
 </div>`;
-    for (const id of ["slTopic", "slColors", "slMake", "slDecks", "slShow", "slHtml", "slZip", "slPdf", "slThumbs", "slStageBox",
+    for (const id of ["slTopic", "slColors", "slMake", "slDecks", "slShow", "slPptx", "slHtml", "slZip", "slPdf", "slThumbs", "slStageBox",
                       "slPrev", "slNext", "slCount", "slUp", "slDown", "slDup", "slDel", "slUndo", "slSide"]) {
       el[id] = root.querySelector("#" + id);
     }
@@ -118,7 +119,7 @@
     renderDecks();
     const d = deck();
     const has = !!(d && d.slides.length);
-    for (const id of ["slShow", "slHtml", "slZip", "slPdf", "slPrev", "slNext", "slUp", "slDown", "slDup", "slDel"]) el[id].disabled = !has;
+    for (const id of ["slShow", "slPptx", "slHtml", "slZip", "slPdf", "slPrev", "slNext", "slUp", "slDown", "slDup", "slDel"]) el[id].disabled = !has;
     if (!d) {
       el.slThumbs.innerHTML = "";
       el.slStageBox.innerHTML = `<div class="sl-empty"><b>Здесь делаются презентации.</b><br>Напишите тему сверху и, если хотите, цвета —
@@ -181,6 +182,23 @@
   // ---------------------------------------------------------------- правая панель
   const lines = (a) => (a || []).join("\n");
   const unlines = (t) => t.split("\n").map((x) => x.trim()).filter(Boolean);
+  // «значение — подпись» для цифр и хронологии
+  const PAIR = {stats: ["value", "label"], timeline: ["date", "text"]};
+  const pairText = (x) => typeof x === "string" ? x : [x && x[0], x && x[1]].join(" — ");
+  function toPairs(list, keys) {
+    return (list || []).map((x) => {
+      if (x && typeof x === "object" && !Array.isArray(x)) {
+        if (keys[0] in x || keys[1] in x) return {[keys[0]]: String(x[keys[0]] || ""), [keys[1]]: String(x[keys[1]] || "")};
+        const v = Object.values(x);
+        return {[keys[0]]: String(v[0] || ""), [keys[1]]: String(v[1] || "")};
+      }
+      const t = String(x || ""), m = t.match(/^\s*(.+?)\s+[—–-]\s+(.+)$/) || t.match(/^\s*([\d.,]+\s*[%+×x]?|[\d.,]+\s*\S+)\s+(.+)$/);
+      return m ? {[keys[0]]: m[1].trim(), [keys[1]]: m[2].trim()} : {[keys[0]]: "", [keys[1]]: t.trim()};
+    }).filter((x) => x[keys[0]] || x[keys[1]]);
+  }
+  function plainItems(list) {
+    return (list || []).map((x) => x && typeof x === "object" ? Object.values(x).filter(Boolean).join(" — ") : String(x || "")).filter(Boolean);
+  }
   function field(label, html) { return `<label class="sl-field">${label}${html}</label>`; }
   function renderSide() {
     const d = deck(), s = d.slides[k], t = d.theme;
@@ -190,6 +208,19 @@
     if (s.kind === "bullets") form += field("Пункты — каждый с новой строки", `<textarea data-f="bullets">${esc(lines(s.bullets))}</textarea>`);
     if (s.kind === "fact") form += field("Текст факта", `<textarea data-f="text">${esc(s.text)}</textarea>`);
     if (s.kind === "agenda" || s.kind === "summary") form += field("Пункты — каждый с новой строки", `<textarea data-f="items">${esc(lines(s.items))}</textarea>`);
+    if (PAIR[s.kind]) form += field(s.kind === "stats" ? "Цифры: «число — подпись», каждая с новой строки" : "События: «дата — что было», каждое с новой строки",
+      `<textarea data-f="pairs">${esc((s.items || []).map((x) => pairText([x[PAIR[s.kind][0]], x[PAIR[s.kind][1]]])).join("\n"))}</textarea>`);
+    if (s.kind === "quote") {
+      form += field("Цитата", `<textarea data-f="text">${esc(s.text)}</textarea>`);
+      form += field("Автор", `<input data-f="author" value="${esc(s.author)}" maxlength="120">`);
+    }
+    if (s.kind === "compare") {
+      for (const [key, name] of [["left", "Слева"], ["right", "Справа"]]) {
+        const c = s[key] || {};
+        form += field(name + ": заголовок", `<input data-f="${key}.title" value="${esc(c.title)}" maxlength="80">`);
+        form += field(name + ": пункты — каждый с новой строки", `<textarea data-f="${key}.items">${esc(lines(c.items))}</textarea>`);
+      }
+    }
     if (s.kind === "code") form += field("Код", `<textarea data-f="code" style="font-family:var(--font-mono);min-height:150px">${esc(s.code)}</textarea>`);
     if (s.kind === "table") form += field("Таблица: ячейки через «|», первая строка — заголовки",
       `<textarea data-f="rows">${esc((s.rows || []).map((r) => r.join(" | ")).join("\n"))}</textarea>`);
@@ -198,7 +229,7 @@
       form += field("Адрес фото (https://…)", `<input data-f="photo" value="${esc(s.photo)}" inputmode="url">`);
     }
     if (s.kind === "bullets") form += field("Картинка", `<select data-f="side"><option value="">без картинки</option><option value="right"${s.image && s.side !== "left" ? " selected" : ""}>справа</option><option value="left"${s.image && s.side === "left" ? " selected" : ""}>слева</option></select>`);
-    if (s.kind === "fact" || s.kind === "title" || s.kind === "end") form += field("Картинка", `<select data-f="pic"><option value="">без картинки</option><option value="1"${s.image ? " selected" : ""}>есть</option></select>`);
+    if (s.kind === "fact" || s.kind === "title" || s.kind === "end" || s.kind === "quote") form += field("Картинка", `<select data-f="pic"><option value="">без картинки</option><option value="1"${s.image ? " selected" : ""}>есть</option></select>`);
     form += field("Переход", `<select data-f="transition">${Object.entries(TRANSITIONS).map(([v, n]) => `<option value="${v}"${v === (s.transition || "fade") ? " selected" : ""}>${n}</option>`).join("")}</select>`);
     const picRow = s.image ? `<div class="sl-row"><button class="tb" type="button" data-a="newpic">Другая картинка</button></div>` : "";
     el.slSide.innerHTML = `
@@ -229,6 +260,8 @@
         const s = d.slides[k], f = inp.dataset.f, v = inp.value;
         if (inp.tagName === "SELECT") snapshot();
         if (f === "bullets" || f === "items") s[f] = unlines(v);
+        else if (f === "pairs") s.items = toPairs(unlines(v), PAIR[s.kind]);
+        else if (f.includes(".")) { const [key, sub] = f.split("."); s[key] = s[key] || {title: "", items: []}; s[key][sub] = sub === "items" ? unlines(v) : v; }
         else if (f === "rows") s.rows = unlines(v).map((r) => r.split("|").map((c) => c.trim()));
         else if (f === "side") { if (!v) { delete s.image; delete s.side; } else { s.side = v; if (!s.image) newPicture(s); } }
         else if (f === "pic") { if (!v) delete s.image; else if (!s.image) newPicture(s); }
@@ -264,9 +297,21 @@
   }
   /** Поля, которые нужны слайду нового типа. */
   function fillKind(s) {
-    if (s.kind === "bullets" && !Array.isArray(s.bullets)) s.bullets = s.items || (s.text ? [s.text] : []);
-    if ((s.kind === "agenda" || s.kind === "summary") && !Array.isArray(s.items)) s.items = s.bullets || [];
-    if (s.kind === "fact" && !s.text) s.text = (s.bullets || s.items || [])[0] || "";
+    const base = () => Array.isArray(s.bullets) && s.bullets.length ? s.bullets : plainItems(s.items).length ? plainItems(s.items)
+      : s.left || s.right ? plainItems([].concat((s.left || {}).items || [], (s.right || {}).items || [])) : (s.text ? [s.text] : []);
+    if (s.kind === "bullets" && !Array.isArray(s.bullets)) s.bullets = base();
+    if (s.kind === "agenda" || s.kind === "summary") s.items = plainItems(Array.isArray(s.items) ? s.items : base());
+    if (PAIR[s.kind]) {
+      const items = toPairs(Array.isArray(s.items) && s.items.length ? s.items : base(), PAIR[s.kind]);
+      s.items = items.length ? items : s.kind === "stats" ? [{value: "90%", label: "подпись"}, {value: "3×", label: "подпись"}]
+        : [{date: "2020", text: "событие"}, {date: "2024", text: "событие"}];
+    }
+    if (s.kind === "compare" && !s.left) {
+      const all = base(), half = Math.ceil(all.length / 2);
+      s.left = {title: "Было", items: all.slice(0, half)};
+      s.right = {title: "Стало", items: all.slice(half)};
+    }
+    if ((s.kind === "fact" || s.kind === "quote") && !s.text) s.text = base()[0] || "";
     if (s.kind === "table" && !Array.isArray(s.rows)) s.rows = [["Столбец 1", "Столбец 2"], ["", ""]];
     if (s.kind === "code" && s.code == null) s.code = "";
   }
@@ -372,7 +417,8 @@
     el.slMake.querySelector(".lbl").textContent = "Собираю…";
     try {
       const colors = el.slColors.value.trim();
-      const data = await H.ask(`сделай презентацию про ${topic}${colors ? " " + (/^(в|во)\s|тон|цвет|#/.test(colors) ? colors : "в цветах " + colors) : ""}`);
+      const data = await H.ask(`сделай презентацию про ${topic}${colors ? " " + (/^(в|во)\s|тон|цвет|#/.test(colors) ? colors : "в цветах " + colors) : ""}`,
+                               (step) => { el.slMake.querySelector(".lbl").textContent = step.replace(/….*$/, "…"); });
       const att = (data.attachments || []).find((a) => a.type === "slides");
       if (att) { addDeck(att); H.toast(`Готово: ${att.slides.length} слайдов`); }
       else {
@@ -471,6 +517,7 @@
     el.slDel.addEventListener("click", remove);
     el.slUndo.addEventListener("click", undo);
     el.slShow.addEventListener("click", present);
+    el.slPptx.addEventListener("click", () => H.pptx(exportDeck(), el.slPptx));
     el.slHtml.addEventListener("click", () => H.download(safeName(deck().title) + ".html", new Blob([H.deck.deckFile(exportDeck())], {type: "text/html"})));
     el.slZip.addEventListener("click", () => H.download(safeName(deck().title) + ".zip", H.zip(H.deck.deckFiles(exportDeck(), ""))));
     el.slPdf.addEventListener("click", printPdf);

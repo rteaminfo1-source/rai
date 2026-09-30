@@ -423,6 +423,31 @@ def slides_topic(text: str) -> str:
     return re.sub(r"\s+", " ", topic).strip(" .,!?:;«»\"'-")
 
 
+_NOT_ACCUSATIVE = {"кенгуру", "рагу", "баку", "шоу", "какаду", "перу", "гну", "табу", "кунг-фу", "фу", "ушу", "суши"}
+
+
+def nominative(topic: str) -> str:
+    """Тема после «про» — в именительный падеж для заголовка: «историю древнего рима» -> «история древнего рима».
+
+    Меняем только начальные прилагательные и первое существительное женского рода (винительный -у/-ю),
+    остальное (родительный падеж и т. п.) оставляем как есть.
+    """
+    words = (topic or "").split(" ")
+    for i, w in enumerate(words):
+        low = w.lower()
+        if not re.fullmatch(r"[а-яё-]{3,}", low) or low in _NOT_ACCUSATIVE:
+            break
+        if low.endswith(("ую", "юю")):  # новую -> новая, древнюю -> древняя
+            words[i] = w[:-2] + ("ая" if low.endswith("ую") else "яя")
+            continue
+        if low.endswith("ию"):  # историю -> история
+            words[i] = w[:-1] + "я"
+        elif re.search(r"[бвгджзклмнпрстфхцчшщ]у$", low):  # экономику -> экономика
+            words[i] = w[:-1] + "а"
+        break
+    return " ".join(words)
+
+
 def deck_theme(text: str) -> dict:
     """Цвета презентации из слов пользователя: «в синих тонах», «чёрно-золотая», «фон белый, акцент фиолетовый»."""
     low = (text or "").lower().replace("ё", "е")
@@ -529,13 +554,58 @@ def _short(text, limit=110):
     return cut.rstrip(",;:—- ") + "…"
 
 
+_YEAR = re.compile(r"(?<![\d.,])((?:1[0-9]|20)[0-9]{2})(?:\s*(?:[-–—]\s*(?:(?:1[0-9]|20)[0-9]{2})|г\.|гг\.|год[ауе]?|годах?|х))?(?![\d%])", re.I)
+_UNIT = r"(?:%|процент\w*|млн|млрд|трлн|тыс\.?|км/ч|км|кг|м|°C|°|ГБ|МБ|ТБ|раз\w*|×|x|₽|\$|€|руб\.?|лет|ч|мин|сек|мс)"
+_NUMBER = re.compile(r"(?<![\w.,])(~|≈|более |около |до |свыше )?(\d(?:[\d\s ]*\d)?(?:[.,]\d+)?)\s?(" + _UNIT + r")?(?![\w])", re.I)
+
+
+def _as_timeline(items):
+    """Пункты с годами → события хронологии [{date, text}] (или None)."""
+    if not 3 <= len(items) <= 6:
+        return None
+    out = []
+    for it in items:
+        plain = it.replace("**", "")
+        m = _YEAR.search(plain)
+        if not m or m.start() > 40:
+            return None
+        text = (plain[:m.start()] + plain[m.end():]).strip()
+        text = re.sub(r"^(?:[Вв]о?|[Сс]|[Кк])\s+(?=[,—–:-]|\s|$)", "", text)
+        text = re.sub(r"^[\s,—–:.-]+", "", text).strip()
+        if len(text) < 3:
+            return None
+        date = re.sub(r"\s*(?:г\.|гг\.|год\w*|х)$", "", plain[m.start():m.end()].strip(), flags=re.I)
+        out.append({"date": date, "text": _short(text[:1].upper() + text[1:], 90)})
+    return out
+
+
+def _as_stats(items):
+    """Пункты с крупными числами → «цифры» [{value, label}] (или None)."""
+    if not 3 <= len(items) <= 4:
+        return None
+    out = []
+    for it in items:
+        plain = it.replace("**", "")
+        m = next((m for m in _NUMBER.finditer(plain)
+                  if m.group(3) or float(m.group(2).replace(" ", "").replace(" ", "").replace(",", ".")) >= 10), None)
+        if not m or _YEAR.fullmatch(m.group(0).strip()) and not m.group(3):
+            return None
+        pre = (m.group(1) or "").strip().lower()
+        value = m.group(2).strip() + ("" if not m.group(3) else ("" if m.group(3) in "%×" else " ") + m.group(3))
+        value = ("≈ " + value) if pre in ("~", "≈", "около") else ("до " + value) if pre == "до" else (value + "+") if pre else value
+        if len(value) > 14:
+            return None
+        out.append({"value": value, "label": _short(plain.rstrip("."), 90)})
+    return out
+
+
 def _article_blocks(article):
     """Разобрать статью на блоки для слайдов: факт, пункты, код, таблицы."""
     text = article["answers"][0].replace("{name}", "")
     if article.get("more"):
         text += "\n\n" + article["more"]
     # Фразы Rai о себе («Я работаю на нём») на слайдах лишние
-    text = re.sub(r"(?:(?<=[.!?])|^)\s*(?:Я|Меня|Мне|Могу)\s[^.!?\n]*[.!?]", "", text, flags=re.M)
+    text = re.sub(r"(?:(?<=[.!?])|^)\s*(?:[А-ЯЁ][а-яё]+,\s+)?(?:[Яя]|[Мм]еня|[Мм]не|[Мм]огу)\s[^.!?\n]*[.!?]", "", text, flags=re.M)
     heading = article.get("title") or "Главное"
     blocks = []
     first = True
@@ -547,16 +617,52 @@ def _article_blocks(article):
             if len(cells) > 1:
                 blocks.append({"kind": "table", "title": heading, "rows": cells[:8]})
         else:
-            items = [b for b in _bullets(seg[1]) if not (b.endswith(":") and len(b) < 40)]
+            items = [b for b in _bullets(seg[1]) if not (b.endswith(":") and len(b) < 40)
+                     and b.strip(" .").lower() != heading.lower()]
             if first and items and 25 <= len(items[0]) <= 200 and not items[0].startswith("|"):
                 blocks.append({"kind": "fact", "title": heading, "text": items[0]})
                 items = items[1:]
             first = False
-            for k in range(0, len(items), 4):
-                chunk = items[k:k + 4]
-                if chunk:
+            timeline = _as_timeline(items) if len(items) <= 6 else None
+            if timeline:
+                blocks.append({"kind": "timeline", "title": heading, "items": timeline})
+                continue
+            if len(items) == 1:  # один пункт — это факт, а не список
+                prev = blocks[-1] if blocks else None
+                if prev and prev["kind"] == "fact" and len(prev["text"]) + len(items[0]) <= 260:
+                    prev["text"] += " " + items[0]
+                elif 25 <= len(items[0]) <= 220:
+                    blocks.append({"kind": "fact", "title": heading, "text": items[0]})
+                continue
+            size = math.ceil(len(items) / math.ceil(len(items) / 4)) if items else 4  # 5 -> 3+2, а не 4+1
+            for k in range(0, len(items), size):
+                chunk = items[k:k + size]
+                stats = _as_stats(chunk)
+                if stats:
+                    blocks.append({"kind": "stats", "title": heading, "items": stats})
+                else:
                     blocks.append({"kind": "bullets", "title": heading, "bullets": chunk})
+    for b in blocks:  # статьи словаря начинаются с маленькой буквы («пространство за пределами…»)
+        if b.get("text"):
+            b["text"] = _cap(b["text"])
+        if b.get("bullets"):
+            b["bullets"] = [_cap(x) for x in b["bullets"]]
     return blocks
+
+
+def _cap(text):
+    return text[:1].upper() + text[1:] if text[:1].islower() else text
+
+
+def _spread(slides):
+    """Не ставить подряд однотипные слайды с кодом, таблицами, цифрами: чередуем с остальными."""
+    out = list(slides)
+    for i in range(1, len(out)):
+        if out[i]["kind"] == out[i - 1]["kind"] and out[i]["kind"] in ("code", "table", "stats", "timeline", "fact"):
+            j = next((j for j in range(i + 1, len(out)) if out[j]["kind"] != out[i]["kind"]), None)
+            if j is not None:
+                out.insert(i, out.pop(j))
+    return out
 
 
 def make_slides(topic: str, articles: list, max_slides: int = 8, theme=None, photo=None) -> dict:
@@ -590,12 +696,15 @@ def make_slides(topic: str, articles: list, max_slides: int = 8, theme=None, pho
                 slides.append(q.pop(0))
                 budget -= 1
 
+    head = sum(1 for x in slides if x["kind"] in ("title", "agenda", "photo"))
+    slides = slides[:head] + _spread(slides[head:])
+
     takeaways = []
     for blocks in blocks_per_article:
         for b in blocks:
             line = b.get("text") or (b.get("bullets") or [None])[0]
             if line:
-                takeaways.append(_short(line.rstrip("."), 90))
+                takeaways.append(_cap(_short(line.rstrip("."), 90)))
                 break
     if len(takeaways) >= 2:
         slides.append({"kind": "summary", "title": "Главное", "items": takeaways[:4]})

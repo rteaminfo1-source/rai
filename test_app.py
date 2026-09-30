@@ -226,6 +226,28 @@ class CreativeTest(unittest.TestCase):
         # картинки рисуются в цветах темы
         self.assertIn("#7c3aed", deck["slides"][0]["image"])
 
+    def test_slide_kinds(self):
+        import creative
+        # годы -> хронология, крупные числа -> «цифры»
+        tl = creative._as_timeline(["В 1991 году вышел Python 0.9", "2000 — Python 2.0", "**2008** — вышел Python 3"])
+        self.assertEqual([x["date"] for x in tl], ["1991", "2000", "2008"])
+        self.assertEqual(tl[0]["text"], "Вышел Python 0.9")
+        st = creative._as_stats(["Население — около 146 млн человек", "Более 190 народов", "85% жителей — горожане"])
+        self.assertEqual([x["value"] for x in st], ["≈ 146 млн", "190+", "85%"])
+        self.assertIsNone(creative._as_stats(["Python прост", "Много библиотек", "Популярен"]))
+        self.assertIsNone(creative._as_timeline(["Первый пункт", "Второй", "Третий"]))
+        article = {"title": "Космонавтика", "answers": ["История полётов в космос.\n\n- 1957 — первый спутник\n"
+                                                         "- 1961 — полёт Гагарина\n- 1969 — высадка на Луну"]}
+        deck = creative.make_slides("космонавтика", [article, {"title": "Ракета", "answers": ["Ракета летит за счёт реактивной тяги двигателя."]}])
+        self.assertIn("timeline", [s["kind"] for s in deck["slides"]])
+        # один пункт не превращается в список из одного пункта
+        self.assertNotIn(1, [len(s["bullets"]) for s in deck["slides"] if s["kind"] == "bullets"])
+        # название — в именительном падеже
+        self.assertEqual(creative.nominative("историю древнего рима"), "история древнего рима")
+        self.assertEqual(creative.nominative("солнечную систему"), "солнечная система")
+        self.assertEqual(creative.nominative("кенгуру"), "кенгуру")
+        self.assertEqual(self.brain.answer(SUN, "сделай презентацию про историю python")["attachments"][0]["title"][:7], "История")
+
     def test_archive(self):
         r = self.brain.answer(PRO, "сделай архив")
         self.assertEqual(r["attachments"][0]["type"], "archive")
@@ -341,6 +363,7 @@ class HttpTest(unittest.TestCase):
         self.assertNotIn('src="code.js"', html)
         self.assertIn("window.RaiCode", html)
         self.assertIn("window.RaiNeuro", html)  # нейросеть в браузере встроена в страницу
+        self.assertIn("window.RaiPptx", html)  # экспорт в PowerPoint тоже
         scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.S)
         # «<!--» внутри <script> ломает разбор страницы
         self.assertFalse(any("<!--" in s for s in scripts))

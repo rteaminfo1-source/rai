@@ -452,7 +452,7 @@ class Brain:
         web = next((a for a in found if a.get("web")), None)
         if web and set(nlp.tokens(topic)) <= set(nlp.tokens(web["title"])):
             topic = web["title"]  # «эйфелеву башню» -> «Эйфелева башня»
-        title = topic or "Rteam"
+        title = creative.nominative(topic) if topic else "Rteam"
         if re.fullmatch(r"[a-z0-9+#]{1,5}", title, re.I):
             title = title.upper()  # html -> HTML, php -> PHP
         elif found and found[0].get("key_match") and len(title.split()) == 1:
