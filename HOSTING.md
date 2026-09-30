@@ -88,6 +88,38 @@ console.cloud.google.com → APIs & Services → Credentials → клиент `4
 - **Authorized redirect URIs**: `https://rai.rteam.info/google_callback.php`
 - **Authorized JavaScript origins**: `https://rai.rteam.info`
 
+## 6. Автовыкладка с GitHub (GitHub → хостинг)
+
+После настройки каждый `git push` сам собирает оба сайта и выкладывает их на хостинг по FTP
+(файл `.github/workflows/deploy-hosting.yml`). Выкладываются только изменённые файлы. Папки `data/`
+(аккаунты, чаты) и опубликованные сайты `sites/<логин>/` на хостинге **не трогаются**.
+
+Один раз: github.com/rteaminfo1-source/rai → **Settings → Secrets and variables → Actions**.
+
+**Secrets** (вкладка *Secrets*, значения никто не увидит):
+
+| Имя | Что вписать |
+|---|---|
+| `FTP_SERVER` | адрес FTP из панели хостинга, например `ftp.вашхостинг.ru` |
+| `FTP_USERNAME` | логин FTP |
+| `FTP_PASSWORD` | пароль FTP |
+| `GOOGLE_CLIENT_SECRET` | секрет Google (`GOCSPX-…`) |
+| `SSO_SECRET` | длинная случайная строка (64 символа 0-9a-f). Не меняйте её потом — иначе вход в студию перестанет совпадать |
+
+**Variables** (вкладка *Variables*):
+
+| Имя | Что вписать |
+|---|---|
+| `RAI_DIR` | папка сайта rai.rteam.info на FTP, **со слешем в конце**, например `rai.rteam.info/public_html/` |
+| `STUDIO_DIR` | папка сайта aistudio.rteam.info, например `aistudio.rteam.info/public_html/` |
+| `FTP_PROTOCOL` | необязательно: `ftps` (по умолчанию, шифрованно) или `ftp`, если хостинг не поддерживает FTPS |
+| `FTP_PORT` | необязательно: порт, по умолчанию 21 |
+
+Точные папки видно в файловом менеджере хостинга (часто `домен/public_html/` или `www/домен/`).
+
+Выкладка запускается при push в ветку `main` или `claude/peaceful-allen-c7nn4t`, а также вручную:
+**Actions → «Выкладка на хостинг» → Run workflow**. Пока секреты не заданы, выкладка просто пропускается.
+
 ## Что не выкладывать в GitHub
 
 `config.php` с секретами, папки `data/` и `sites/` с хостинга. В репозитории оба `config.php` лежат без секретов.

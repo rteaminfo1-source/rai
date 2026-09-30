@@ -1,0 +1,87 @@
+# Выкладка на виртуальный хостинг: после каждого push собираем папки rai.rteam.info и aistudio.rteam.info
+# (make_hosting.py) и загружаем их по FTP. Пароли и секреты — только в Settings → Secrets and variables → Actions.
+# Данные пользователей (data/) и опубликованные сайты (sites/<логин>/) на хостинге не трогаются.
+name: Выкладка на хостинг
+
+on:
+  push:
+    branches: [main, claude/peaceful-allen-c7nn4t]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hosting
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Проверить настройки
+        id: cfg
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          SSO_SECRET: ${{ secrets.SSO_SECRET }}
+          RAI_DIR: ${{ vars.RAI_DIR }}
+          STUDIO_DIR: ${{ vars.STUDIO_DIR }}
+        run: |
+          missing=""
+          for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD SSO_SECRET RAI_DIR STUDIO_DIR; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice title=Выкладка пропущена::Не заданы:$missing. Как настроить — HOSTING.md, раздел «Автовыкладка с GitHub»."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.ready == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Собрать папки для хостинга
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SSO_SECRET: ${{ secrets.SSO_SECRET }}
+        run: python make_hosting.py dist/hosting
+
+      - name: Выложить rai.rteam.info
+        if: steps.cfg.outputs.ready == 'true'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          port: ${{ vars.FTP_PORT || 21 }}
+          local-dir: dist/hosting/rai.rteam.info/
+          server-dir: ${{ vars.RAI_DIR }}
+          state-name: .rai-deploy-state.json
+          exclude: |
+            data/**
+
+      - name: Выложить aistudio.rteam.info
+        if: steps.cfg.outputs.ready == 'true'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          port: ${{ vars.FTP_PORT || 21 }}
+          local-dir: dist/hosting/aistudio.rteam.info/
+          server-dir: ${{ vars.STUDIO_DIR }}
+          state-name: .aistudio-deploy-state.json
+          exclude: |
+            data/**
+            sites/*/**
