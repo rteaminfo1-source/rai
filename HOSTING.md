@@ -51,11 +51,17 @@
 | `google_start.php`, `google_callback.php` | вход через Google |
 | `sso.php` | единый вход: выдаёт AI Studio подписанный пропуск |
 | `me.php`, `chats.php` | для страницы Rai: кто вошёл, чаты в аккаунте |
+| `net.php` | посредник для интернета: погода, курсы, перевод, Википедия, фото и **поиск** идут через ваш сайт. Кэш — в `data/cache/` |
 | `config.php` | настройки — **впишите секрет Google и SSO_SECRET** |
 | `assets/style.php` | стиль страниц входа и кабинета |
 | `data/` | аккаунты (пароли — только хеши) и чаты в файлах `*.php` — из браузера не читаются. Нужны права на запись |
 
 Ссылки: `https://rai.rteam.info/#code` — сразу Code, `#slides` — сразу Слайды.
+
+**Поиск Google (необязательно).** Без настройки Rai ищет через DuckDuckGo и Википедию. Для Google создайте поисковую
+систему на programmablesearchengine.google.com (поиск по всему интернету) и ключ Custom Search API в Google Cloud Console,
+затем впишите их в начало `net.php` на хостинге (`GOOGLE_CSE_KEY`, `GOOGLE_CSE_CX`) или задайте переменными окружения.
+В GitHub ключи не выкладывайте.
 
 ## 4. aistudio.rteam.info
 

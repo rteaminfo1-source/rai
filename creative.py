@@ -368,6 +368,68 @@ _SLIDES_FILLER = re.compile(
 )
 
 
+_WANT = [
+    ("table", r"таблиц\w*"),
+    ("quote", r"цитат\w*|высказывани\w*"),
+    ("timeline", r"хронолог\w*|по годам|даты|датами|лента времени|таймлайн\w*"),
+    ("stats", r"цифр\w*|статистик\w*|числа|числами"),
+    ("code", r"пример\w* кода|с кодом|код\w* пример\w*"),
+    ("summary", r"вывод\w*|итог\w*"),
+]
+_NO_PICS = re.compile(r"\bбез (?:картин\w*|фото\w*|изображени\w*|иллюстраци\w*)", re.I)
+_PHOTOS = re.compile(r"\b(?:фото\w*|картин\w*|изображени\w*|иллюстраци\w*)", re.I)
+_COUNT = re.compile(r"(?:\bна|\bиз|\bв)?\s*(\d{1,2})\s*(?:-?ти|-?и|-?х)?\s*слайд\w*", re.I)
+_COMPARE = re.compile(r"сравн\w*\s+([а-яёa-z0-9 -]{2,40}?)\s+(?:и|с|со|vs)\s+([а-яёa-z0-9 -]{2,40}?)(?=[,.;!?]|\s+(?:и|в|на|с|со|для)\s|$)", re.I)
+_SECTIONS = re.compile(
+    r"(?:раздел\w*|включи\w*|добавь\w*|расскажи\w*|обязательно|пункт\w*|план\w*|темы|части|где будет|чтобы было)"
+    r"\s*(?:про|о|об|:|—|-)?\s*(?:про|о|об)?\s*([^.;!?]{3,200})", re.I)
+_SECTION_JUNK = re.compile(r"^(?:и|а|также|ещё|еще|про|о|об|с|со)\s+", re.I)
+
+
+def parse_deck_request(text: str) -> dict:
+    """Что просят в презентации: тему, число слайдов, разделы, таблицу/цитату/хронологию/цифры/сравнение, фото.
+
+    Возвращает {"topic", "count", "sections", "want", "compare", "pictures", "rest"}; rest — текст без этих указаний
+    (из него берутся тема и цвета).
+    """
+    raw = text or ""
+    rest = raw
+    count = None
+    m = _COUNT.search(rest)
+    if m:
+        count = max(3, min(20, int(m.group(1))))
+        rest = rest[:m.start()] + " " + rest[m.end():]
+    compare = None
+    m = _COMPARE.search(rest)
+    if m:
+        compare = [m.group(1).strip(), m.group(2).strip()]
+        rest = rest[:m.start()] + " " + rest[m.end():]
+    sections = []
+    m = _SECTIONS.search(rest)
+    if m:
+        body = m.group(1)
+        parts = [p for p in re.split(r"\s*(?:,|;|\s+и\s+|\s+а также\s+)\s*", body) if p.strip()]
+        for p in parts:
+            p = _SECTION_JUNK.sub("", p.strip(" .:-—")).strip()
+            if p and not any(re.fullmatch(rx, p, re.I) for _, rx in _WANT) and not _PHOTOS.fullmatch(p):
+                sections.append(p[:60])
+        rest = rest[:m.start()] + " " + rest[m.end():]
+    want = set()
+    for kind, rx in _WANT:
+        if re.search(r"\b(?:" + rx + r")", raw, re.I):
+            want.add(kind)
+            rest = re.sub(r"(?:\bс\s+|\bи\s+)?\b(?:" + rx + r")", " ", rest, flags=re.I)
+    if compare:
+        want.add("compare")
+    pictures = "none" if _NO_PICS.search(raw) else "photo"
+    rest = _NO_PICS.sub(" ", rest)
+    rest = re.sub(r"(?:\bс\s+|\bи\s+)?\b(?:фото\w*|картин\w*|изображени\w*|иллюстраци\w*)(?:\s+из\s+интернета)?", " ", rest, flags=re.I)
+    rest = re.sub(r"\s+(?:и|с|со)\s*(?=[,.!?]|$)", " ", rest)
+    rest = re.sub(r"\s{2,}", " ", rest).strip(" ,.")
+    return {"topic": slides_topic(rest), "count": count, "sections": sections[:8], "want": want,
+            "compare": compare, "pictures": pictures, "rest": rest}
+
+
 def is_slides_request(text: str) -> bool:
     return bool(_SLIDES_WORDS.search(text or "")) and not _QUESTION.search(text or "")
 
@@ -599,6 +661,79 @@ def _as_stats(items):
     return out
 
 
+def web_blocks(title, text, first=False):
+    """Раздел статьи из интернета (сплошной текст) → блоки слайдов: факт, пункты, хронология, цифры."""
+    text = re.sub(r"\[\d+\]|\[источник не указан[^\]]*\]", "", text or "")
+    sents = [x for x in _sentences(text) if 25 <= len(x) <= 260 and not x.endswith(":")]
+    blocks = []
+    if not sents:
+        return blocks
+    used = set()
+    dated = [x for x in sents if _YEAR.search(x) and _YEAR.search(x).start() < 60]
+    if len(dated) >= 3:
+        items = _as_timeline(dated[:6])
+        if items:
+            items.sort(key=lambda it: int(re.match(r"\d{4}", it["date"]).group()) if re.match(r"\d{4}", it["date"]) else 0)
+            blocks.append({"kind": "timeline", "title": title, "items": items})
+            used.update(dated[:6])
+    numeric = [x for x in sents if x not in used and _as_stats([x, x, x])]
+    if len(numeric) >= 3:
+        items = _as_stats(numeric[:3] if len(numeric) < 4 else numeric[:4])
+        if items:
+            blocks.append({"kind": "stats", "title": title, "items": items})
+            used.update(numeric[:4])
+    rest = [x for x in sents if x not in used]
+    if first and rest and len(rest[0]) >= 40:
+        blocks.insert(0, {"kind": "fact", "title": title, "text": _short(rest[0], 260)})
+        rest = rest[1:]
+    if len(rest) >= 2:
+        blocks.append({"kind": "bullets", "title": title, "bullets": [_short(x, 170) for x in rest[:4]]})
+    elif rest and not blocks:
+        blocks.append({"kind": "fact", "title": title, "text": _short(rest[0], 260)})
+    return blocks
+
+
+def extra_blocks(want, material, quote=None, compare=None):
+    """Слайды, которые попросили отдельно: таблица, цитата, сравнение, хронология, цифры.
+
+    material — все уже собранные блоки (из них строится таблица). Возвращает (блоки, чего не нашлось).
+    """
+    out, missing = [], []
+    kinds = {b["kind"] for b in material}
+    if "compare" in want:
+        if compare:
+            out.append(compare)
+        else:
+            missing.append("сравнение")
+    if "quote" in want:
+        if quote:
+            out.append({"kind": "quote", "title": "", "text": quote["text"], "author": quote.get("author", "")})
+        else:
+            missing.append("цитату")
+    for kind, name in (("timeline", "хронологию"), ("stats", "цифры")):
+        if kind in want and kind not in kinds:
+            missing.append(name)
+    if "table" in want:
+        src = next((b for b in material if b["kind"] in ("timeline", "stats")), None)
+        if src and src["kind"] == "timeline":
+            rows = [["Год", "Событие"]] + [[x["date"], x["text"]] for x in src["items"]]
+        elif src:
+            rows = [["Показатель", "Значение"]] + [[x["label"], x["value"]] for x in src["items"]]
+        else:
+            heads = [(b["title"], b.get("text") or (b.get("bullets") or [""])[0]) for b in material if b["kind"] in ("fact", "bullets")]
+            seen, rows = set(), [["Раздел", "Коротко"]]
+            for t, line in heads:
+                if t not in seen and line:
+                    seen.add(t)
+                    rows.append([t, _short(line.rstrip("."), 90)])
+            rows = rows[:7]
+        if len(rows) > 2:
+            out.append({"kind": "table", "title": (src or {}).get("title") or "Коротко о главном", "rows": rows})
+        else:
+            missing.append("таблицу")
+    return out, missing
+
+
 def _article_blocks(article):
     """Разобрать статью на блоки для слайдов: факт, пункты, код, таблицы."""
     text = article["answers"][0].replace("{name}", "")
@@ -665,7 +800,8 @@ def _spread(slides):
     return out
 
 
-def make_slides(topic: str, articles: list, max_slides: int = 8, theme=None, photo=None) -> dict:
+def make_slides(topic: str, articles: list, max_slides: int = 8, theme=None, photo=None, extras=None, photos=None,
+                pictures="photo") -> dict:
     """Собрать презентацию: обложка, план, факты, пункты с картинками, код, таблицы, итоги, финал.
 
     articles — статьи ({"title", "answers": [текст], "more"?}) из базы знаний, словаря или интернета.
@@ -680,15 +816,16 @@ def make_slides(topic: str, articles: list, max_slides: int = 8, theme=None, pho
                  if 20 <= len(s) <= 160 and not s.startswith(("|", "`", "#"))), "")
     slides = [{"kind": "title", "title": title, "subtitle": _short(lead, 120)}]
 
-    blocks_per_article = [_article_blocks(a) for a in articles]
-    headings = [a.get("title") for a, b in zip(articles, blocks_per_article) if b and a.get("title")]
+    blocks_per_article = [a["blocks"] if a.get("blocks") is not None else _article_blocks(a) for a in articles]
+    headings = list(dict.fromkeys(a.get("title") for a, b in zip(articles, blocks_per_article) if b and a.get("title")))
     if len(headings) >= 3:
         slides.append({"kind": "agenda", "title": "План", "items": headings[:6]})
     if photo:
         slides.append({"kind": "photo", "title": title, "photo": photo, "caption": _short(lead, 140)})
 
     # Берём блоки по очереди из каждой статьи, чтобы презентация не застревала на одной теме
-    budget = max_slides - len(slides) - 2  # оставляем место на итоги и финал
+    extras = list(extras or [])
+    budget = max_slides - len(slides) - 2 - len(extras)  # оставляем место на итоги, финал и заказанные слайды
     queues = [list(b) for b in blocks_per_article]
     while budget > 0 and any(queues):
         for q in queues:
@@ -697,7 +834,18 @@ def make_slides(topic: str, articles: list, max_slides: int = 8, theme=None, pho
                 budget -= 1
 
     head = sum(1 for x in slides if x["kind"] in ("title", "agenda", "photo"))
-    slides = slides[:head] + _spread(slides[head:])
+    body = _spread(slides[head:])
+    for n, extra in enumerate(extras):  # заказанные слайды — равномерно по презентации
+        body.insert(min(len(body), (n + 1) * max(1, len(body)) // (len(extras) + 1) + n), extra)
+    slides = slides[:head] + body
+    agenda = next((x for x in slides if x["kind"] == "agenda"), None)
+    if agenda:  # в плане — только то, что действительно есть на слайдах
+        titles = list(dict.fromkeys(re.sub(r": пример$", "", x["title"]) for x in body
+                                    if x.get("title") and x["kind"] not in ("quote", "summary", "end")))
+        if len(titles) >= 3:
+            agenda["items"] = titles[:6]
+        else:
+            slides.remove(agenda)
 
     takeaways = []
     for blocks in blocks_per_article:
@@ -709,11 +857,37 @@ def make_slides(topic: str, articles: list, max_slides: int = 8, theme=None, pho
     if len(takeaways) >= 2:
         slides.append({"kind": "summary", "title": "Главное", "items": takeaways[:4]})
     slides.append({"kind": "end", "title": "Спасибо за внимание!", "subtitle": title})
-    _decorate(slides, topic or title, theme)
+    if pictures == "none":
+        slides = [s for s in slides if s["kind"] != "photo"]
+        for k, s in enumerate(slides):
+            s["transition"] = TRANSITIONS[k % len(TRANSITIONS)]
+    else:
+        _decorate(slides, topic or title, theme)
+        _add_photos(slides, photos or [], photo)
     return {"type": "slides", "title": title, "slides": slides, "theme": theme}
 
 
 TRANSITIONS = ["fade", "slide", "zoom", "wipe", "rise"]
+
+
+def _add_photos(slides, photos, main=None):
+    """Настоящие фотографии из интернета: обложка, пункты, факты, цитата, финал (рисунок остаётся запасным)."""
+    queue = [p["url"] if isinstance(p, dict) else p for p in photos]
+    queue = [u for u in dict.fromkeys(queue) if isinstance(u, str) and u.startswith("https://")]
+    if main and main in queue:
+        queue.remove(main)
+    cover = main or (queue.pop(0) if queue else None)
+    if cover:
+        slides[0]["pic"] = cover
+    for s in slides[1:]:
+        if not queue:
+            break
+        if s["kind"] in ("bullets", "fact", "quote") and s.get("image") or s["kind"] == "quote":
+            s["pic"] = queue.pop(0)
+    if queue and slides[-1]["kind"] == "end":
+        slides[-1]["pic"] = queue.pop(0)
+    elif cover and slides[-1]["kind"] == "end":
+        slides[-1]["pic"] = cover
 
 
 def _decorate(slides, topic, theme):
@@ -723,7 +897,7 @@ def _decorate(slides, topic, theme):
     side = 0
     for k, slide in enumerate(slides):
         slide["transition"] = TRANSITIONS[k % len(TRANSITIONS)]
-        if slide["kind"] == "bullets" and len(slide["bullets"]) <= 4 and side < 4:
+        if slide["kind"] == "bullets" and len(slide["bullets"]) <= 4 and side < 6:
             slide["image"] = make_image(f"{topic} {slide['title']}", seed=seed + k, theme=theme)["svg"]
             slide["side"] = "left" if side % 2 else "right"
             side += 1

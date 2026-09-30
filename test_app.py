@@ -287,6 +287,55 @@ class OnlineTest(unittest.TestCase):
         self.assertIn("Казань", self.ask("а погода?")["answer"])      # город запомнился
         self.assertIn("Москва", self.ask("погода в москве")["answer"])  # «москве» -> Москва
 
+    def test_web_presentation(self):
+        import creative
+        req = creative.parse_deck_request("презентация про историю России на 10 слайдов, разделы: Древняя Русь, империя и СССР, с таблицей")
+        self.assertEqual((req["topic"], req["count"], req["sections"]), ("историю России", 10, ["Древняя Русь", "империя", "СССР"]))
+        self.assertEqual(req["want"], {"table"})
+        self.assertEqual(creative.parse_deck_request("про python без картинок")["pictures"], "none")
+        self.assertEqual(creative.parse_deck_request("презентация сравни кошек и собак")["compare"], ["кошек", "собак"])
+
+        r = self.ask("подготовь презентацию о Солнечной системе на 12 слайдов с таблицей и цитатой, обязательно про Марс", SUN)
+        deck = r["attachments"][0]
+        kinds = [s["kind"] for s in deck["slides"]]
+        self.assertEqual(deck["title"], "Солнечная система")
+        self.assertEqual(len(kinds), 12)
+        for kind in ("table", "quote", "agenda"):
+            self.assertIn(kind, kinds)
+        self.assertIn("Марс", [s["title"] for s in deck["slides"]])                        # заказанный раздел
+        self.assertEqual(deck["slides"][0]["pic"], "https://upload.wikimedia.org/solar.jpg")  # фото из интернета
+        self.assertNotIn("https://upload.wikimedia.org/flag.png", json.dumps(deck))          # флаги и значки не берём
+        quote = next(s for s in deck["slides"] if s["kind"] == "quote")
+        self.assertEqual(quote["author"], "Константин Циолковский")
+        self.assertIn("Википедии", r["answer"])
+        # в плане — только то, что есть на слайдах
+        agenda = next(s for s in deck["slides"] if s["kind"] == "agenda")
+        titles = {s.get("title") for s in deck["slides"]}
+        self.assertTrue(all(t in titles for t in agenda["items"]))
+        # просили цифры и хронологию — они есть; без картинок — ни фото, ни рисунков
+        deck = self.ask("презентация про солнечную систему без картинок на 7 слайдов с цифрами и хронологией", SUN)["attachments"][0]
+        kinds = [s["kind"] for s in deck["slides"]]
+        self.assertIn("stats", kinds)
+        self.assertIn("timeline", kinds)
+        self.assertFalse(any(s.get("pic") or s.get("image") for s in deck["slides"]))
+        # сравнение
+        deck = self.ask("презентация сравни кошек и собак", SUN)["attachments"][0]
+        cmp = next(s for s in deck["slides"] if s["kind"] == "compare")
+        self.assertEqual((cmp["left"]["title"], cmp["right"]["title"]), ("Кошка", "Собака"))
+
+    def test_web_search_through_hosting(self):
+        # без посредника на хостинге — только Википедия; с ним — ищет в интернете (Google / DuckDuckGo)
+        self.assertNotIn("example.ru", self.ask("кто изобрёл радио", SUN)["answer"])
+        net.PROXY = "https://rai.test/net.php"
+        try:
+            r = self.ask("кто изобрёл радио", SUN)
+        finally:
+            net.PROXY = ""
+        self.assertEqual(r["intent"], "web")
+        self.assertIn("Попов", r["answer"])
+        self.assertIn("(https://example.ru/radio)", r["answer"])
+        self.assertTrue(any("net.php?search=" in c for c in fake_net.calls))
+
     def test_currency(self):
         self.assertIn("**100 USD = 9 250 RUB**", self.ask("100 долларов в рублях")["answer"])
         self.assertIn("1 USD = 92,5 RUB", self.ask("курс доллара")["answer"])

@@ -56,6 +56,11 @@
     });
   }
   async function photoData(url) {
+    const direct = await photoFrom(url);
+    if (direct || !window.RAI_NET_PROXY) return direct;
+    return photoFrom(window.RAI_NET_PROXY + "?url=" + encodeURIComponent(url));  // через посредник на хостинге
+  }
+  async function photoFrom(url) {
     try {
       const r = await fetch(url, {mode: "cors", referrerPolicy: "no-referrer"});
       if (!r.ok) return null;
@@ -256,7 +261,9 @@
     if (!deck || !Array.isArray(deck.slides) || !deck.slides.length) throw new Error("В презентации нет слайдов");
     const P = await load();
     const pics = await Promise.all(deck.slides.map((s) =>
-      s.kind === "photo" && /^https:\/\//.test(s.photo || "") ? photoData(s.photo) : s.image ? svgToPng(s.image) : null));
+      s.kind === "photo" && /^https:\/\//.test(s.photo || "") ? photoData(s.photo)
+        : /^https:\/\//.test(s.pic || "") ? photoData(s.pic).then((p) => p || (s.image ? svgToPng(s.image) : null))
+        : s.image ? svgToPng(s.image) : null));
     const pptx = build(P, deck, pics);
     return pptx.write({outputType: "blob", compression: true});
   }

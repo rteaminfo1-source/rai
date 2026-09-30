@@ -123,10 +123,10 @@
     color: var(--fg); text-decoration: none; font-weight: 600; }
   .back-link:hover { background: var(--red-soft); }
 
-  .photo { margin: 4px 0 0; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
-  .photo img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); background: #000; }
-  .photo figcaption { font-size: 12.5px; color: var(--muted); }
-  .photo a { color: var(--red-hi); }
+  figure.photo { margin: 4px 0 0; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+  figure.photo img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); background: #000; }
+  figure.photo figcaption { font-size: 12.5px; color: var(--muted); }
+  figure.photo a { color: var(--red-hi); }
 
   /* ---------- основная часть ---------- */
   main { display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; }
@@ -590,9 +590,10 @@
   <div class="neuro-card">
     <div class="neuro-head"><h2 id="neuroTitle">Нейросеть в браузере</h2>
       <button class="icon-btn" type="button" id="neuroClose" aria-label="Закрыть"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-    <p>С нейросетью Rai <b>сам пишет код</b> — сайты, игры, программы на любом языке — и отвечает на любые вопросы.
-      Это открытая модель <b>Qwen2.5-Coder</b>: работает прямо на вашем компьютере, без API и ключей, ваши сообщения никуда не уходят.
-      Модель скачивается один раз, дальше берётся из кэша браузера.</p>
+    <p>С нейросетью Rai <b>сам пишет код</b> — сайты, игры, программы на любом языке — и отвечает на любые вопросы,
+      а перед ответом <b>ищет свежие сведения в интернете</b> и ставит ссылки. Это открытые модели <b>Qwen3.5</b>: работают прямо
+      на вашем компьютере, без API и ключей, ваши сообщения никуда не уходят. Ничего устанавливать не нужно — на компьютере
+      нейросеть включается сама и загружается в фоне один раз, дальше берётся из кэша браузера. Нет видеокарты — работает на процессоре.</p>
     <div class="neuro-models" id="neuroModels" role="radiogroup" aria-label="Модель"></div>
     <div class="neuro-progress" id="neuroProgress" hidden><div id="neuroBar"></div></div>
     <p class="neuro-status" id="neuroStatus" role="status"></p>
@@ -600,7 +601,7 @@
       <button class="btn red" type="button" id="neuroOn">Включить</button>
       <button class="btn" type="button" id="neuroOff">Выключить</button>
     </div>
-    <p class="neuro-note">Нужен Chrome или Edge с WebGPU (компьютер или новый Android) и свободная видеопамять.
+    <p class="neuro-note">Быстрее всего — в Chrome или Edge с WebGPU. Без видеокарты модели поменьше работают на процессоре.
       Погоду, курсы валют, перевод, картинки и презентации по-прежнему делает движок Rai — там нужны точные данные.</p>
   </div>
 </dialog>
@@ -1131,7 +1132,15 @@
     const t = esc(s.transition || "fade");
     const cls = `slide play t-${t}`;
     const attrs = ` data-t="${t}" style="--dir:${dir || 1};${themeVars(theme)}"`;
-    const pic = (c) => s.image ? `<img class="${c}" alt="" src="${svgUrl(s.image)}">` : "";
+    // Фото из интернета (s.pic), а если не загрузится — рисунок Rai (s.image)
+    const hasPic = !!(s.image || (s.pic && /^https:\/\//.test(s.pic)));
+    const pic = (c) => {
+      if (!hasPic) return "";
+      const fb = s.image ? svgUrl(s.image) : "";
+      if (s.pic && /^https:\/\//.test(s.pic)) return `<img class="${c}" alt="" src="${esc(s.pic)}" referrerpolicy="no-referrer" ` +
+        (fb ? `data-fb="${fb}" onerror="this.onerror=null;this.src=this.dataset.fb">` : `onerror="this.remove()">`);
+      return `<img class="${c}" alt="" src="${fb}">`;
+    };
     const items = (list, tag) => (list || []).map((x, i) => `<${tag} style="--i:${i}">` + (tag === "div" ? `<b>${i + 1}</b><span>${inline(x)}</span>` : tag === "li" && s.kind === "agenda" ? `<b>${String(i + 1).padStart(2, "0")}</b><span>${inline(x)}</span>` : inline(x)) + `</${tag}>`).join("");
     const kicker = `<div class="kicker">${String(n).padStart(2, "0")}</div>`;
     switch (s.kind) {
@@ -1153,7 +1162,7 @@
       case "fact": {
         const body = `<p class="fact">${inline(s.text || "")}</p>`;
         return `<section class="${cls}"${attrs}>${kicker}<h2>${esc(s.title || "")}</h2>` +
-          (s.image ? `<div class="cols">${body}${pic("side")}</div>` : body) + `${num}</section>`;
+          (hasPic ? `<div class="cols">${body}${pic("side")}</div>` : body) + `${num}</section>`;
       }
       case "stats":
         return `<section class="${cls}"${attrs}>${kicker}<h2>${esc(s.title || "")}</h2><div class="stats">` +
@@ -1183,7 +1192,7 @@
       }
     }
     let body = `<ul>${items(s.bullets, "li")}</ul>`;
-    if (s.image) body = `<div class="cols${s.side === "left" ? " left" : ""}">${body}${pic("side")}</div>`;
+    if (hasPic) body = `<div class="cols${s.side === "left" ? " left" : ""}">${body}${pic("side")}</div>`;
     return `<section class="${cls}"${attrs}>${kicker}<h2>${esc(s.title || "")}</h2>${body}${num}</section>`;
   }
   function renderDeck(a) {
@@ -1472,6 +1481,12 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
           method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(Object.assign({action: action}, args))
         });
         return await r.json();
+      },
+      async context(query) {
+        const r = await fetch(root + "api/context", {
+          method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query: query})
+        });
+        return r.ok ? await r.json() : {text: "", sources: []};
       }
     };
   }
@@ -1536,6 +1551,23 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     throw new Error("не удалось загрузить Python.\n" + problems.join("\n"));
   }
 
+  // Посредник для интернета на хостинге (net.php): погода, курсы, Википедия, поиск и картинки идут через свой сайт
+  const HOME_PROXY = "https://rai.rteam.info/net.php";
+  async function findProxy() {
+    if (typeof window.RAI_PROXY === "string") return window.RAI_PROXY;
+    const tries = [];
+    if (/^https?:$/.test(location.protocol)) tries.push(new URL("net.php", location.href).href);
+    if (!tries.includes(HOME_PROXY)) tries.push(HOME_PROXY);
+    for (const address of tries) {
+      try {
+        const r = await withTimeout(fetch(address + "?ping=1", {cache: "no-store"}), 3000);
+        if (r.ok && (await r.json()).service === "rai-net") return address;
+      } catch (e) { /* нет посредника по этому адресу */ }
+    }
+    return "";
+  }
+  const proxyReady = findProxy().then((p) => { window.RAI_NET_PROXY = p; return p; });
+
   async function browserEngine() {
     const t0 = Date.now();
     let step = "Загружаю Python";
@@ -1555,10 +1587,12 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     }
     pyodide.FS.mkdirTree("/home/pyodide/rai");
     for (const [name, text] of files) pyodide.FS.writeFile("/home/pyodide/rai/" + name, text);
+    const proxy = await proxyReady;
     pyodide.runPython(`
 import sys, json
 sys.path.insert(0, "/home/pyodide/rai")
-import brain, versions
+import brain, versions, net
+net.PROXY = ${JSON.stringify(proxy)}
 _rai = brain.Brain(learned_path="/tmp/learned.json")
 
 def rai_ask(version_id, message, session_id, history_json="[]"):
@@ -1582,7 +1616,20 @@ def rai_slides(action, args_json):
     if action == "image":
         seed = a.get("seed") if isinstance(a.get("seed"), int) else None
         return json.dumps(creative.make_image(str(a.get("prompt") or "")[:300], seed=seed, theme=a.get("theme")), ensure_ascii=False)
+    if action == "photos":
+        import online
+        try:
+            return json.dumps({"photos": online.photos_for(str(a.get("query") or "")[:200])}, ensure_ascii=False)
+        except net.NetError as e:
+            return json.dumps({"photos": [], "error": str(e)}, ensure_ascii=False)
     return json.dumps({"error": "unknown action"})
+
+def rai_context(query):
+    """Сведения из интернета для нейросети (если вопрос о фактах, а не о коде)."""
+    import online, codeai
+    if codeai.is_build_request(query) or not online.needs_facts(query):
+        return json.dumps({"text": "", "sources": []})
+    return json.dumps(online.context_for(query[:300]), ensure_ascii=False)
 
 def rai_code(action, code, lang, prompt):
     import codeai
@@ -1595,12 +1642,14 @@ def rai_code(action, code, lang, prompt):
     const pyVersions = pyodide.globals.get("rai_versions");
     const pyCode = pyodide.globals.get("rai_code");
     const pySlides = pyodide.globals.get("rai_slides");
+    const pyContext = pyodide.globals.get("rai_context");
     return {
       mode: "browser",
       async versions() { return JSON.parse(pyVersions()); },
       async ask(v, message, sessionId, history) { return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history))); },
       async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); },
-      async slides(action, args) { return JSON.parse(pySlides(action, JSON.stringify(args || {}))); }
+      async slides(action, args) { return JSON.parse(pySlides(action, JSON.stringify(args || {}))); },
+      async context(query) { return JSON.parse(pyContext(query)); }
     };
   }
 
@@ -1694,7 +1743,21 @@ def rai_code(action, code, lang, prompt):
         if (data.neuro) data.version_name = "Нейросеть " + (window.RaiNeuro.status().label || "") + " + Rai";
       }
       if (neuro && (!data || !isToolAnswer(data))) {
-        reply = await neuroAnswer(pending, history, shots.length ? `${text}\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""` : text, t0);
+        // Сначала — свежие сведения: что Rai уже нашёл в интернете, или поиск по вопросу
+        let facts = {text: "", sources: []};
+        if (!shots.length) {
+          if (data && ["web", "glossary"].includes(data.intent) && data.answer) {
+            facts = {text: data.answer.slice(0, 2600), sources: linksOf(data.answer)};
+          } else if (engine.context) {
+            pending.querySelector(".bubble").textContent = "Ищу в интернете…";
+            try { facts = await engine.context(text); } catch (e) { facts = {text: "", sources: []}; }
+          }
+        }
+        const prompt = shots.length ? `${text}\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""`
+          : facts.text ? `${text}\n\nСведения из интернета (свежие, используй их и ставь ссылки):\n"""\n${facts.text}\n"""` : text;
+        reply = await neuroAnswer(pending, history, prompt, t0, facts.sources);
+        const photos = ((data && data.attachments) || []).filter((a) => a.type === "photo");
+        if (photos.length) reply.attachments = photos.concat(reply.attachments || []);
       } else {
         const ms = Math.max(1, Math.round(performance.now() - t0));
         reply = {role: "rai", text: data.answer || "Результат не получен.", attachments: data.attachments || [],
@@ -1718,7 +1781,8 @@ def rai_code(action, code, lang, prompt):
   }
 
   // ---------------------------------------------------------------- нейросеть в чате
-  const TOOL_INTENTS = new Set(["weather", "currency", "translate", "image", "slides", "archive", "skill", "web", "set_name", "get_name", "memory"]);
+  // Ответ «из интернета» (web) нейросеть переписывает связным текстом со ссылками, остальное — точные инструменты Rai
+  const TOOL_INTENTS = new Set(["weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory"]);
   function isToolAnswer(data) {
     const intents = Array.isArray(data.intent) ? data.intent : [data.intent];
     return intents.every((i) => TOOL_INTENTS.has(i)) || (data.attachments || []).some((a) => a.type === "slides" || a.type === "image" || a.type === "archive");
@@ -1729,7 +1793,13 @@ def rai_code(action, code, lang, prompt):
     sendBtn.innerHTML = icon(on ? "stop" : "send");
     sendBtn.setAttribute("aria-label", on ? "Остановить ответ" : "Отправить");
   }
-  async function neuroAnswer(pending, history, prompt, t0) {
+  function linksOf(md) {
+    const out = [], re = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+    let m;
+    while ((m = re.exec(md || ""))) if (!out.some((x) => x.url === m[2])) out.push({title: m[1], url: m[2]});
+    return out.slice(0, 5);
+  }
+  async function neuroAnswer(pending, history, prompt, t0, sources) {
     const bubble = pending.querySelector(".bubble");
     pending.classList.remove("pending");
     bubble.classList.add("md");
@@ -1753,6 +1823,11 @@ def rai_code(action, code, lang, prompt):
     if (page) {
       attachments.push({type: "code", lang: "html", code: page.code, filename: "index.html", title: "Страница от нейросети", site: true});
       text = text.replace(/```(?:html)?[^\n]*\n[\s\S]*?(?:```|$)/i, "*Код страницы — в карточке ниже: «Просмотр», «Открыть в Code», «Скачать».*");
+    }
+    // Источники, на которые опирался ответ (если нейросеть сама их не поставила)
+    const used = (sources || []).filter((x) => !text.includes(x.url));
+    if (text.trim() && used.length && used.length === (sources || []).length) {
+      text = text.trim() + "\n\n**Источники:** " + used.map((x) => `[${x.title.replace(/[\[\]]/g, "")}](${x.url})`).join(" · ");
     }
     return {role: "rai", text: text.trim() || "Нейросеть не ответила — попробуйте ещё раз.", attachments: attachments,
             meta: "Нейросеть " + (window.RaiNeuro.status().label || "") + " · " + secs + " с"};
@@ -1843,8 +1918,13 @@ def rai_code(action, code, lang, prompt):
     const picture = async (prompt, n) => { try { return (await engine.slides("image", {prompt: prompt, seed: seed + n, theme: theme})).svg; } catch (e) { return null; } };
     const old = base ? base.slides : [];
     const oldPics = old.filter((s) => s.kind === "bullets" && s.image).map((s) => s.image);
+    // Настоящие фото: те, что Rai уже нашёл в интернете, или новый поиск по названию
+    let photos = old.map((s) => s.pic).filter(Boolean);
+    if (!photos.length) { try { photos = (await engine.slides("photos", {query: title})).photos || []; } catch (e) { photos = []; } }
+    photos = [...new Set(photos)];
     const cover = {kind: "title", title: title, subtitle: clip(json.subtitle, 140) || (old[0] && old[0].subtitle) || ""};
     cover.image = (old[0] && old[0].image) || await picture(title, 0);
+    if (photos.length) cover.pic = photos.shift();
     const slides = [cover];
     const heads = body.filter((s) => s.title && s.kind !== "summary").map((s) => s.title);
     if (heads.length >= 3) slides.push({kind: "agenda", title: "План", items: heads.slice(0, 6)});
@@ -1855,13 +1935,14 @@ def rai_code(action, code, lang, prompt):
       if (s.kind === "bullets" && side < 4) {
         const img = oldPics[side] || await picture(title + " " + s.title, side + 1);
         if (img) { s.image = img; s.side = side % 2 ? "left" : "right"; }
+        if (photos.length) s.pic = photos.shift();
         side++;
       }
       slides.push(s);
     }
     const end = old.find((s) => s.kind === "end");
-    slides.push(end ? Object.assign({}, end, {subtitle: title}) : {kind: "end", title: "Спасибо за внимание!", subtitle: title, image: cover.image});
-    slides.forEach((s, i) => { s.transition = DECK_TRANSITIONS[i % DECK_TRANSITIONS.length]; if (!s.image) delete s.image; });
+    slides.push(end ? Object.assign({}, end, {subtitle: title}) : {kind: "end", title: "Спасибо за внимание!", subtitle: title, image: cover.image, pic: cover.pic});
+    slides.forEach((s, i) => { s.transition = DECK_TRANSITIONS[i % DECK_TRANSITIONS.length]; if (!s.image) delete s.image; if (!s.pic) delete s.pic; });
     return {type: "slides", title: title, slides: slides, theme: theme, neuro: true};
   }
   const wantsDeck = (data) => data && ([].concat(data.intent || []).includes("slides") || (data.attachments || []).some((a) => a.type === "slides"));
@@ -1886,10 +1967,14 @@ def rai_code(action, code, lang, prompt):
   // Кнопка и окно нейросети
   function renderNeuroModels() {
     const box = $("neuroModels");
-    const chosen = window.RaiNeuro.status().model || window.RaiNeuro.saved() || "normal";
-    box.innerHTML = Object.entries(window.RaiNeuro.MODELS).map(([key, m]) =>
+    const N = window.RaiNeuro;
+    const saved = N.saved();
+    const chosen = N.status().model || (N.MODELS[saved] ? saved : "normal");
+    const cpu = N.backend() === "cpu";
+    box.innerHTML = Object.entries(N.MODELS).filter(([, m]) => !cpu || m.cpu).map(([key, m]) =>
       `<label><input type="radio" name="neuroModel" value="${key}"${key === chosen ? " checked" : ""}>` +
-      `<b>${esc(m.name)}${key === "normal" ? " ✦" : ""}</b><span>${esc(m.label)}</span><span>скачать ${esc(m.size)} · видеопамять ${esc(m.memory)}</span></label>`).join("");
+      `<b>${esc(m.name)}${key === "normal" ? " ✦" : ""}</b><span>${esc(cpu ? m.cpu.label : m.label)}</span>` +
+      `<span>${cpu ? "загрузка " + esc(m.cpu.size) + " · на процессоре" : "загрузка " + esc(m.size) + " · видеопамять " + esc(m.memory)}</span></label>`).join("");
   }
   function initNeuro() {
     const N = window.RaiNeuro;
@@ -1913,8 +1998,8 @@ def rai_code(action, code, lang, prompt):
       N.enable(key).then(() => toast("Нейросеть включена — пишите что угодно")).catch((e) => toast("Нейросеть не запустилась: " + e.message));
     });
     $("neuroOff").addEventListener("click", () => { N.disable(); toast("Нейросеть выключена — отвечает движок Rai"); });
-    const saved = N.saved();
-    if (saved) N.enable(saved).catch(() => { /* причина видна в окне нейросети */ });
+    // Нейросеть включается сама: модель подбирается под компьютер и грузится в фоне (один раз, дальше — из кэша)
+    N.auto();
   }
 
   function autosize() {

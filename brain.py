@@ -431,36 +431,131 @@ class Brain:
         return reply, "web"
 
     def _slides(self, version, text, attachments):
-        topic = creative.slides_topic(text)
+        req = creative.parse_deck_request(text)
+        topic = req["topic"] or (" и ".join(req["compare"]) if req["compare"] else "")
         theme = creative.deck_theme(text)
+        online_ok = "web" in version.skills
         results = self.search(version, topic, limit=4, correct=False) if topic else []
         found = [self.intents[k] for k, score in results if score >= version.threshold * 0.8]
         big = version.detailed
         found = found[:4] if big else found[:2]
         if len(found) < 2 and topic:
             found += self._glossary_for(topic, limit=(6 if big else 3) - len(found))
-        photo = None
-        if topic and "web" in version.skills and (len(found) < 2 or version.enrich):
-            # Материала мало — дополняем статьёй из интернета (и берём оттуда настоящую фотографию)
+        photo, photos, notes, page, offline = None, [], [], None, False
+
+        def web(fn, *args):
+            nonlocal offline
+            if offline or not online_ok:
+                return None
             try:
-                art = online.web_article(topic, langs=("ru",))
+                return fn(*args)
             except net.NetError:
-                art = None
+                offline = True
+                return None
+
+        if topic and online_ok:
+            # Главный материал — статья из интернета целиком, по разделам (а своя база — в дополнение)
+            page = web(online.wiki_page, topic)
+            if page and not online._relevant(topic, page["title"] + " " + page["lead"][:800]):
+                page = None
+        web_articles = []
+        if page:
+            photo = page["image"]
+            web_articles.append({"title": page["title"], "answers": [page["lead"]], "web": True,
+                                 "blocks": creative.web_blocks(page["title"], page["lead"], first=True)})
+            for sec in page["sections"]:
+                web_articles.append({"title": sec["title"], "answers": [sec["text"]], "web": True,
+                                     "blocks": creative.web_blocks(sec["title"], sec["text"])})
+            if set(nlp.tokens(topic)) <= set(nlp.tokens(page["title"])) or len(topic.split()) > 1:
+                topic = page["title"]  # «эйфелеву башню» -> «Эйфелева башня», «о солнечной системе» -> «Солнечная система»
+        # Разделы, которые попросили: сначала ищем в статье, потом отдельной статьёй
+        chosen = []
+        for want in req["sections"]:
+            words = set(nlp.tokens(want))
+            hit = next((a for a in web_articles if words & set(nlp.tokens(a["title"]))), None)
+            if not hit:
+                extra = None
+                for query in (want, f"{want} {topic}".strip()):
+                    art = web(online.web_article, query)
+                    if art and online._relevant(want, art["title"]):
+                        extra = art
+                        break
+                if extra:
+                    hit = {"title": want[:1].upper() + want[1:], "answers": [extra["text"]], "web": True,
+                           "blocks": creative.web_blocks(want[:1].upper() + want[1:], extra["text"], first=True)}
+                    photos.append(extra["image"]) if extra.get("image") else None
+            if hit:
+                chosen.append(hit)
+            else:
+                notes.append(f"про «{want}» материала не нашёл")
+        if web_articles or chosen:
+            # порядок = приоритет: обзор, заказанные разделы, своя база (там примеры кода), остальные разделы статьи
+            # своя база — только то, что точно про эту тему (а не «Операционная система» для «Солнечной системы»)
+            want_words = set(nlp.tokens(topic))
+            found = [a for a in found if a.get("title") != page["title"] and
+                     want_words <= set(nlp.tokens(a.get("title", "") + " " + a["answers"][0][:300]))] if page else found
+            overview = [a for a in web_articles[:1] if a not in chosen]
+            others = [a for a in web_articles[1:] if a not in chosen]
+            mixed = []
+            for k in range(max(len(others), len(found))):  # разделы статьи вперемешку со своей базой
+                mixed += others[k:k + 1] + found[k:k + 1]
+            found = overview + chosen + mixed
+        elif topic and online_ok and len(found) < 2:
+            art = web(online.web_article, topic)
             if art:
                 photo = art["image"]
                 found.append({"title": art["title"], "answers": [art["text"]], "web": True})
-        web = next((a for a in found if a.get("web")), None)
-        if web and set(nlp.tokens(topic)) <= set(nlp.tokens(web["title"])):
-            topic = web["title"]  # «эйфелеву башню» -> «Эйфелева башня»
+                if set(nlp.tokens(topic)) <= set(nlp.tokens(art["title"])):
+                    topic = art["title"]
+        if req["pictures"] != "none" and page:
+            photos = [p["url"] for p in (web(online.wiki_images, page["title"], page["lang"]) or [])] + photos
+        # Отдельно заказанные слайды: сравнение, цитата, таблица
+        compare = None
+        if req["compare"]:
+            sides = []
+            for name in req["compare"]:
+                art = web(online.web_article, name)
+                if art:
+                    side = {"title": art["title"], "text": art["text"]}
+                else:  # без интернета — из своего словаря
+                    local = next((a for form in _word_forms(name) for a in self._glossary_for(form, 1)), None)
+                    side = {"title": local["title"], "text": local["answers"][0]} if local else {"title": name, "text": ""}
+                items = [creative._cap(creative._short(x.replace("**", ""), 110)) for x in creative._sentences(side["text"])[:3]]
+                sides.append({"title": creative._cap(side["title"]), "items": items})
+            if all(x["items"] for x in sides):
+                compare = {"kind": "compare", "title": f"{sides[0]['title']} и {sides[1]['title']}", "left": sides[0], "right": sides[1]}
+                if not req["topic"]:
+                    topic = compare["title"]
+                    for name in req["compare"]:
+                        found += [a for a in next((g for g in (self._glossary_for(f, 1) for f in _word_forms(name)) if g), [])
+                                  if a not in found]
+        quote = web(online.wiki_quote, topic) if "quote" in req["want"] and topic else None
+        found = [a if a.get("blocks") is not None else dict(a, blocks=creative._article_blocks(a)) for a in found]
+        material = [b for a in found for b in a["blocks"]]
+        extras, missing = creative.extra_blocks(req["want"], material, quote=quote, compare=compare)
+        for kind in ("timeline", "stats"):  # попросили хронологию или цифры — они обязательно попадут в презентацию
+            block = next((b for b in material if b["kind"] == kind), None) if kind in req["want"] else None
+            if block:
+                extras.insert(0, block)
+                for a in found:
+                    if block in a["blocks"]:
+                        a["blocks"] = [b for b in a["blocks"] if b is not block]
+        if missing:
+            notes.append("не нашёл " + ", ".join(missing))
+
         title = creative.nominative(topic) if topic else "Rteam"
         if re.fullmatch(r"[a-z0-9+#]{1,5}", title, re.I):
             title = title.upper()  # html -> HTML, php -> PHP
         elif found and found[0].get("key_match") and len(title.split()) == 1:
             title = found[0]["title"]  # «котов» -> «Кошка»
-        limit = version.slide_limit
-        deck = creative.make_slides(title, found, max_slides=limit, theme=theme, photo=photo)
+        limit = req["count"] or version.slide_limit
+        deck = creative.make_slides(title, found, max_slides=limit, theme=theme,
+                                    photo=photo if req["pictures"] != "none" else None, extras=extras,
+                                    photos=photos, pictures=req["pictures"]) if found or extras else None
         if not deck:
-            hint = "" if "web" in version.skills else " Rai Pro, Pro Plus и Pro Sun ещё и ищут материал в интернете."
+            hint = "" if online_ok else " Rai Pro, Pro Plus и Pro Sun ещё и ищут материал в интернете."
+            if offline:
+                hint = " Поискать в интернете не получилось: нет связи."
             return (f"Про «{topic or text}» я пока не нашёл материала, поэтому презентацию не сделал — "
                     f"не хочу показывать пустые слайды.{hint} Попробуйте другую тему, например «презентация про космос».")
         attachments.append(deck)
@@ -468,8 +563,22 @@ class Brain:
         count = f"{n} " + ("слайд" if n % 10 == 1 and n % 100 != 11 else
                           "слайда" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "слайдов")
         colors = " в ваших цветах" if theme["custom"] else ""
-        return (f"Готово: презентация **«{deck['title']}»**{colors}, {count}. "
-                "Смотрите на весь экран, скачивайте файлом или ZIP-архивом.")
+        done = []
+        if page:
+            done.append(f"текст — из Википедии ([{page['title']}]({page['link']}))")
+        if any(s.get("pic") for s in deck["slides"]):
+            done.append("фото — из интернета")
+        kinds = {s["kind"] for s in deck["slides"]}
+        names = {"timeline": "хронология", "stats": "цифры", "table": "таблица", "quote": "цитата", "compare": "сравнение"}
+        done += [names[k] for k in names if k in kinds]
+        if req["count"] and n < req["count"]:
+            notes.append(f"материала хватило на {count} из {req['count']}")
+        if offline:
+            notes.append("интернет был недоступен, собрал из своей базы знаний")
+        tail = (" В ней: " + "; ".join(done) + ".") if done else ""
+        tail += (" *Заметки: " + "; ".join(notes) + ".*") if notes else ""
+        return (f"Готово: презентация **«{deck['title']}»**{colors}, {count}.{tail} "
+                "Смотрите на весь экран, скачивайте в PowerPoint, файлом или ZIP-архивом.")
 
     # ------------------------------------------------------------ скриншоты и запись экрана
 
@@ -678,6 +787,18 @@ class Brain:
         else:
             lines.append("Попробуйте спросить иначе или напишите «что ты умеешь».")
         return "\n\n".join(lines)
+
+
+def _word_forms(word):
+    """Слово и его вероятная начальная форма: «кошек» -> «кошка», «котов» -> «кот», «собак» -> «собака»."""
+    w = word.strip()
+    forms = [w]
+    for end, repl in (("ек", "ка"), ("ов", ""), ("ев", ""), ("ей", "ь"), ("ы", ""), ("и", "а"), ("ам", "а")):
+        if w.endswith(end) and len(w) - len(end) >= 3:
+            forms.append(w[:len(w) - len(end)] + repl)
+    if re.search(r"[бвгджзклмнпрстфхцчшщ]$", w):
+        forms.append(w + "а")
+    return forms
 
 
 def _name_from_history(history):

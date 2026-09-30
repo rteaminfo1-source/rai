@@ -4,7 +4,7 @@
 - погода — Open-Meteo (open-meteo.com);
 - курсы валют — open.er-api.com (запасной — cbr-xml-daily.ru, курсы ЦБ РФ);
 - перевод — MyMemory (mymemory.translated.net);
-- поиск — Википедия.
+- поиск — Википедия, а через посредник на хостинге (net.php) — Google или DuckDuckGo.
 """
 
 import re
@@ -499,16 +499,203 @@ def web_article(query: str, langs=("ru", "en")):
     return None
 
 
-def web_search(query: str):
-    """Найти ответ в Википедии: (ответ, вложения) или None."""
-    art = web_article(query)
-    if not art:
+_SKIP_SECTIONS = re.compile(r"^(примечани|литератур|ссылки|см\. также|источник|галере|библиограф|notes|references|"
+                            r"see also|external links|further reading|bibliography|sources|gallery)", re.I)
+
+
+def wiki_page(query: str, langs=("ru", "en")):
+    """Статья Википедии целиком, по разделам — материал для презентации.
+
+    {"title", "lang", "link", "image", "lead", "sections": [{"title", "text"}]} или None.
+    """
+    query = query.strip(" ?!.")
+    if len(query) < 2:
         return None
-    answer = f"**{art['title']}**\n\n{_first_sentences(art['text'])}"
-    if art["lang"] == "en":
-        answer += "\n\n*(нашёл только в английской Википедии)*"
-    answer += f"\n\nИсточник: [Википедия]({art['link']})" if art["link"] else ""
+    for lang in langs:
+        found = net.fetch_json(net.url(
+            f"https://{lang}.wikipedia.org/w/api.php", action="query", list="search", srsearch=query,
+            srlimit=1, format="json", origin="*", utf8=1), ttl=3600)
+        hits = found.get("query", {}).get("search", [])
+        if not hits:
+            continue
+        title = hits[0]["title"]
+        data = net.fetch_json(net.url(
+            f"https://{lang}.wikipedia.org/w/api.php", action="query", prop="extracts|pageimages", titles=title,
+            explaintext=1, exsectionformat="wiki", piprop="original|thumbnail", pithumbsize=1280, redirects=1,
+            format="json", origin="*", utf8=1), ttl=3600)
+        pages = list((data.get("query", {}).get("pages") or {}).values())
+        if not pages or not pages[0].get("extract"):
+            continue
+        page = pages[0]
+        parts = re.split(r"^(={2,4})\s*(.+?)\s*\1\s*$", page["extract"], flags=re.M)
+        lead = parts[0].strip()
+        sections, skip_level = [], None
+        for k in range(1, len(parts) - 2, 3):
+            level, head, body = len(parts[k]), parts[k + 1].strip(), parts[k + 2].strip()
+            if skip_level and level > skip_level:
+                continue
+            skip_level = level if _SKIP_SECTIONS.match(head) else None
+            if skip_level or len(body) < 80:
+                continue
+            sections.append({"title": head, "text": body})
+        image = (page.get("original") or {}).get("source") or (page.get("thumbnail") or {}).get("source")
+        return {"title": page.get("title", title), "lang": lang, "lead": lead, "sections": sections,
+                "image": image if image and re.search(r"\.(jpe?g|png|webp)$", image, re.I) else None,
+                "link": f"https://{lang}.wikipedia.org/wiki/" + urllib.parse.quote(page.get("title", title).replace(" ", "_"))}
+    return None
+
+
+_BAD_PICTURE = re.compile(r"(flag|logo|icon|symbol|coat|герб|флаг|логотип|значок|map|карта|signature|подпись|"
+                          r"commons-|wiki|question_book|edit-clear|ambox|disambig|folder|crystal|nuvola|pictogram|"
+                          r"\.svg$|\.gif$|\.tiff?$)", re.I)
+
+
+def wiki_images(title: str, lang: str = "ru", limit: int = 12):
+    """Настоящие фотографии из статьи Википедии: [{"url", "title", "page"}] (без флагов, значков и схем)."""
+    data = net.fetch_json(net.url(
+        f"https://{lang}.wikipedia.org/w/api.php", action="query", generator="images", titles=title, gimlimit=40,
+        prop="imageinfo", iiprop="url|size|mime", iiurlwidth=1280, format="json", origin="*", utf8=1), ttl=86400)
+    out = []
+    for page in (data.get("query", {}).get("pages") or {}).values():
+        name = page.get("title", "")
+        info = (page.get("imageinfo") or [{}])[0]
+        if _BAD_PICTURE.search(name) or info.get("mime") not in ("image/jpeg", "image/png", "image/webp"):
+            continue
+        if (info.get("width") or 0) < 500 or (info.get("height") or 0) < 300:
+            continue
+        url = info.get("thumburl") or info.get("url")
+        if url and url.startswith("https://upload.wikimedia.org/"):
+            out.append({"url": url, "title": re.sub(r"^(Файл|File):|\.\w+$", "", name).replace("_", " "),
+                        "page": info.get("descriptionurl", "")})
+    return out[:limit]
+
+
+def photos_for(query: str, limit: int = 12):
+    """Фотографии по теме из Википедии (главное фото статьи + фото из неё): список адресов https."""
+    page = wiki_page(query)
+    if not page:
+        return []
+    out = [page["image"]] if page["image"] else []
+    out += [p["url"] for p in wiki_images(page["title"], page["lang"], limit)]
+    return list(dict.fromkeys(out))[:limit]
+
+
+def wiki_quote(topic: str):
+    """Цитата по теме из Викицитатника: {"text", "author"} или None."""
+    found = net.fetch_json(net.url("https://ru.wikiquote.org/w/api.php", action="query", list="search", srsearch=topic,
+                                   srlimit=1, format="json", origin="*", utf8=1), ttl=86400)
+    hits = found.get("query", {}).get("search", [])
+    if not hits:
+        return None
+    title = hits[0]["title"]
+    data = net.fetch_json(net.url("https://ru.wikiquote.org/w/api.php", action="query", prop="extracts", titles=title,
+                                  explaintext=1, format="json", origin="*", utf8=1), ttl=86400)
+    pages = list((data.get("query", {}).get("pages") or {}).values())
+    text = pages[0].get("extract", "") if pages else ""
+    lines = [l.strip() for l in text.split("\n")]
+    for i, line in enumerate(lines):
+        if not 30 <= len(line) <= 220 or line.startswith("=") or re.search(r"\b(ISBN|стр\.|с\.\s*\d|№|изд\.)", line):
+            continue
+        author = ""
+        for nxt in lines[i + 1:i + 3]:
+            if re.match(r"^[—–-]\s*\S", nxt):
+                author = re.sub(r"^[—–-]\s*", "", nxt).split(",")[0].strip()[:60]
+                break
+        if re.search(r"[а-яё]", line, re.I):
+            return {"text": line.strip("«»\"„“ "), "author": author or title}
+    return None
+
+
+def _relevant(query, text):
+    """Есть ли в тексте хотя бы половина значимых слов вопроса."""
+    want = {w for w in nlp.tokens(query) if w not in nlp.GENERIC and len(w) > 2}
+    if not want:
+        return True
+    have = set(nlp.tokens(text))
+    return len(want & have) * 2 >= len(want)
+
+
+_FACT_WORDS = re.compile(
+    r"(?<![а-яёa-z])(кто|что так|что за|что значит|когда|где|почему|зачем|сколько|какой|какая|какое|какие|каков|"
+    r"расскажи|объясни|новост|последн|сегодня|сейчас|курс|цена|стоит|стоимость|факт|истори|биограф|сравни|"
+    r"лучше|отличи|what|who|when|where|why|how|which)", re.I)
+
+
+def needs_facts(text: str) -> bool:
+    """Вопрос о фактах (а не просьба написать код, сочинить или поболтать) — стоит поискать в интернете."""
+    t = (text or "").strip().lower()
+    return len(t) >= 6 and bool(_FACT_WORDS.search(t)) and len(nlp.tokens(t)) >= 1
+
+
+def context_for(query: str, limit_chars: int = 2600) -> dict:
+    """Сведения из интернета для нейросети: {"text", "sources": [{"title", "url"}]}.
+
+    Википедия (связный текст) + результаты поиска Google / DuckDuckGo (через посредник на хостинге).
+    """
+    parts, sources = [], []
+    try:
+        art = web_article(query)
+    except net.NetError:
+        art = None
+    if art and _relevant(query, art["title"] + " " + art["text"][:600]):
+        parts.append(f"[{art['title']} — Википедия]({art['link']}): {art['text'][:1600]}")
+        sources.append({"title": art["title"] + " — Википедия", "url": art["link"]})
+    for r in web_results(query, 5):
+        if any(r["url"] == x["url"] for x in sources):
+            continue
+        parts.append(f"[{_md(r['title'])}]({_safe_url(r['url'])}): {r.get('snippet', '')}")
+        sources.append({"title": _md(r["title"]), "url": _safe_url(r["url"])})
+    return {"text": "\n\n".join(parts)[:limit_chars], "sources": sources[:5]}
+
+
+def web_results(query: str, limit: int = 6):
+    """Результаты поиска в интернете или [] (нет посредника или поиск не ответил)."""
+    try:
+        return net.search(query, limit)
+    except net.NetError:
+        return []
+
+
+def web_search(query: str):
+    """Найти ответ в интернете: (ответ, вложения) или None.
+
+    Сначала Википедия (готовый связный текст), затем поиск Google / DuckDuckGo через посредник на хостинге.
+    """
+    error = None
+    try:
+        art = web_article(query)
+    except net.NetError as e:
+        art, error = None, e
+    if art and not _relevant(query, art["title"] + " " + art["text"][:600]):
+        art = None  # Википедия нашла что-то не то
+    results = web_results(query)
+    if not art and not results:
+        if error:
+            raise error
+        return None
     attachments = []
-    if art["image"]:
-        attachments.append({"type": "photo", "url": art["image"], "title": art["title"], "source": art["link"]})
-    return answer, attachments
+    if art:
+        answer = f"**{art['title']}**\n\n{_first_sentences(art['text'])}"
+        if art["lang"] == "en":
+            answer += "\n\n*(нашёл только в английской Википедии)*"
+        answer += f"\n\nИсточник: [Википедия]({art['link']})" if art["link"] else ""
+        if art["image"]:
+            attachments.append({"type": "photo", "url": art["image"], "title": art["title"], "source": art["link"]})
+        more = [r for r in results if "wikipedia.org" not in r["url"]][:3]
+        if more:
+            answer += "\n\n**Ещё в интернете:**\n" + "\n".join(f"- [{_md(r['title'])}]({_safe_url(r['url'])})" for r in more)
+        return answer, attachments
+    lines = ["Вот что нашёл в интернете:"]
+    for r in results[:4]:
+        snippet = _first_sentences(r.get("snippet") or "", 300)
+        lines.append(f"**[{_md(r['title'])}]({_safe_url(r['url'])})**" + (f"\n{_md(snippet)}" if snippet else ""))
+    return "\n\n".join(lines), attachments
+
+
+def _md(text):
+    """Текст из интернета без символов разметки (чтобы не ломал ссылки и жирный шрифт)."""
+    return re.sub(r"[*`=~]", "", str(text or "")).replace("[", "(").replace("]", ")").strip()
+
+
+def _safe_url(u):
+    return str(u).replace(" ", "%20").replace(")", "%29").replace("(", "%28")

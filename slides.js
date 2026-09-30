@@ -228,10 +228,11 @@
       form += field("Подпись", `<input data-f="caption" value="${esc(s.caption)}">`);
       form += field("Адрес фото (https://…)", `<input data-f="photo" value="${esc(s.photo)}" inputmode="url">`);
     }
-    if (s.kind === "bullets") form += field("Картинка", `<select data-f="side"><option value="">без картинки</option><option value="right"${s.image && s.side !== "left" ? " selected" : ""}>справа</option><option value="left"${s.image && s.side === "left" ? " selected" : ""}>слева</option></select>`);
-    if (s.kind === "fact" || s.kind === "title" || s.kind === "end" || s.kind === "quote") form += field("Картинка", `<select data-f="pic"><option value="">без картинки</option><option value="1"${s.image ? " selected" : ""}>есть</option></select>`);
+    if (s.kind === "bullets") form += field("Картинка", `<select data-f="side"><option value="">без картинки</option><option value="right"${(s.image || s.pic) && s.side !== "left" ? " selected" : ""}>справа</option><option value="left"${(s.image || s.pic) && s.side === "left" ? " selected" : ""}>слева</option></select>`);
+    if (s.kind === "fact" || s.kind === "title" || s.kind === "end" || s.kind === "quote") form += field("Картинка", `<select data-f="pic"><option value="">без картинки</option><option value="1"${s.image || s.pic ? " selected" : ""}>есть</option></select>`);
     form += field("Переход", `<select data-f="transition">${Object.entries(TRANSITIONS).map(([v, n]) => `<option value="${v}"${v === (s.transition || "fade") ? " selected" : ""}>${n}</option>`).join("")}</select>`);
-    const picRow = s.image ? `<div class="sl-row"><button class="tb" type="button" data-a="newpic">Другая картинка</button></div>` : "";
+    const picRow = s.image || s.pic ? `<div class="sl-row"><button class="tb" type="button" data-a="webpic">Фото из интернета</button>` +
+      `<button class="tb" type="button" data-a="newpic">Рисунок</button></div>` : "";
     el.slSide.innerHTML = `
       <div class="sl-group"><h3>Слайд ${k + 1}</h3>${form}${picRow}</div>
       <div class="sl-group"><h3>Цвета презентации</h3>
@@ -263,8 +264,8 @@
         else if (f === "pairs") s.items = toPairs(unlines(v), PAIR[s.kind]);
         else if (f.includes(".")) { const [key, sub] = f.split("."); s[key] = s[key] || {title: "", items: []}; s[key][sub] = sub === "items" ? unlines(v) : v; }
         else if (f === "rows") s.rows = unlines(v).map((r) => r.split("|").map((c) => c.trim()));
-        else if (f === "side") { if (!v) { delete s.image; delete s.side; } else { s.side = v; if (!s.image) newPicture(s); } }
-        else if (f === "pic") { if (!v) delete s.image; else if (!s.image) newPicture(s); }
+        else if (f === "side") { if (!v) { delete s.image; delete s.pic; delete s.side; } else { s.side = v; if (!s.image && !s.pic) newPicture(s); } }
+        else if (f === "pic") { if (!v) { delete s.image; delete s.pic; } else if (!s.image && !s.pic) newPicture(s); }
         else s[f] = v;
         if (f === "kind") { fillKind(s); render(); save(); return; }
         if (f === "side" || f === "pic" || f === "transition") { renderThumbs(); showStage(1); renderSide(); save(); return; }
@@ -292,7 +293,8 @@
     }));
     el.slSide.querySelectorAll("[data-a]").forEach((b) => b.addEventListener("click", () => {
       if (b.dataset.a === "recolor") recolor(false);
-      if (b.dataset.a === "newpic") { snapshot(); newPicture(d.slides[k], true); }
+      if (b.dataset.a === "newpic") { snapshot(); delete d.slides[k].pic; newPicture(d.slides[k], true); }
+      if (b.dataset.a === "webpic") { snapshot(); webPicture(d.slides[k], b); }
     }));
   }
   /** Поля, которые нужны слайду нового типа. */
@@ -323,6 +325,24 @@
       const r = await H.slides("image", {prompt: imagePrompt(s), seed: random ? Math.floor(Math.random() * 1e9) : (s.seed || Math.floor(Math.random() * 1e9)), theme: deck().theme});
       if (r && r.svg) { s.image = r.svg; renderThumbs(); showStage(1); save(); }
     } catch (e) { H.toast("Не удалось нарисовать картинку"); }
+  }
+  // Фото из интернета (Википедия): каждое нажатие — следующее фото по теме слайда
+  const photoCache = {};
+  async function webPicture(s, btn) {
+    const query = (s.title && s.kind !== "title" && s.kind !== "end" ? s.title : deck().title) || deck().title;
+    if (btn) btn.disabled = true;
+    try {
+      if (!photoCache[query]) photoCache[query] = (await H.slides("photos", {query: query})).photos || [];
+      let list = photoCache[query];
+      if (!list.length && query !== deck().title) list = photoCache[deck().title] = photoCache[deck().title] || (await H.slides("photos", {query: deck().title})).photos || [];
+      if (!list.length) { H.toast("Фото в интернете не нашлось (или нет связи)"); return; }
+      s.pic = list[(list.indexOf(s.pic) + 1) % list.length];
+      renderThumbs(); showStage(1); renderSide(); save();
+    } catch (e) {
+      H.toast("Не удалось найти фото");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
   async function recolor(quiet) {
     const d = deck();

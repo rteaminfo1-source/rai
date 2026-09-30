@@ -97,7 +97,7 @@ def code():
 
 @app.post("/api/slides")
 def slides_tools():
-    """Вкладка «Слайды»: цвета темы по словам (theme) и картинка в цветах темы (image)."""
+    """Вкладка «Слайды»: цвета темы по словам (theme), картинка в цветах темы (image), фото из интернета (photos)."""
     import creative
     data = _payload() or {}
     action = data.get("action")
@@ -107,7 +107,25 @@ def slides_tools():
         theme = data.get("theme") if isinstance(data.get("theme"), dict) else None
         seed = data.get("seed") if isinstance(data.get("seed"), int) else None
         return jsonify(creative.make_image(str(data.get("prompt") or "")[:300], seed=seed, theme=theme))
-    return jsonify({"error": "action: theme или image"}), 400
+    if action == "photos":
+        import net
+        import online
+        try:
+            return jsonify({"photos": online.photos_for(str(data.get("query") or "")[:200])})
+        except net.NetError as e:
+            return jsonify({"photos": [], "error": str(e)})
+    return jsonify({"error": "action: theme, image или photos"}), 400
+
+
+@app.post("/api/context")
+def web_context():
+    """Сведения из интернета для нейросети в браузере (Википедия и поиск)."""
+    import codeai
+    import online
+    query = str((_payload() or {}).get("query") or "")[:300]
+    if not query or codeai.is_build_request(query) or not online.needs_facts(query):
+        return jsonify({"text": "", "sources": []})
+    return jsonify(online.context_for(query))
 
 
 @app.post("/api/teach")

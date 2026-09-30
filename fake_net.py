@@ -20,6 +20,38 @@ WIKI_PAGE = {"title": "Эйфелева башня", "extract": "Эйфелев�
              "thumbnail": {"source": "https://upload.wikimedia.org/eiffel.jpg"},
              "content_urls": {"desktop": {"page": "https://ru.wikipedia.org/wiki/Эйфелева_башня"}}}
 
+SOLAR_EXTRACT = (
+    "Солнечная система — планетная система, включающая Солнце и все объекты, которые вращаются вокруг него. "
+    "Она сформировалась около 4,6 млрд лет назад из гравитационного сжатия газопылевого облака.\n\n"
+    "== Планеты ==\nВ Солнечной системе восемь планет: четыре земные и четыре газовых гиганта. "
+    "Меркурий ближе всего к Солнцу. Юпитер — самая большая планета системы. "
+    "Сатурн знаменит своими кольцами из льда и камня.\n\n"
+    "== Исследования ==\nВ 1957 году был запущен первый искусственный спутник Земли. "
+    "В 1961 году Юрий Гагарин впервые полетел в космос. "
+    "В 1969 году люди впервые высадились на Луну. "
+    "В 1977 году запущены аппараты «Вояджер».\n\n"
+    "== В цифрах ==\nМасса Солнца составляет около 99,86% массы всей системы. "
+    "Расстояние от Земли до Солнца — около 150 млн км. "
+    "Свет от Солнца идёт до Земли около 8 мин и 20 секунд. "
+    "Диаметр Юпитера — около 140 тыс. км.\n\n"
+    "== Примечания ==\nСсылка на источник, ещё ссылка на источник, и ещё одна ссылка на источник для проверки.\n")
+PLANET_PAGES = {
+    "Солнечная система": {"extract": SOLAR_EXTRACT, "original": {"source": "https://upload.wikimedia.org/solar.jpg"}},
+    "Марс": {"extract": "Марс — четвёртая по удалённости от Солнца планета. Его называют красной планетой из-за оксида железа.",
+             "original": {"source": "https://upload.wikimedia.org/mars.jpg"}},
+}
+IMAGES = {"query": {"pages": {
+    "1": {"title": "Файл:Planets2013.jpg", "imageinfo": [{"mime": "image/jpeg", "width": 2000, "height": 1000,
+          "thumburl": "https://upload.wikimedia.org/planets.jpg", "descriptionurl": "https://commons.wikimedia.org/wiki/File:Planets2013.jpg"}]},
+    "2": {"title": "Файл:Flag of Russia.svg", "imageinfo": [{"mime": "image/svg+xml", "width": 900, "height": 600,
+          "thumburl": "https://upload.wikimedia.org/flag.png"}]},
+    "3": {"title": "Файл:Jupiter.jpg", "imageinfo": [{"mime": "image/jpeg", "width": 1600, "height": 1600,
+          "thumburl": "https://upload.wikimedia.org/jupiter.jpg"}]},
+    "4": {"title": "Файл:Tiny.png", "imageinfo": [{"mime": "image/png", "width": 40, "height": 40, "thumburl": "https://upload.wikimedia.org/tiny.png"}]},
+}}}
+QUOTE_EXTRACT = ("== Цитаты ==\nЗемля — колыбель разума, но нельзя вечно жить в колыбели.\n"
+                 "— Константин Циолковский, письмо, 1911\n")
+
 calls = []
 
 
@@ -40,8 +72,38 @@ def fetch_text(address, timeout=10):
     if "mymemory" in address:
         text, pair = q["q"][0], q["langpair"][0]
         return json.dumps({"responseData": {"translatedText": f"[{pair}] {text}"}, "responseStatus": 200})
+    if "wikiquote.org/w/api.php" in address:
+        if "srsearch" in q:
+            hit = "солнечн" in q["srsearch"][0].lower() or "космос" in q["srsearch"][0].lower()
+            return json.dumps({"query": {"search": [{"title": "Космос"}] if hit else []}})
+        return json.dumps({"query": {"pages": {"1": {"title": "Космос", "extract": QUOTE_EXTRACT}}}})
     if "wikipedia.org/w/api.php" in address:
-        return json.dumps(WIKI_SEARCH if "эйфел" in q["srsearch"][0].lower() else {"query": {"search": []}})
+        if q.get("generator") == ["images"]:
+            return json.dumps(IMAGES)
+        if q.get("prop", [""])[0].startswith("extracts"):
+            title = q["titles"][0]
+            page = dict(PLANET_PAGES.get(title, {}), title=title)
+            return json.dumps({"query": {"pages": {"1": page}}})
+        term = q["srsearch"][0].lower()
+        if "эйфел" in term:
+            return json.dumps(WIKI_SEARCH)
+        if "солнечн" in term:
+            return json.dumps({"query": {"search": [{"title": "Солнечная система"}]}})
+        if term.startswith("марс"):
+            return json.dumps({"query": {"search": [{"title": "Марс"}]}})
+        return json.dumps({"query": {"search": []}})
+    if "net.php" in address and "search" in q:
+        term = q["search"][0].lower()
+        if "радио" in term:
+            return json.dumps({"engine": "duckduckgo", "results": [
+                {"title": "Кто изобрёл радио", "url": "https://example.ru/radio", "snippet": "Радио изобрели Попов и Маркони в 1895 году."},
+                {"title": "Радио — Википедия", "url": "https://ru.wikipedia.org/wiki/Радио", "snippet": "Радио — связь."}]})
+        return json.dumps({"engine": "", "results": []})
     if "rest_v1/page/summary" in address:
+        title = urllib.parse.unquote(address.rsplit("/", 1)[1]).replace("_", " ")
+        if title in PLANET_PAGES:
+            p = PLANET_PAGES[title]
+            return json.dumps({"title": title, "extract": p["extract"], "originalimage": p["original"],
+                               "content_urls": {"desktop": {"page": "https://ru.wikipedia.org/wiki/" + title}}})
         return json.dumps(WIKI_PAGE)
     raise AssertionError("неожиданный адрес " + address)
