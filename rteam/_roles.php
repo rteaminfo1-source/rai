@@ -409,14 +409,29 @@ function rt_active_ban($ip) {
 }
 
 /* ---------- ИИ поддержки (Rai) ----------
-   Python-сервис support_ai.py (app.py на Render): POST /api/support.
-   Адрес, ключ и включение — в админ-панели («Поддержка» → «ИИ поддержки»), хранятся в settings.json.
-   ИИ получает только текст тикета: никаких паролей, users.json и токенов ему не передаётся. */
+   Нейросеть лежит на GitHub (папка support/ репозитория rai: rai-support.js и model.json)
+   и работает в браузере посетителя. Сайт её только загружает и сохраняет ответы в тикет.
+   Включение, адрес папки на GitHub и поиск в интернете — в админ-панели («Тикеты» → «ИИ поддержки»).
+   Нейросеть получает только текст тикета: паролей, users.json и токенов она не видит. */
 
 const RT_AI_NAME = "Rai · ИИ";
+const RT_AI_SRC_DEFAULT = "https://raw.githubusercontent.com/rteaminfo1-source/rai/claude/awesome-mendel-tzoqsf/support/";
+
+/* Папка с нейросетью: https://…/support/ (со слешем в конце) */
+function rt_support_ai_src($settings) {
+    $src = trim((string)($settings["support_ai_src"] ?? ""));
+    if ($src === "" || !preg_match('~^(https://|http://(127\.0\.0\.1|localhost)[:/])[^\s"\'<>]+$~i', $src)) $src = RT_AI_SRC_DEFAULT;
+    return rtrim($src, "/") . "/";
+}
+
+/* net.php для поиска в интернете (необязательно) */
+function rt_support_ai_search($settings) {
+    $u = trim((string)($settings["support_ai_search"] ?? ""));
+    return preg_match('~^https://[^\s"\'<>]+$~i', $u) ? $u : "";
+}
 
 function rt_support_ai_ready($settings) {
-    return !empty($settings["support_ai_enabled"]) && !empty($settings["support_ai_url"]) && !empty($settings["support_ai_key"]);
+    return !empty($settings["support_ai_enabled"]);
 }
 
 /* Отвечает ли ИИ в этом тикете: ИИ включён, тикет не закрыт и его не забрал администратор (ai = false) */
@@ -424,7 +439,7 @@ function rt_ticket_ai_on($ticket, $settings) {
     return rt_support_ai_ready($settings) && ($ticket["ai"] ?? true) !== false && ($ticket["status"] ?? "") !== "Закрыт";
 }
 
-/* История тикета для ИИ: [{"from": "client"|"admin"|"ai", "text"}] */
+/* История тикета для нейросети: [{"from": "client"|"admin"|"ai", "text"}] */
 function rt_ticket_ai_history($ticket) {
     $hist = [["from" => "client", "text" => (string)($ticket["description"] ?? "")]];
     foreach ((array)($ticket["replies"] ?? []) as $r) {
@@ -435,56 +450,57 @@ function rt_ticket_ai_history($ticket) {
     return $hist;
 }
 
-/* Сообщения клиента, на которые ещё никто не ответил (после последнего ответа сотрудника или ИИ) */
+/* На что отвечать: сообщения клиента после последнего ответа сотрудника или ИИ (или последнее сообщение клиента) */
 function rt_ticket_unanswered($ticket) {
-    $msgs = [];
+    $msgs = []; $last = "";
     foreach (rt_ticket_ai_history($ticket) as $h) {
-        if ($h["from"] === "client") $msgs[] = $h["text"];
+        if ($h["from"] === "client") { $msgs[] = $h["text"]; $last = $h["text"]; }
         else $msgs = [];
     }
-    return trim(implode("\n", $msgs));
+    return trim(implode("\n", $msgs)) ?: $last;
 }
 
-/* Запрос к ИИ. $mode: "client" — ответ клиенту, "draft" — подсказка сотруднику.
-   Возвращает ["reply", "handoff", "source", ...] или ["error" => "..."] */
-function rt_support_ai_ask($settings, $ticket, $mode = "client") {
-    $url = trim($settings["support_ai_url"] ?? "");
-    $key = (string)($settings["support_ai_key"] ?? "");
-    if ($url === "" || $key === "") return ["error" => "ИИ не настроен: укажите адрес и ключ в админ-панели"];
-    if (!preg_match('~^https?://~i', $url)) return ["error" => "Адрес ИИ должен начинаться с https://"];
-    $hist = rt_ticket_ai_history($ticket);
-    $message = rt_ticket_unanswered($ticket);
-    if ($message === "") foreach ($hist as $h) if ($h["from"] === "client") $message = $h["text"]; // всё отвечено — берём последнее сообщение клиента
-    $body = json_encode([
-        "message" => $message,
-        "history" => array_slice($hist, -20),
-        "topic"   => (string)($ticket["topic"] ?? ""),
-        "mode"    => $mode,
-    ], JSON_UNESCAPED_UNICODE);
-    $headers = ["Content-Type: application/json", "X-Support-Key: " . $key];
-    // Бесплатный Render засыпает: первый запрос после простоя может идти до 50 секунд
-    $code = 0; $resp = false; $err = "";
-    if (function_exists("curl_init")) {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 55, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_FOLLOWLOCATION => false]);
-        $resp = curl_exec($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $err = curl_error($ch);
-        curl_close($ch);
-    } else {
-        $ctx = stream_context_create(["http" => ["method" => "POST", "header" => implode("\r\n", $headers), "content" => $body,
-            "timeout" => 55, "ignore_errors" => true]]);
-        $resp = @file_get_contents($url, false, $ctx);
-        if (isset($http_response_header[0]) && preg_match('~\s(\d{3})~', $http_response_header[0], $m)) $code = (int)$m[1];
-    }
-    if ($resp === false || $code === 0) return ["error" => "ИИ не отвечает" . ($err ? ": $err" : "")];
-    if ($code === 403) return ["error" => "ИИ отклонил ключ: проверьте SUPPORT_AI_KEY"];
-    if ($code === 503) return ["error" => "На сервере ИИ не задан SUPPORT_AI_KEY"];
-    $data = json_decode($resp, true);
-    if ($code !== 200 || !is_array($data) || !isset($data["reply"])) return ["error" => "ИИ ответил с ошибкой (HTTP $code)"];
-    $data["reply"] = trim((string)$data["reply"]);
-    return $data;
+/* Данные тикета для нейросети в браузере */
+function rt_ticket_ai_payload($ticket) {
+    return ["ai_history" => array_slice(rt_ticket_ai_history($ticket), -20), "ai_message" => rt_ticket_unanswered($ticket),
+            "topic" => (string)($ticket["topic"] ?? ""), "n" => count($ticket["replies"] ?? [])];
+}
+
+/* Загрузчик нейросети для страницы: RaiLoader(src) → RaiSupport.
+   GitHub отдаёт .js как текст, поэтому файл скачивается и подключается через Blob. */
+function rt_support_ai_loader_js() {
+    return <<<'JS'
+window.RaiLoader = function (src) {
+    if (window.RaiSupport && window.RaiSupport.model && window.RaiSupport.base === src) return Promise.resolve(window.RaiSupport);
+    if (window.__raiLoading && window.__raiLoadingSrc === src) return window.__raiLoading;
+    const bases = [src];
+    const gh = src.match(/^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.*)$/);
+    if (gh) bases.push(`https://cdn.jsdelivr.net/gh/${gh[1]}/${gh[2]}@${gh[3]}/${gh[4]}`); // запасной адрес, если GitHub недоступен
+    window.__raiLoadingSrc = src;
+    window.__raiLoading = (async () => {
+        let last = null;
+        for (const base of bases) {
+            try {
+                const r = await fetch(base + "rai-support.js", { cache: "no-cache" });
+                if (!r.ok) throw new Error("rai-support.js: HTTP " + r.status);
+                const code = await r.text();
+                await new Promise((ok, fail) => {
+                    const s = document.createElement("script");
+                    s.src = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+                    s.onload = ok; s.onerror = () => fail(new Error("не удалось запустить rai-support.js"));
+                    document.head.appendChild(s);
+                });
+                await window.RaiSupport.load(base, { cache: "no-cache" });
+                window.RaiSupport.base = src;
+                return window.RaiSupport;
+            } catch (e) { last = e; }
+        }
+        window.__raiLoading = null;
+        throw last || new Error("нейросеть недоступна");
+    })();
+    return window.__raiLoading;
+};
+JS;
 }
 
 /* ---------- Тикеты поддержки ---------- */

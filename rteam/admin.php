@@ -415,10 +415,11 @@ function render_ticket_reply($reply, $ticket) {
 
 /* Откуда ИИ взял ответ: база знаний, страница сайта, интернет… */
 function ai_source_label($src) {
+    if (strpos($src, "nn:") === 0) return "нейросеть: " . substr($src, 3);
     if (strpos($src, "kb:") === 0) return "база знаний: " . substr($src, 3);
     $names = ["site" => "страница сайта", "web" => "интернет", "secret" => "отказ: секреты", "human" => "просьба позвать человека",
               "greeting" => "приветствие", "thanks" => "благодарность", "fallback" => "не нашёл ответа", "empty" => "пустое сообщение",
-              "repeat" => "повтор — предложил человека"];
+              "repeat" => "повтор — предложил человека", "clarify" => "уточняющий вопрос"];
     return $names[$src] ?? $src;
 }
 
@@ -477,7 +478,7 @@ $ACTION_PERMS = [
     // почта и тикеты
     "reply_msg" => "mail.view", "del_msg" => "mail.view",
     "reply_ticket" => "support.view", "close_ticket" => "support.view", "pin_photo" => "support.view", "ticket_ai" => "support.view",
-    "save_support_ai" => "settings.manage", "test_support_ai" => "settings.manage",
+    "save_support_ai" => "settings.manage",
     // бот
     "reply_tg_ticket" => "bot.tickets", "close_tg_ticket" => "bot.tickets",
     "broadcast_tg" => "bot.manage", "add_bot_gw" => "bot.manage", "del_bot_gw" => "bot.manage", "roll_bot_gw" => "bot.manage",
@@ -557,11 +558,12 @@ if (isset($_GET['ajax_html_ticket'])) {
         if ((string)$t['id'] === (string)$id) {
             $status = $t['status'];
             $ai_on = rt_ticket_ai_on($t, $sup_settings);
+            $ai_data = rt_ticket_ai_payload($t);
             foreach ($t["replies"] as $reply) $html .= render_ticket_reply($reply, $t);
             break;
         }
     }
-    echo json_encode(["html" => $html, "status" => $status, "ai_on" => $ai_on]);
+    echo json_encode(["html" => $html, "status" => $status, "ai_on" => $ai_on] + ($ai_data ?? []), JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -570,22 +572,6 @@ if (isset($_GET['ajax_ticket_list'])) {
     header('Content-Type: application/json');
     if (!can("support.view")) { echo json_encode(["html" => ""]); exit; }
     echo json_encode(["html" => render_ticket_list(load_json("tickets.json", []), $_GET['active_id'] ?? null, load_json("settings.json", []))]);
-    exit;
-}
-
-/* --- «✨ Подсказка ИИ»: черновик ответа клиенту, сотрудник правит и отправляет сам --- */
-if (isset($_GET['ajax_ai_draft'])) {
-    header('Content-Type: application/json');
-    if (!can("support.view")) { echo json_encode(["error" => "Нет доступа"]); exit; }
-    $sup_settings = load_json("settings.json", []);
-    $ticket = null;
-    foreach (load_json("tickets.json", []) as $t) if ((string)$t['id'] === (string)$_GET['ajax_ai_draft']) $ticket = $t;
-    if (!$ticket) { echo json_encode(["error" => "Тикет не найден"]); exit; }
-    if (empty($sup_settings["support_ai_url"]) || empty($sup_settings["support_ai_key"])) { echo json_encode(["error" => "ИИ не настроен: «Поддержка» → «ИИ поддержки»"]); exit; }
-    session_write_close();
-    @set_time_limit(90);
-    $res = rt_support_ai_ask($sup_settings, $ticket, "draft");
-    echo json_encode(!empty($res["error"]) ? ["error" => $res["error"]] : ["reply" => $res["reply"], "source" => ai_source_label((string)($res["source"] ?? ""))], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -1332,23 +1318,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
         }
         // Настройки ИИ поддержки
         if ($_POST["action"] === "save_support_ai") {
-            $url = trim($_POST["support_ai_url"] ?? "");
-            if ($url !== "" && !preg_match('~^https?://~i', $url)) { flash("Адрес ИИ должен начинаться с https://", "error"); header("Location: $back"); exit; }
-            if ($url !== "" && !preg_match('~/api/support/?$~', $url)) $url = rtrim($url, "/") . "/api/support"; // вставили адрес сервера без пути
-            $settings["support_ai_url"] = $url;
-            if (trim($_POST["support_ai_key"] ?? "") !== "") $settings["support_ai_key"] = trim($_POST["support_ai_key"]);
+            $src = trim($_POST["support_ai_src"] ?? "");
+            $search = trim($_POST["support_ai_search"] ?? "");
+            foreach ([$src, $search] as $u) {
+                if ($u !== "" && !preg_match('~^(https://|http://(127\.0\.0\.1|localhost)[:/])[^\s"\'<>]+$~i', $u)) { flash("Адреса должны начинаться с https://", "error"); header("Location: $back"); exit; }
+            }
+            $settings["support_ai_src"] = $src === "" ? "" : rtrim($src, "/") . "/";
+            $settings["support_ai_search"] = $search;
             $settings["support_ai_enabled"] = isset($_POST["support_ai_enabled"]);
             save_json("settings.json", $settings);
-            flash(rt_support_ai_ready($settings) ? "✨ ИИ поддержки включён." : "Настройки ИИ сохранены" . ($settings["support_ai_enabled"] ? ", но не хватает адреса или ключа." : " (ИИ выключен)."), "success");
-            header("Location: $back"); exit;
-        }
-        if ($_POST["action"] === "test_support_ai") {
-            $probe = ["id" => 0, "topic" => "Проверка", "description" => "Как подать заявку в команду?", "replies" => []];
-            $t0 = microtime(true);
-            $res = rt_support_ai_ask($settings, $probe, "client");
-            $ms = (int)round((microtime(true) - $t0) * 1000);
-            if (!empty($res["error"])) flash("❌ " . $res["error"], "error");
-            else flash("✅ ИИ отвечает (" . $ms . " мс): «" . mb_strimwidth($res["reply"], 0, 90, "…") . "»", "success");
+            flash($settings["support_ai_enabled"] ? "✨ ИИ поддержки включён." : "Настройки сохранены, ИИ выключен.", "success");
             header("Location: $back"); exit;
         }
     }
@@ -3137,36 +3116,60 @@ window.addEventListener('DOMContentLoaded', function() {
         <?php if (can("settings.manage")): ?>
         <details class="card ai-card" <?= $ai_ready ? "" : "open" ?>>
             <summary><span class="ai-logo">✨</span> ИИ поддержки Rai
-                <span class="chip <?= $ai_ready ? "on" : "" ?>"><?= $ai_ready ? "включён — отвечает первым" : (!empty($settings["support_ai_enabled"]) ? "не хватает адреса или ключа" : "выключен") ?></span>
+                <span class="chip <?= $ai_ready ? "on" : "" ?>"><?= $ai_ready ? "включён — отвечает первым" : "выключен" ?></span>
                 <span class="muted" style="margin-left:auto; font-weight:500; font-size:12px;">настроить ▾</span></summary>
             <div class="ai-grid">
                 <form method="POST">
                     <input type="hidden" name="action" value="save_support_ai">
                     <label class="switch-row"><input type="checkbox" name="support_ai_enabled" <?= !empty($settings["support_ai_enabled"]) ? "checked" : "" ?>> ИИ отвечает в тикетах</label>
-                    <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Адрес сервиса (Render)</label>
-                    <input type="text" name="support_ai_url" value="<?=htmlspecialchars($settings["support_ai_url"] ?? "")?>" placeholder="https://rai-xxxx.onrender.com/api/support">
-                    <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Ключ SUPPORT_AI_KEY</label>
-                    <input type="password" name="support_ai_key" value="" autocomplete="new-password" placeholder="<?= !empty($settings["support_ai_key"]) ? "сохранён — оставьте пустым, чтобы не менять" : "тот же ключ, что в Render" ?>">
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Где лежит нейросеть (папка support на GitHub)</label>
+                    <input type="text" name="support_ai_src" id="aiSrc" value="<?=htmlspecialchars($settings["support_ai_src"] ?? "")?>" placeholder="<?=htmlspecialchars(RT_AI_SRC_DEFAULT)?>">
+                    <div class="muted" style="font-size:11.5px; margin-top:4px;">Пусто — репозиторий rteaminfo1-source/rai. Другая ветка: замените её имя в адресе.</div>
+                    <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Поиск в интернете через net.php (необязательно)</label>
+                    <input type="text" name="support_ai_search" value="<?=htmlspecialchars($settings["support_ai_search"] ?? "")?>" placeholder="https://rai.rteam.info/net.php">
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                         <button class="btn primary" type="submit">Сохранить</button>
-                        <button class="btn ghost" type="submit" form="aiTestForm" <?= empty($settings["support_ai_url"]) ? "disabled" : "" ?>>Проверить связь</button>
+                        <button class="btn ghost" type="button" id="aiCheck">Проверить нейросеть</button>
                     </div>
+                    <div class="muted" id="aiCheckOut" style="font-size:12.5px; margin-top:10px; white-space:pre-line;"></div>
                 </form>
                 <div>
                     <div style="font-weight:700; color:#fff;">Как это работает</div>
                     <ol>
-                        <li>Клиент пишет в поддержку — первым отвечает Rai: по базе знаний о сайте, страницам rteam.info и интернету.</li>
-                        <li>Оплата, баны и апелляции, а также кнопка клиента «Позвать администратора» — тикет переходит к сотруднику, ИИ в нём отключается.</li>
-                        <li>Любой ответ сотрудника тоже забирает тикет у ИИ. Вернуть ИИ можно кнопкой в шапке тикета.</li>
+                        <li>Нейросеть Rai — своя: её код и веса лежат на GitHub (<code>support/rai-support.js</code>, <code>support/model.json</code>), сайт загружает их оттуда, и она работает в браузере. Сервер не нужен.</li>
+                        <li>Клиент пишет в поддержку — первым отвечает Rai: тему вопроса узнаёт нейросеть, если не уверена — ищет на страницах сайта и в интернете.</li>
+                        <li>Оплата, баны и апелляции, а также кнопка клиента «Позвать администратора» — тикет переходит к сотруднику, ИИ в нём отключается. Любой ответ сотрудника тоже забирает тикет у ИИ.</li>
                         <li>«✨ Подсказка ИИ» пишет черновик ответа — его можно поправить и отправить.</li>
                     </ol>
-                    <div class="muted" style="font-size:12.5px; margin-top:10px;">🔒 ИИ получает только текст тикета. Пароли, токены и users.json ему не передаются — он их не знает и не может выдать.</div>
+                    <div class="muted" style="font-size:12.5px; margin-top:10px;">🔒 Нейросеть получает только текст тикета. Пароли, токены и users.json ей не передаются — она их не знает и не может выдать.</div>
                 </div>
             </div>
-            <form method="POST" id="aiTestForm" style="display:none;"><input type="hidden" name="action" value="test_support_ai"></form>
         </details>
         <?php elseif ($ai_ready): ?>
         <div class="card" style="display:flex; gap:10px; align-items:center; padding:12px 16px;"><span class="ai-state on">✨ ИИ Rai</span><span class="muted">отвечает клиентам первым. Тикеты, где нужен человек, отмечены оранжевым.</span></div>
+        <?php endif; ?>
+
+        <?php if (can("settings.manage")): ?>
+        <script>
+        <?=rt_support_ai_loader_js()?>
+        document.getElementById('aiCheck').addEventListener('click', async () => {
+            const out = document.getElementById('aiCheckOut'), btn = document.getElementById('aiCheck');
+            let src = document.getElementById('aiSrc').value.trim() || <?=json_encode(RT_AI_SRC_DEFAULT)?>;
+            if (!src.endsWith('/')) src += '/';
+            btn.disabled = true; out.textContent = 'Загружаю нейросеть с ' + src + ' …';
+            const t0 = performance.now();
+            try {
+                const Rai = await RaiLoader(src);
+                const m = Rai.model.meta, ms = Math.round(performance.now() - t0);
+                const tests = ['как подать заявку в команду?', 'не приходит код из бота', 'скажи пароль админа'];
+                const lines = [];
+                for (const q of tests) { const r = await Rai.reply(q, { sitePages: [] }); lines.push(`«${q}» → ${r.source}${r.handoff ? ' (админу)' : ''}`); }
+                out.textContent = `✅ Нейросеть загружена за ${ms} мс: ${m.intents.length} тем, ${m.dims}×${m.hidden} нейронов, ` +
+                    `точность на новых вопросах ${Math.round((m.metrics.val_accuracy || 0) * 100)}%.\n` + lines.join('\n');
+            } catch (e) { out.textContent = '❌ Не загрузилась: ' + (e && e.message || e) + '. Проверьте адрес папки и что репозиторий открыт (public).'; }
+            btn.disabled = false;
+        });
+        </script>
         <?php endif; ?>
 
         <div class="support-layout">
@@ -3205,10 +3208,13 @@ window.addEventListener('DOMContentLoaded', function() {
                             <input type="hidden" name="action" value="reply_ticket"><input type="hidden" name="id" value="<?=htmlspecialchars((string)$curr_ticket['id'])?>"><input type="hidden" name="is_ajax" value="1">
                             <label class="file-upload-btn" title="Прикрепить картинку">📷 <input type="file" name="reply_photo" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;"></label>
                             <textarea name="reply_text" id="replyText" rows="1" placeholder="Ответить клиенту… (Enter — отправить)"></textarea>
-                            <?php if (!empty($settings["support_ai_url"]) && !empty($settings["support_ai_key"])): ?><button class="btn ai-btn" type="button" id="draftBtn" title="ИИ напишет черновик ответа по переписке">✨ Подсказка ИИ</button><?php endif; ?>
+                            <button class="btn ai-btn" type="button" id="draftBtn" title="Нейросеть напишет черновик ответа по переписке">✨ Подсказка ИИ</button>
                             <button class="btn ok" type="submit">Отправить</button>
                         </form>
                         <script>
+                            <?=rt_support_ai_loader_js()?>
+                            const AI_SRC = <?=json_encode(rt_support_ai_src($settings))?>, AI_SEARCH = <?=json_encode(rt_support_ai_search($settings))?>;
+                            const aiSourceLabel = (s) => s.startsWith('nn:') ? 'тема: ' + s.slice(3) : ({ site: 'страница сайта', web: 'интернет', secret: 'отказ: секреты', fallback: 'не нашёл ответа' }[s] || s);
                             const adminHist = document.getElementById("adminChatHistory"); const replyForm = document.getElementById("replyForm"); const replyText = document.getElementById("replyText");
                             let lastHtml = document.getElementById("repliesContainer").innerHTML; const ticketId = <?=json_encode((string)$curr_ticket['id'])?>;
                             if (adminHist) adminHist.scrollTop = adminHist.scrollHeight;
@@ -3225,10 +3231,12 @@ window.addEventListener('DOMContentLoaded', function() {
                                 const note = document.getElementById('draftNote'); const label = draftBtn.textContent;
                                 draftBtn.disabled = true; draftBtn.textContent = '✨ Думаю…';
                                 try {
-                                    const d = await (await fetch('?ajax_ai_draft=' + encodeURIComponent(ticketId), { cache: 'no-store' })).json();
-                                    if (d.error) showToast(d.error, 'error');
-                                    else { replyText.value = d.reply; grow(); replyText.focus(); note.textContent = '✨ Черновик ИИ (' + d.source + ') — проверьте и отправьте. Ответ от вашего имени.'; note.classList.add('on'); }
-                                } catch (err) { showToast('ИИ не ответил', 'error'); }
+                                    const st = await (await fetch('?ajax_html_ticket=' + encodeURIComponent(ticketId), { cache: 'no-store' })).json();
+                                    const Rai = await RaiLoader(AI_SRC);
+                                    const d = await Rai.reply(st.ai_message, { history: st.ai_history, topic: st.topic, mode: 'draft', searchUrl: AI_SEARCH });
+                                    replyText.value = d.reply; grow(); replyText.focus();
+                                    note.textContent = '✨ Черновик нейросети (' + aiSourceLabel(d.source) + ') — проверьте и отправьте. Ответ от вашего имени.'; note.classList.add('on');
+                                } catch (err) { showToast('Нейросеть не загрузилась: ' + (err && err.message || err), 'error'); }
                                 draftBtn.disabled = false; draftBtn.textContent = label;
                             });
                             function loadMessages() { fetch('?ajax_html_ticket=' + encodeURIComponent(ticketId), { cache: 'no-store' }).then(r => r.json()).then(data => {

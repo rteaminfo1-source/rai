@@ -123,56 +123,34 @@ function sup_render_list($tickets, $client, $active_id) {
     return $html;
 }
 
-/* ИИ отвечает на неотвеченные сообщения клиента. Вызывается отдельным запросом из браузера
-   (POST ai_run), поэтому работает на любом хостинге, а страница не ждёт ответа ИИ. */
-function sup_ai_run($id, $client, $settings) {
-    $job = rt_tickets_update(function (&$tickets) use ($id, $client, $settings) {
-        $k = sup_idx($tickets, $id, $client);
-        if ($k === null) return null;
-        $t = $tickets[$k];
-        if (!sup_ai_pending($t) || !rt_ticket_ai_on($t, $settings)) { unset($tickets[$k]["ai_pending"]); return null; }
-        if (!empty($t["ai_running"]) && time() - (int)$t["ai_running"] < 90) return ["busy" => true];
-        $tickets[$k]["ai_running"] = time();
-        return ["ticket" => $t, "n" => count($t["replies"] ?? [])];
-    });
-    if (!$job) return ["ok" => false, "reason" => "nothing"];
-    if (!empty($job["busy"])) return ["ok" => false, "reason" => "busy"];
-
-    $res = rt_support_ai_ask($settings, $job["ticket"], "client");
-
-    return rt_tickets_update(function (&$tickets) use ($id, $client, $res, $job) {
+/* Ответ нейросети сохраняется в тикет. Нейросеть — на GitHub (rai-support.js и model.json)
+   и работает в браузере клиента; страница только передаёт ей переписку и сохраняет ответ.
+   Ответ принимается, только если тикет его ждёт (ai_pending): один ответ на каждое сообщение клиента. */
+function sup_ai_save($id, $client, $settings, $text, $handoff, $source, $n) {
+    return rt_tickets_update(function (&$tickets) use ($id, $client, $settings, $text, $handoff, $source, $n) {
         $k = sup_idx($tickets, $id, $client);
         if ($k === null) return ["ok" => false, "reason" => "gone"];
         $t = &$tickets[$k];
-        unset($t["ai_running"]);
-        // Пока ИИ думал, тикет мог забрать администратор или его закрыли
-        if (($t["ai"] ?? true) === false || ($t["status"] ?? "") === "Закрыт") { unset($t["ai_pending"]); return ["ok" => false, "reason" => "taken"]; }
-        if (!empty($res["error"]) || ($res["reply"] ?? "") === "") {
-            unset($t["ai_pending"]);
-            $t["ai_error"] = ["date" => date("Y-m-d H:i:s"), "text" => $res["error"] ?? "пустой ответ"];
-            return ["ok" => false, "reason" => "unavailable"];
-        }
+        if (!sup_ai_pending($t) || !rt_ticket_ai_on($t, $settings)) { unset($t["ai_pending"]); return ["ok" => false, "reason" => "taken"]; }
         $now = date("Y-m-d H:i:s");
-        $add = [["text" => mb_substr($res["reply"], 0, 4000), "photo" => null, "employee" => RT_AI_NAME, "date" => $now,
-                 "is_admin" => true, "is_ai" => true, "ai_source" => (string)($res["source"] ?? "")]];
-        $handoff = !empty($res["handoff"]);
+        $add = [["text" => $text, "photo" => null, "employee" => RT_AI_NAME, "date" => $now,
+                 "is_admin" => true, "is_ai" => true, "ai_source" => $source]];
         if ($handoff) {
             $add[] = ["text" => "ИИ передал тикет администратору. Дальше вам ответит сотрудник RTeam.", "employee" => "Система",
                       "date" => $now, "is_admin" => true, "is_system" => true];
             $t["ai"] = false;
-            $t["handoff"] = ["by" => "ai", "date" => $now, "reason" => (string)($res["source"] ?? "")];
+            $t["handoff"] = ["by" => "ai", "date" => $now, "reason" => $source];
             $t["status"] = "Ждёт администратора";
         } else {
             $t["status"] = "Ожидает ответа клиента";
         }
         unset($t["ai_error"]);
         // Ответ ставим сразу после сообщений, на которые он отвечает
-        array_splice($t["replies"], $job["n"], 0, $add);
-        // Клиент успел дописать ещё — ИИ ответит и на это
+        $n = max(0, min((int)$n, count($t["replies"] ?? [])));
+        array_splice($t["replies"], $n, 0, $add);
+        // Клиент успел дописать ещё — нейросеть ответит и на это
         $again = false;
-        if (!$handoff) {
-            foreach (array_slice($t["replies"], $job["n"] + count($add)) as $r) if (!($r["is_admin"] ?? true)) $again = true;
-        }
+        if (!$handoff) foreach (array_slice($t["replies"], $n + count($add)) as $r) if (!($r["is_admin"] ?? true)) $again = true;
         if ($again) { $t["ai_pending"] = time(); $t["status"] = "Открыт"; } else unset($t["ai_pending"]);
         return ["ok" => true, "handoff" => $handoff, "again" => $again];
     });
@@ -193,7 +171,7 @@ if (isset($_GET['ajax_html_ticket'])) {
         "html" => $html, "status" => $t["status"], "status_label" => $label, "status_class" => $cls,
         "ai_on" => rt_ticket_ai_on($t, $settings), "ai_ready" => rt_support_ai_ready($settings),
         "ai_pending" => sup_ai_pending($t) && rt_ticket_ai_on($t, $settings),
-    ], JSON_UNESCAPED_UNICODE);
+    ] + rt_ticket_ai_payload($t), JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -205,14 +183,28 @@ if (isset($_GET['ajax_client_ticket_list'])) {
     exit;
 }
 
-/* ---------- AJAX: ответ ИИ ---------- */
-if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["ai_run"])) {
+/* ---------- AJAX: ответ нейросети из браузера ---------- */
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["ai_reply"])) {
+    header('Content-Type: application/json');
+    $text = trim((string)($_POST["text"] ?? ""));
+    $source = preg_replace('/[^a-z0-9_:\-]/i', '', (string)($_POST["source"] ?? ""));
+    if (!$client || $text === "") { echo json_encode(["ok" => false]); exit; }
+    echo json_encode(sup_ai_save((string)($_POST["id"] ?? ""), $client, $settings, mb_substr($text, 0, 4000),
+                                 ($_POST["handoff"] ?? "") === "1", mb_substr($source, 0, 40), (int)($_POST["n"] ?? 0)));
+    exit;
+}
+/* Нейросеть не загрузилась (GitHub недоступен и т.п.): тикет остаётся администратору */
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["ai_fail"])) {
     header('Content-Type: application/json');
     $id = (string)($_POST["id"] ?? "");
-    session_write_close();       // не держим сессию, пока ждём ИИ, иначе встанет обновление чата
-    ignore_user_abort(true);     // ответ сохранится, даже если клиент закроет вкладку
-    @set_time_limit(120);
-    echo json_encode($client ? sup_ai_run($id, $client, $settings) : ["ok" => false, "reason" => "auth"]);
+    $err = mb_substr(trim((string)($_POST["error"] ?? "")), 0, 200);
+    if ($client) rt_tickets_update(function (&$tickets) use ($id, $client, $err) {
+        $k = sup_idx($tickets, $id, $client);
+        if ($k === null || empty($tickets[$k]["ai_pending"])) return;
+        unset($tickets[$k]["ai_pending"]);
+        $tickets[$k]["ai_error"] = ["date" => date("Y-m-d H:i:s"), "text" => "нейросеть не загрузилась у клиента" . ($err !== "" ? ": $err" : "")];
+    });
+    echo json_encode(["ok" => true]);
     exit;
 }
 
@@ -802,6 +794,8 @@ function previewFile(file, onUrl) {
 
 <?php if ($client && $current_ticket): ?>
 /* ===== Чат тикета ===== */
+<?=rt_support_ai_loader_js()?>
+const AI_SRC = <?=json_encode(rt_support_ai_src($settings))?>, AI_SEARCH = <?=json_encode(rt_support_ai_search($settings))?>;
 const ticketId = <?=json_encode((string)$current_ticket['id'])?>;
 const chatHist = document.getElementById('chatHistory');
 const replyForm = document.getElementById('replyForm');
@@ -846,7 +840,7 @@ async function loadMessages() {
         }
         if (d.status_label) applyState(d);
         // ИИ должен ответить, а запрос ещё никто не отправил (например, тикет только что создан)
-        if (aiPending && !aiBusy && Date.now() - aiTried > 12000) runAI();
+        if (aiPending && !aiBusy && Date.now() - aiTried > 15000) runAI();
     } catch (e) {}
     try {
         const r = await fetch('?ajax_client_ticket_list=1&active_id=' + encodeURIComponent(ticketId), { cache: 'no-store' });
@@ -855,17 +849,32 @@ async function loadMessages() {
     } catch (e) {}
 }
 
+/* Ответ нейросети: она загружается с GitHub и думает прямо здесь, в браузере */
 async function runAI() {
     aiBusy = true; aiTried = Date.now(); setTyping(true);
+    let d = {};
     try {
-        const fd = new FormData(); fd.append('ai_run', '1'); fd.append('id', ticketId);
-        const r = await fetch('support.php', { method: 'POST', body: fd });
-        const d = await r.json();
-        if (d.reason === 'unavailable') toast('ИИ сейчас недоступен — вам ответит администратор.', 'warn');
-        if (d.handoff) toast('Rai передал вопрос администратору.', 'warn');
-        aiBusy = false;
-        if (d.again) return runAI();
-    } catch (e) { aiBusy = false; }
+        const st = await (await fetch('?ajax_html_ticket=' + encodeURIComponent(ticketId), { cache: 'no-store' })).json();
+        if (!st.ai_pending) { aiBusy = false; return loadMessages(); }
+        try {
+            const Rai = await RaiLoader(AI_SRC);
+            const [r] = await Promise.all([
+                Rai.reply(st.ai_message, { history: st.ai_history, topic: st.topic, mode: 'client', searchUrl: AI_SEARCH }),
+                new Promise(ok => setTimeout(ok, 700)),   // «Rai печатает…» хотя бы мгновение
+            ]);
+            const fd = new FormData();
+            fd.append('ai_reply', '1'); fd.append('id', ticketId); fd.append('n', st.n);
+            fd.append('text', r.reply); fd.append('handoff', r.handoff ? '1' : '0'); fd.append('source', r.source);
+            d = await (await fetch('support.php', { method: 'POST', body: fd })).json();
+            if (d.handoff) toast('Rai передал вопрос администратору.', 'warn');
+        } catch (e) {
+            const fd = new FormData(); fd.append('ai_fail', '1'); fd.append('id', ticketId); fd.append('error', String(e && e.message || e));
+            await fetch('support.php', { method: 'POST', body: fd });
+            toast('ИИ сейчас недоступен — вам ответит администратор.', 'warn');
+        }
+    } catch (e) {}
+    aiBusy = false;
+    if (d.again) return runAI();
     await loadMessages();
 }
 

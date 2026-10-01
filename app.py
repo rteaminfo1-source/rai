@@ -147,41 +147,5 @@ def teach():
     return jsonify({"ok": True, "id": intent_id})
 
 
-def _support_key_ok():
-    """Ключ поддержки (SUPPORT_AI_KEY) — его знает только support.php / admin.php сайта."""
-    key = os.environ.get("SUPPORT_AI_KEY", "")
-    given = request.headers.get("X-Support-Key") or ""
-    return bool(key) and hmac.compare_digest(str(given), key)
-
-
-@app.post("/api/support")
-def support():
-    """ИИ поддержки rteam.info: ответ клиенту в тикет (mode=client) или подсказка сотруднику (mode=draft).
-
-    Принимает {"message", "history": [{"from": "client"|"admin", "text"}], "topic", "mode"}.
-    Отвечает {"reply", "handoff", "source", "confidence", "links"}; handoff=true — тикет передать администратору.
-    """
-    if not os.environ.get("SUPPORT_AI_KEY"):
-        return jsonify({"error": "SUPPORT_AI_KEY не задан на сервере"}), 503
-    if not _support_key_ok():
-        return jsonify({"error": "forbidden"}), 403
-    import support_ai
-    data = _payload() or {}
-    message = str(data.get("message") or "")
-    if len(message) > 5000:
-        return jsonify({"error": "Слишком длинное сообщение"}), 413
-    history = data.get("history") if isinstance(data.get("history"), list) else None
-    mode = "draft" if data.get("mode") == "draft" else "client"
-    return jsonify(support_ai.reply(message, history[-20:] if history else None, str(data.get("topic") or "")[:200], mode))
-
-
-@app.get("/api/support/health")
-def support_health():
-    import support_ai
-    if not _support_key_ok():
-        return jsonify({"ok": bool(os.environ.get("SUPPORT_AI_KEY")), "auth": False})
-    return jsonify(dict(support_ai.status(), auth=True))
-
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
