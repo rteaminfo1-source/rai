@@ -5,7 +5,7 @@
 - `admin.php` — админ-панель (новый дизайн, права по ролям);
 - `_roles.php` — **новый файл**, роли и права; без него admin.php и index.php не откроются;
 - `login.php` — код из Telegram теперь спрашивается у всех ролей панели;
-- один из `index_*.php` под именем `index.php` (`plain` — обычный, `23feb`, `8march`, `9may` — праздничные).
+- один из `index_*.php` под именем `index.php` (`plain` — обычный; праздничные: `newyear`, `23feb`, `8march`, `9may`, `november7`).
 
 ## Роли
 
