@@ -148,24 +148,33 @@
     if (!keepChoice) { remember("off"); emit({state: "off", text: "Нейросеть выключена", progress: 0, label: ""}); }
   }
 
-  /** Сам включить нейросеть при открытии страницы: на компьютере — да, на телефоне и в режиме экономии трафика — только если её уже включали. */
+  /** Сам включить нейросеть при открытии страницы (кроме режима экономии трафика и телефона без видеокарты или по мобильной сети). */
   async function auto() {
     const choice = saved();
     if (choice === "off") return null;
     if (choice && MODELS[choice]) return enable(choice).catch(() => null);
-    if (saveData() || mobile()) return null;
-    const {key} = await pick();
+    if (saveData()) return null;
+    const {key, gpu} = await pick();
+    // на телефоне — только с видеокартой и не по мобильному интернету (модель весит сотни мегабайт)
+    const cellular = navigator.connection && /cellular/.test(navigator.connection.type || "");
+    if (mobile() && (!gpu.ok || cellular)) return null;
     return enable(key).catch(() => null);
   }
 
-  // Модели Qwen3/3.5 умеют «размышлять» вслух — в ответ это не пускаем.
+  // Модели Qwen3/3.5 умеют «размышлять» вслух — в ответ это не пускаем, а показываем отдельно («Ход мыслей»).
   function clean(text) {
     return String(text || "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/^\s+/, "");
   }
+  function thoughtOf(text) {
+    const m = String(text || "").match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+    return m ? m[1].trim() : "";
+  }
+  let lastThought = "";
 
   /**
    * Ответ нейросети по сообщениям [{role, content}]. onText(весь текст) вызывается по мере написания.
    * Возвращает полный текст. stop() прерывает ответ.
+   * opts: system, temperature, maxTokens, thinking (думать перед ответом), onThink(ход мыслей по мере написания).
    */
   let generating = false;
   async function chat(messages, onText, opts) {
@@ -173,21 +182,27 @@
     generating = true;
     abort = typeof AbortController === "function" ? new AbortController() : null;
     let raw = "";
+    const thinking = !!(opts && opts.thinking) && backend === "gpu";
+    lastThought = "";
     try {
       const stream = await engine.chat.completions.create({
         messages: [{role: "system", content: (opts && opts.system) || SYSTEM}].concat(messages),
-        stream: true, temperature: (opts && opts.temperature) ?? 0.5, top_p: 0.9,
-        max_tokens: (opts && opts.maxTokens) || 3000,
-        extra_body: {enable_thinking: false}
+        stream: true, temperature: (opts && opts.temperature) ?? (thinking ? 0.6 : 0.5), top_p: 0.9,
+        max_tokens: ((opts && opts.maxTokens) || 3000) + (thinking ? 3000 : 0),
+        extra_body: {enable_thinking: thinking}
       });
       for await (const chunk of stream) {
         const delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content;
-        if (delta) { raw += delta; onText && onText(clean(raw)); }
+        if (!delta) continue;
+        raw += delta;
+        if (thinking && opts.onThink && /<think>/.test(raw) && !/<\/think>/.test(raw)) opts.onThink(thoughtOf(raw));
+        else if (onText) onText(clean(raw));
       }
     } catch (e) {
       if (!(abort && abort.signal.aborted)) throw e;  // остановили кнопкой — это не ошибка
     } finally {
       generating = false;
+      lastThought = thoughtOf(raw);
     }
     return clean(raw);
   }
@@ -217,6 +232,8 @@
     pick: pick,
     ready: () => !!engine && status.state === "ready",
     busy: () => generating,
+    lastThought: () => lastThought,
+    canThink: () => backend === "gpu",
     backend: () => backend,
     status: () => status,
     saved: saved,

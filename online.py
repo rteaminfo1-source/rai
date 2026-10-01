@@ -641,7 +641,7 @@ def context_for(query: str, limit_chars: int = 2600) -> dict:
         parts.append(f"[{art['title']} — Википедия]({art['link']}): {art['text'][:1600]}")
         sources.append({"title": art["title"] + " — Википедия", "url": art["link"]})
     for r in web_results(query, 5):
-        if any(r["url"] == x["url"] for x in sources):
+        if any(r["url"] == x["url"] for x in sources) or not _relevant(query, r["title"] + " " + r.get("snippet", "")):
             continue
         parts.append(f"[{_md(r['title'])}]({_safe_url(r['url'])}): {r.get('snippet', '')}")
         sources.append({"title": _md(r["title"]), "url": _safe_url(r["url"])})
@@ -668,7 +668,7 @@ def web_search(query: str):
         art, error = None, e
     if art and not _relevant(query, art["title"] + " " + art["text"][:600]):
         art = None  # Википедия нашла что-то не то
-    results = web_results(query)
+    results = [r for r in web_results(query) if _relevant(query, r["title"] + " " + r.get("snippet", ""))]
     if not art and not results:
         if error:
             raise error

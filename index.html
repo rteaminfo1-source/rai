@@ -328,6 +328,19 @@
   .neuro-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .neuro-actions .btn { padding: 10px 16px; font-size: 14px; font-weight: 600; }
   .neuro-note { color: var(--muted); font-size: 12.5px !important; }
+  .neuro-mem { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  .neuro-mem ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow: auto; }
+  .neuro-mem li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
+  .neuro-mem .btn { align-self: flex-start; padding: 6px 12px; font-size: 13px; }
+  #thinkBtn[aria-pressed="true"] { color: var(--red-hi); border-color: var(--red); background: var(--red-soft); }
+  details.trace { margin: 0 0 8px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; font-size: 13.5px; background: var(--panel); }
+  details.trace summary { cursor: pointer; color: var(--muted); }
+  details.trace .step { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  details.trace .step ul { margin: 0; padding-left: 20px; color: var(--muted); }
+  details.trace .step .md { color: var(--muted); font-size: 13px; max-height: 260px; overflow: auto; }
+  details.trace pre { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); overflow: auto; max-height: 220px; font: 12.5px/1.45 var(--font-mono); }
+  details.trace pre.out { color: var(--muted); }
+  details.trace pre.err { color: var(--red-hi); }
   .neuro-tip { display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer; padding: 12px 14px; border-radius: 12px;
     border: 1px solid var(--red); background: linear-gradient(135deg, rgba(225, 6, 0, .18), rgba(240, 178, 60, .08)); }
   .neuro-tip small { color: var(--muted); font-size: 12.5px; }
@@ -369,6 +382,10 @@
   @media (max-width: 420px) {
     .modes button svg.i { display: none; }
     .topbar { gap: 6px; }
+    /* на узком телефоне — компактные кнопки, чтобы поле ввода оставалось широким */
+    .round.side { width: 32px; border-color: transparent; background: none; }
+    .round { width: 42px; height: 42px; }
+    form { gap: 4px; }
   }
   @media (prefers-reduced-motion: reduce) {
     #sidebar { transition: none; } #mic.on, .typing span { animation: none; }
@@ -520,6 +537,7 @@
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11l-8.5 8.5a5 5 0 0 1-7-7L13 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L14 7"/></symbol>
   <symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-think" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></symbol>
   <symbol id="i-deck" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M7 9h6M7 12h4"/></symbol>
   <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor"/></symbol>
 </svg>
@@ -575,6 +593,7 @@
         <button id="screenBtn" class="round side" type="button" aria-label="Снимок или запись экрана" aria-haspopup="menu" title="Снимок или запись экрана"><svg class="i"><use href="#i-screen"/></svg></button>
         <label for="input" hidden>Сообщение для Rai</label>
         <textarea id="input" rows="1" placeholder="Спросите Rai…"></textarea>
+        <button id="thinkBtn" class="round side" type="button" aria-pressed="false" aria-label="Думать глубже" title="Думать глубже: нейросеть сначала рассуждает и проверяет себя (дольше, но умнее)" hidden><svg class="i"><use href="#i-think"/></svg></button>
         <button id="mic" class="round" type="button" aria-label="Голосовой ввод" title="Голосовой ввод"><svg class="i"><use href="#i-mic"/></svg></button>
         <button id="send" class="round" type="submit" aria-label="Отправить" title="Отправить (Enter)"><svg class="i"><use href="#i-send"/></svg></button>
       </form>
@@ -596,6 +615,8 @@
       нейросеть включается сама и загружается в фоне один раз, дальше берётся из кэша браузера. Нет видеокарты — работает на процессоре.</p>
     <div class="neuro-models" id="neuroModels" role="radiogroup" aria-label="Модель"></div>
     <div class="neuro-progress" id="neuroProgress" hidden><div id="neuroBar"></div></div>
+    <div class="neuro-mem" id="memBox" hidden><b>Что нейросеть помнит о вас</b><ul id="memList"></ul>
+      <button class="btn" type="button" id="memClear">Забыть всё</button></div>
     <p class="neuro-status" id="neuroStatus" role="status"></p>
     <div class="neuro-actions">
       <button class="btn red" type="button" id="neuroOn">Включить</button>
@@ -1055,6 +1076,7 @@
     const bubble = wrap.querySelector(".bubble");
     bubble.innerHTML = renderMarkdown(m.text);
     for (const a of m.attachments || []) {
+      if (a.type === "trace" && Array.isArray(a.steps)) wrap.insertBefore(renderTrace(a), bubble);
       if (a.type === "image" && a.svg) wrap.append(renderImage(a));
       if (a.type === "photo" && /^https:\/\//.test(a.url || "")) wrap.append(renderPhoto(a));
       if (a.type === "slides" && Array.isArray(a.slides)) wrap.append(renderDeck(a));
@@ -1065,7 +1087,10 @@
     acts.className = "actions";
     acts.innerHTML = `<button class="icon-btn copy" type="button">${icon("copy")}Копировать</button>` +
       `<button class="icon-btn speak" type="button">${icon("speak")}Озвучить</button>` +
+      (m.neuro ? `<button class="icon-btn regen" type="button" title="Нейросеть ответит ещё раз, по-другому">${icon("wand")}Ещё вариант</button>` : "") +
       (m.meta ? `<span class="meta">${esc(m.meta)}</span>` : "");
+    const regen = acts.querySelector(".regen");
+    if (regen) regen.addEventListener("click", () => regenerate(m));
     acts.querySelector(".copy").addEventListener("click", () => copyRich(m.text, bubble.innerHTML, bubble));
     acts.querySelector(".speak").addEventListener("click", (e) => speak(m.text, e.currentTarget));
     wrap.append(acts);
@@ -1482,9 +1507,9 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
         });
         return await r.json();
       },
-      async context(query) {
+      async context(query, force) {
         const r = await fetch(root + "api/context", {
-          method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query: query})
+          method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query: query, force: !!force})
         });
         return r.ok ? await r.json() : {text: "", sources: []};
       }
@@ -1624,10 +1649,10 @@ def rai_slides(action, args_json):
             return json.dumps({"photos": [], "error": str(e)}, ensure_ascii=False)
     return json.dumps({"error": "unknown action"})
 
-def rai_context(query):
-    """Сведения из интернета для нейросети (если вопрос о фактах, а не о коде)."""
+def rai_context(query, force=False):
+    """Сведения из интернета для нейросети (если вопрос о фактах, а не о коде; force — искать всегда)."""
     import online, codeai
-    if codeai.is_build_request(query) or not online.needs_facts(query):
+    if not force and (codeai.is_build_request(query) or not online.needs_facts(query)):
         return json.dumps({"text": "", "sources": []})
     return json.dumps(online.context_for(query[:300]), ensure_ascii=False)
 
@@ -1649,7 +1674,7 @@ def rai_code(action, code, lang, prompt):
       async ask(v, message, sessionId, history) { return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history))); },
       async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); },
       async slides(action, args) { return JSON.parse(pySlides(action, JSON.stringify(args || {}))); },
-      async context(query) { return JSON.parse(pyContext(query)); }
+      async context(query, force) { return JSON.parse(pyContext(query, !!force)); }
     };
   }
 
@@ -1671,10 +1696,11 @@ def rai_code(action, code, lang, prompt):
 
   // ---------------------------------------------------------------- отправка
   let busy = false;
-  async function ask(text) {
+  async function ask(text, opts) {
+    opts = opts || {};
     text = (text || "").trim();
     const screen = window.RaiScreen;
-    const hasShots = !!(screen && screen.items().length);
+    const hasShots = !opts.regen && !!(screen && screen.items().length);
     if ((!text && !hasShots) || busy) return;
     if (screen && screen.recording()) { toast("Сначала остановите запись экрана"); return; }
     if (recording && rec) rec.stop();
@@ -1688,7 +1714,7 @@ def rai_code(action, code, lang, prompt):
       chat.title = text.length > 48 ? text.slice(0, 47) + "…" : text;
       $("chatTitle").textContent = chat.title;
     }
-    const history = historyOf(chat);
+    const history = opts.regen ? historyOf({messages: chat.messages.slice(0, -1)}) : historyOf(chat);
     const userMsg = {role: "user", text: text};
     if (shots.length) {
       userMsg.images = shots.filter((x) => x.type === "image").map((x) => x.thumb);
@@ -1699,11 +1725,13 @@ def rai_code(action, code, lang, prompt):
         Object.defineProperty(userMsg, "_video", {value: {url: video.url, blob: video.blob}, enumerable: false});
       }
     }
-    chat.messages.push(userMsg);
-    chat.updated = Date.now();
-    renderMessage(userMsg);
-    input.value = "";
-    autosize();
+    if (!opts.regen) {
+      chat.messages.push(userMsg);
+      chat.updated = Date.now();
+      renderMessage(userMsg);
+      input.value = "";
+      autosize();
+    }
     const pending = document.createElement("div");
     pending.className = "inner msg rai pending";
     pending.innerHTML = `<div class="who">Rai</div><div class="bubble">` +
@@ -1755,7 +1783,7 @@ def rai_code(action, code, lang, prompt):
         }
         const prompt = shots.length ? `${text}\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""`
           : facts.text ? `${text}\n\nСведения из интернета (свежие, используй их и ставь ссылки):\n"""\n${facts.text}\n"""` : text;
-        reply = await neuroAnswer(pending, history, prompt, t0, facts.sources);
+        reply = await neuroAnswer(pending, history, prompt, t0, facts.sources, {thinking: thinkOn()});
         const photos = ((data && data.attachments) || []).filter((a) => a.type === "photo");
         if (photos.length) reply.attachments = photos.concat(reply.attachments || []);
       } else {
@@ -1783,8 +1811,11 @@ def rai_code(action, code, lang, prompt):
   // ---------------------------------------------------------------- нейросеть в чате
   // Ответ «из интернета» (web) нейросеть переписывает связным текстом со ссылками, остальное — точные инструменты Rai
   const TOOL_INTENTS = new Set(["weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory"]);
+  // Имя и личные факты при включённой нейросети запоминает она сама — навсегда и для всех чатов
+  const NEURO_MEMORY_INTENTS = new Set(["set_name", "get_name", "memory"]);
   function isToolAnswer(data) {
-    const intents = Array.isArray(data.intent) ? data.intent : [data.intent];
+    const intents = (Array.isArray(data.intent) ? data.intent : [data.intent]).filter((i) => !NEURO_MEMORY_INTENTS.has(i));
+    if (!intents.length) return false;
     return intents.every((i) => TOOL_INTENTS.has(i)) || (data.attachments || []).some((a) => a.type === "slides" || a.type === "image" || a.type === "archive");
   }
   function sendAsStop(on) {
@@ -1799,38 +1830,142 @@ def rai_code(action, code, lang, prompt):
     while ((m = re.exec(md || ""))) if (!out.some((x) => x.url === m[2])) out.push({title: m[1], url: m[2]});
     return out.slice(0, 5);
   }
-  async function neuroAnswer(pending, history, prompt, t0, sources) {
+  // ---------------------------------------------------------------- нейросеть-агент
+  // Нейросеть сама решает, что ей нужно: поискать в интернете, выполнить код (посчитать, проверить), запомнить факт.
+  // Команды она пишет отдельной строкой — страница выполняет их и возвращает результат, пока не будет готов ответ.
+  const MEMORY_KEY = "rai_memory";
+  function memory() { try { return JSON.parse(localStorage.getItem(MEMORY_KEY) || "[]").filter((x) => typeof x === "string"); } catch (e) { return []; } }
+  function setMemory(list) { try { localStorage.setItem(MEMORY_KEY, JSON.stringify(list.slice(-60))); } catch (e) { /* без памяти */ } }
+  function remember(fact) {
+    fact = String(fact || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (fact.length < 3) return false;
+    const list = memory().filter((x) => x.toLowerCase() !== fact.toLowerCase());
+    list.push(fact);
+    setMemory(list);
+    return true;
+  }
+  const AGENT_TOOLS = [
+    "У тебя есть инструменты. Чтобы воспользоваться, напиши команду ОТДЕЛЬНОЙ строкой и остановись — я выполню её и пришлю результат:",
+    "ПОИСК: запрос — найти свежие сведения в интернете (новости, факты, цены, люди, события, всё, в чём не уверен);",
+    "```run-python — блок кода Python, который я выполню и пришлю вывод print (для расчётов, проверки, работы с данными; закрой блок ```);",
+    "ЗАПОМНИ: факт — навсегда запомнить важное о пользователе (имя, предпочтения, цели), если он сам это сообщил.",
+    "Не выдумывай результаты команд. Когда сведений достаточно — сразу отвечай пользователю обычным текстом, без команд."
+  ].join("\n");
+  function agentSystem(thinking) {
+    const now = new Date();
+    const facts = memory();
+    return window.RaiNeuro.SYSTEM + "\n\nСегодня " + now.toLocaleDateString("ru-RU", {weekday: "long", day: "numeric", month: "long", year: "numeric"}) +
+      ", время " + now.toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"}) + "." +
+      (facts.length ? "\n\nЧто ты знаешь о пользователе (из прошлых разговоров):\n" + facts.map((x) => "- " + x).join("\n") : "") +
+      "\n\n" + AGENT_TOOLS + (thinking ? "\nЗадача сложная: подумай как следует, проверь себя (можно кодом) и только потом отвечай." : "");
+  }
+  function agentCommand(text) {
+    const run = text.match(/```run-python[^\n]*\n([\s\S]*?)(?:```|$)/);
+    if (run && run[1].trim()) return {kind: "python", code: run[1].replace(/\s+$/, ""), cut: run.index};
+    const search = text.match(/^[ \t>*_-]*ПОИСК:\s*(.{2,200})$/m);
+    if (search) return {kind: "search", query: search[1].replace(/[*_`]+/g, "").trim(), cut: search.index};
+    return null;
+  }
+  function takeMemories(text, trace) {
+    return text.replace(/^[ \t>*_-]*ЗАПОМНИ:\s*(.+)$/gm, (_, fact) => {
+      if (remember(fact)) trace.push({kind: "memory", text: fact.trim()});
+      return "";
+    }).trim();
+  }
+  async function runTool(cmd, engine) {
+    if (cmd.kind === "search") {
+      const res = engine.context ? await engine.context(cmd.query, true).catch(() => ({text: "", sources: []})) : {text: "", sources: []};
+      return {text: res.text ? "Результаты поиска «" + cmd.query + "»:\n" + res.text : "Поиск «" + cmd.query + "» ничего не нашёл (или нет связи с интернетом).",
+              sources: res.sources || []};
+    }
+    if (!window.RaiCode || !window.RaiCode.runSnippet) return {text: "Запуск кода недоступен."};
+    const r = await window.RaiCode.runSnippet("python", cmd.code, pyodideSources(), 60000);
+    return {text: (r.ok ? "Код выполнен." : "Ошибка: " + r.error) + "\nВывод:\n" + (r.output.trim() || "(пусто)"), run: r};
+  }
+  async function neuroAnswer(pending, history, prompt, t0, sources, opts) {
+    opts = opts || {};
+    const N = window.RaiNeuro;
     const bubble = pending.querySelector(".bubble");
     pending.classList.remove("pending");
     bubble.classList.add("md");
-    const msgs = history.slice(-8).map((m) => ({role: m.role, content: String(m.content || "").slice(0, 3000)}));
+    const engine = await enginePromise;
+    // Память разговора: последние сообщения, но не больше ~7000 символов
+    const msgs = [];
+    let budget = 7000;
+    for (const m of history.slice(-16).reverse()) {
+      const c = String(m.content || "").slice(0, 2500);
+      if ((budget -= c.length) < 0) break;
+      msgs.unshift({role: m.role, content: c});
+    }
     msgs.push({role: "user", content: prompt});
+    const trace = [];
+    const allSources = (sources || []).slice();
+    if (allSources.length) trace.push({kind: "search", query: "по вопросу", found: allSources.map((x) => x.title)});
+    const thinking = !!opts.thinking && N.canThink();
     let queued = false, latest = "", done = false;
     const paint = () => { queued = false; if (done) return; bubble.innerHTML = renderMarkdown(latest); log.scrollTop = log.scrollHeight; };
+    const show = (text) => { latest = text; if (!queued) { queued = true; requestAnimationFrame(paint); } };
     sendAsStop(true);
     let text = "";
     try {
-      text = await window.RaiNeuro.chat(msgs, (full) => { latest = full; if (!queued) { queued = true; requestAnimationFrame(paint); } });
+      for (let step = 0; step < 4; step++) {
+        const raw = await N.chat(msgs, (full) => {
+          const cmd = agentCommand(full);
+          show(cmd ? full.slice(0, cmd.cut) : full.replace(/^[ \t>*_-]*ЗАПОМНИ:.*$/gm, ""));
+        }, {system: agentSystem(thinking), thinking: thinking && step === 0,
+            onThink: (t) => show("> 🧠 *Думаю…*\n>\n> " + t.slice(-600).replace(/\n+/g, "\n> "))});
+        if (thinking && step === 0 && N.lastThought()) trace.unshift({kind: "think", text: N.lastThought()});
+        const cmd = step < 3 ? agentCommand(raw) : null;
+        if (!cmd || !N.ready()) { text = raw; break; }
+        const before = takeMemories(raw.slice(0, cmd.cut), trace);
+        show((before ? before + "\n\n" : "") + (cmd.kind === "search" ? "🔎 *Ищу в интернете: " + cmd.query + "…*" : "▶ *Выполняю код…*"));
+        const result = await runTool(cmd, engine);
+        if (cmd.kind === "search") {
+          trace.push({kind: "search", query: cmd.query, found: (result.sources || []).map((x) => x.title)});
+          for (const x of result.sources || []) if (!allSources.some((y) => y.url === x.url)) allSources.push(x);
+        } else {
+          trace.push({kind: "python", code: cmd.code, output: result.run ? result.run.output : "", error: result.run ? result.run.error : result.text});
+        }
+        msgs.push({role: "assistant", content: raw.slice(0, cmd.cut) + (cmd.kind === "search" ? "ПОИСК: " + cmd.query : "```run-python\n" + cmd.code + "\n```")});
+        msgs.push({role: "user", content: "Результат команды:\n" + result.text.slice(0, 5000) +
+          "\n\nПродолжай: если нужно — ещё команда, иначе — ответ пользователю."});
+      }
     } finally {
       done = true;
       sendAsStop(false);
       sendBtn.disabled = true;
     }
+    text = takeMemories(text, trace);
     const secs = ((performance.now() - t0) / 1000).toFixed(1).replace(".", ",");
     const attachments = [];
     // Готовая страница или игра — карточка с «Просмотром» и кнопкой «Открыть в Code»
-    const page = window.RaiNeuro.codeBlocks(text).find((b) => (b.lang === "html" || !b.lang) && /<(?:!doctype|html|body)\b/i.test(b.code));
+    const page = N.codeBlocks(text).find((b) => (b.lang === "html" || !b.lang) && /<(?:!doctype|html|body)\b/i.test(b.code));
     if (page) {
       attachments.push({type: "code", lang: "html", code: page.code, filename: "index.html", title: "Страница от нейросети", site: true});
       text = text.replace(/```(?:html)?[^\n]*\n[\s\S]*?(?:```|$)/i, "*Код страницы — в карточке ниже: «Просмотр», «Открыть в Code», «Скачать».*");
     }
     // Источники, на которые опирался ответ (если нейросеть сама их не поставила)
-    const used = (sources || []).filter((x) => !text.includes(x.url));
-    if (text.trim() && used.length && used.length === (sources || []).length) {
-      text = text.trim() + "\n\n**Источники:** " + used.map((x) => `[${x.title.replace(/[\[\]]/g, "")}](${x.url})`).join(" · ");
+    const used = allSources.filter((x) => !text.includes(x.url));
+    if (text.trim() && used.length && used.length === allSources.length) {
+      text = text.trim() + "\n\n**Источники:** " + used.slice(0, 5).map((x) => `[${x.title.replace(/[\[\]]/g, "")}](${x.url})`).join(" · ");
     }
-    return {role: "rai", text: text.trim() || "Нейросеть не ответила — попробуйте ещё раз.", attachments: attachments,
-            meta: "Нейросеть " + (window.RaiNeuro.status().label || "") + " · " + secs + " с"};
+    if (trace.length) attachments.unshift({type: "trace", steps: trace});
+    return {role: "rai", text: text.trim() || "Нейросеть не ответила — попробуйте ещё раз.", attachments: attachments, neuro: true,
+            meta: "Нейросеть " + (N.status().label || "") + (thinking ? " · думала" : "") + " · " + secs + " с"};
+  }
+  // Как нейросеть пришла к ответу: ход мыслей, поиски, запуски кода, что запомнила
+  function renderTrace(a) {
+    const box = document.createElement("details");
+    box.className = "trace";
+    const names = {think: "🧠 Ход мыслей", search: "🔎 Поиск", python: "▶ Код", memory: "📌 Запомнила"};
+    box.innerHTML = `<summary>Как нейросеть отвечала · ${a.steps.length} ${a.steps.length === 1 ? "шаг" : a.steps.length < 5 ? "шага" : "шагов"}</summary>` +
+      a.steps.map((s) => `<div class="step"><b>${names[s.kind] || esc(s.kind)}</b>` + (
+        s.kind === "think" ? `<div class="md">${renderMarkdown(s.text || "")}</div>` :
+        s.kind === "search" ? ` ${esc(s.query || "")}` + ((s.found || []).length ? `<ul>${s.found.slice(0, 5).map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : " — ничего не нашлось") :
+        s.kind === "python" ? `<pre><code>${hl(s.code || "", "python")}</code></pre>` +
+          `<pre class="out${s.error ? " err" : ""}">${esc((s.output || "").trim() || "(пусто)")}${s.error ? "\n" + esc(s.error) : ""}</pre>` :
+        ` ${esc(s.text || "")}`) + `</div>`).join("");
+    return box;
   }
 
   // ---------------------------------------------------------------- нейросеть пишет презентацию
@@ -1964,6 +2099,18 @@ def rai_code(action, code, lang, prompt):
     });
   }
 
+  // Что нейросеть помнит о пользователе — видно и правится в окне нейросети
+  function renderMemory() {
+    const box = $("memList");
+    if (!box) return;
+    const list = memory();
+    $("memBox").hidden = !list.length;
+    box.innerHTML = list.map((x, i) => `<li><span>${esc(x)}</span><button class="icon-btn" type="button" data-i="${i}" aria-label="Забыть">×</button></li>`).join("");
+    box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      const l = memory(); l.splice(+b.dataset.i, 1); setMemory(l); renderMemory();
+    }));
+  }
+
   // Кнопка и окно нейросети
   function renderNeuroModels() {
     const box = $("neuroModels");
@@ -1989,17 +2136,47 @@ def rai_code(action, code, lang, prompt):
       $("neuroOn").disabled = st.state === "loading";
       $("neuroOn").textContent = st.state === "ready" ? "Сменить модель" : "Включить";
       $("neuroOff").hidden = st.state === "off";
+      $("thinkBtn").hidden = !(st.state === "ready" && N.canThink());
+      renderMemory();
       if (window.RaiCode && window.RaiCode.neuroChanged) window.RaiCode.neuroChanged();
     });
-    $("neuroBtn").addEventListener("click", () => { renderNeuroModels(); dialog.showModal ? dialog.showModal() : dialog.setAttribute("open", ""); });
+    $("neuroBtn").addEventListener("click", () => { renderNeuroModels(); renderMemory(); dialog.showModal ? dialog.showModal() : dialog.setAttribute("open", ""); });
     $("neuroClose").addEventListener("click", () => dialog.close());
     $("neuroOn").addEventListener("click", () => {
       const key = (dialog.querySelector("input[name=neuroModel]:checked") || {}).value || "normal";
       N.enable(key).then(() => toast("Нейросеть включена — пишите что угодно")).catch((e) => toast("Нейросеть не запустилась: " + e.message));
     });
     $("neuroOff").addEventListener("click", () => { N.disable(); toast("Нейросеть выключена — отвечает движок Rai"); });
+    initThink();
+    $("memClear").addEventListener("click", () => { setMemory([]); renderMemory(); toast("Нейросеть всё забыла"); });
     // Нейросеть включается сама: модель подбирается под компьютер и грузится в фоне (один раз, дальше — из кэша)
     N.auto();
+  }
+
+  // «Ещё вариант»: нейросеть отвечает на тот же вопрос заново
+  function regenerate(m) {
+    if (busy) return;
+    const chat = current();
+    const i = chat.messages.lastIndexOf(m);
+    const user = chat.messages[i - 1];
+    if (i !== chat.messages.length - 1 || !user || user.role !== "user") { toast("Ещё вариант можно получить для последнего ответа"); return; }
+    if (!(window.RaiNeuro && window.RaiNeuro.ready())) { toast("Нейросеть сейчас выключена"); return; }
+    chat.messages.splice(i, 1);
+    const shown = log.querySelectorAll(".msg.rai");
+    if (shown.length) shown[shown.length - 1].remove();
+    ask(user.text, {regen: true});
+  }
+  // «Думать глубже»: нейросеть сначала рассуждает (виден «Ход мыслей»), потом отвечает — для сложных задач
+  function thinkOn() { return $("thinkBtn").getAttribute("aria-pressed") === "true"; }
+  function initThink() {
+    const b = $("thinkBtn");
+    try { if (localStorage.getItem("rai_think") === "1") b.setAttribute("aria-pressed", "true"); } catch (e) { /* по умолчанию выключено */ }
+    b.addEventListener("click", () => {
+      const on = !thinkOn();
+      b.setAttribute("aria-pressed", String(on));
+      try { localStorage.setItem("rai_think", on ? "1" : "0"); } catch (e) { /* не страшно */ }
+      toast(on ? "Нейросеть будет думать глубже: дольше, но умнее" : "Обычный режим: отвечает сразу");
+    });
   }
 
   function autosize() {

@@ -847,6 +847,49 @@ onmessage = async (e) => {
     };
   }
 
+  /**
+   * Запуск кода без вкладки Code — для нейросети в чате (посчитать, проверить, получить данные).
+   * Возвращает {ok, output, error, images}; зависшую программу останавливает по времени.
+   */
+  let snippetWorker = null;
+  function runSnippet(language, code, sources, timeoutMs) {
+    return new Promise((resolve) => {
+      const isPy = language !== "javascript";
+      let worker;
+      try {
+        worker = isPy ? (snippetWorker || (snippetWorker = workerFrom(PY_WORKER, true))) : workerFrom(JS_WORKER);
+      } catch (e) { resolve({ok: false, output: "", error: "Браузер не умеет запускать код в фоне"}); return; }
+      let output = "", done = false;
+      const finish = (res) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        worker.onmessage = null;
+        if (!isPy) worker.terminate();
+        resolve(Object.assign({images: []}, res, {output: (res.output || "").slice(0, 6000)}));
+      };
+      const timer = setTimeout(() => {
+        worker.terminate();
+        if (isPy) snippetWorker = null;
+        finish({ok: false, output: output, error: "Программа работала слишком долго и была остановлена"});
+      }, timeoutMs || 60000);
+      worker.onmessage = (e) => {
+        const m = e.data || {};
+        if (m.type === "out" || m.type === "err" || m.type === "hint") output += m.text;
+        else if (m.type === "fatal") { snippetWorker = null; finish({ok: false, output: output, error: "Python не загрузился: " + m.text}); }
+        else if (m.type === "done") {
+          let info = {};
+          try { info = JSON.parse(m.info); } catch (_) { /* пустой ответ */ }
+          finish({ok: info.ok !== false, output: output, images: info.images || [],
+                  error: info.ok === false ? (info.etype ? info.etype + ": " + (info.msg || "") : info.msg || "ошибка") : ""});
+        }
+      };
+      worker.onerror = (e) => { e.preventDefault && e.preventDefault(); finish({ok: false, output: output, error: e.message || "ошибка запуска"}); };
+      if (isPy) worker.postMessage({files: [{name: "main.py", text: code}], main: "main.py", stdin: "", sources: sources});
+      else worker.postMessage({code: code, stdin: ""});
+    });
+  }
+
   function projectFiles() { return project.files.map((f) => ({name: f.name, text: f.text})); }
 
   function runPython() {
@@ -1018,9 +1061,34 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
       return;
     }
     done = true;  // последняя отрисовка по кадру не должна затереть кнопки ниже
-    const blocks = H.neuro.codeBlocks(text);
-    const main = blocks.sort((a, b) => b.code.length - a.code.length)[0];
-    pend.innerHTML = `<div class="md">${H.md(main && action !== "explain" ? text.replace(/```[\s\S]*?(?:```|$)/, "*(код — ниже)*") : text)}</div>`;
+    const biggest = (t) => H.neuro.codeBlocks(t).sort((a, b) => b.code.length - a.code.length)[0];
+    let main = biggest(text), tested = "";
+    // Нейросеть сама проверяет программу запуском и, если упала, исправляет ошибку (один раз)
+    const runLang = main ? (FAMILY[main.lang] ? main.lang : langOf(neuroFileName(main))) : "";
+    const interactive = /\binput\s*\(|\bprompt\s*\(|turtle|tkinter|pygame|readline|while\s+True|setInterval|requestAnimationFrame|document\.|window\./;
+    if (main && action !== "explain" && ["python", "javascript"].includes(runLang) && !interactive.test(main.code) && H.pyodideSources) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        pend.innerHTML = `<div class="md">${H.md(attempt ? "🔧 *Исправляю ошибку и проверяю снова…*" : "▶ *Проверяю программу запуском…*")}</div>`;
+        const r = await runSnippet(runLang, main.code, H.pyodideSources(), 45000);
+        if (r.ok) {
+          tested = (attempt ? "🔧 Нашла ошибку при запуске, исправила и проверила — **работает** ✓" : "▶ Проверила запуском — **работает** ✓") +
+            (r.output.trim() ? "\n\n```text\n" + r.output.trim().slice(0, 600) + "\n```" : "");
+          break;
+        }
+        if (attempt === 1) { tested = "⚠ При запуске всё ещё ошибка: `" + r.error.slice(0, 200) + "`"; break; }
+        let fixed = "";
+        try {
+          fixed = await H.neuro.chat([{role: "user", content: content}, {role: "assistant", content: text},
+            {role: "user", content: "Я запустил этот код, и он упал:\n" + r.error + "\nВывод:\n" + r.output.slice(-1500) +
+              "\nИсправь ошибку и верни ВЕСЬ файл целиком в одном блоке кода."}], null,
+            {system: H.neuro.CODE_SYSTEM, temperature: 0.2, maxTokens: 3500});
+        } catch (e) { break; }
+        const again = biggest(fixed);
+        if (!again) break;
+        main = again; text = fixed;
+      }
+    }
+    pend.innerHTML = `<div class="md">${H.md(main && action !== "explain" ? text.replace(/```[\s\S]*?(?:```|$)/, "*(код — ниже)*") + (tested ? "\n\n" + tested : "") : text)}</div>`;
     if (!main || action === "explain") return;
     const box = document.createElement("div");
     const l = FAMILY[main.lang] ? main.lang : langOf(neuroFileName(main));
@@ -1191,6 +1259,7 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     },
     focus: () => { if (el.ta) { refresh(); el.ta.focus(); } },
     highlight: highlight,
-    langOf: langOf
+    langOf: langOf,
+    runSnippet: runSnippet
   };
 })();

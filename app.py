@@ -122,8 +122,9 @@ def web_context():
     """Сведения из интернета для нейросети в браузере (Википедия и поиск)."""
     import codeai
     import online
-    query = str((_payload() or {}).get("query") or "")[:300]
-    if not query or codeai.is_build_request(query) or not online.needs_facts(query):
+    data = _payload() or {}
+    query = str(data.get("query") or "")[:300]
+    if not query or not data.get("force") and (codeai.is_build_request(query) or not online.needs_facts(query)):
         return jsonify({"text": "", "sources": []})
     return jsonify(online.context_for(query))
 
