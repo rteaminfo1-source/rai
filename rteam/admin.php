@@ -1781,6 +1781,10 @@ function render_chat_message($m, $is_pinned, $user) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="Favicon.Jpeg" type="image/jpeg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<script>try { if (localStorage.getItem('rtSbMini') === '1') document.documentElement.classList.add('sb-mini'); } catch (e) {}</script>
 <title><?=htmlspecialchars($TABS[$tab][0] ?? "Админ")?> — Админ‑панель Rteam</title>
 <style>
 :root {
@@ -2046,6 +2050,238 @@ details.card > summary::-webkit-details-marker { display: none; }
     .sup-sidebar { width: 100%; max-height: 220px; border-right: 0; border-bottom: 1px solid var(--line); }
     .sup-chat { min-height: 60vh; }
 }
+
+/* =====================================================================
+   ДИЗАЙН V2 — стекло, градиентные рамки, анимации, новые компоненты
+   ===================================================================== */
+:root { --font: "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif; --mono: "JetBrains Mono", ui-monospace, Consolas, monospace; --sidebar-mini: 78px; }
+body { font-family: var(--font); letter-spacing: -.006em; -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: radial-gradient(rgba(255,255,255,.045) 1px, transparent 1px); background-size: 24px 24px;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 65%); mask-image: linear-gradient(180deg, #000 0%, transparent 65%); }
+.layout { position: relative; z-index: 1; }
+code, kbd { font-family: var(--mono); }
+kbd { display: inline-block; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line-2); border-bottom-width: 2px; background: rgba(255,255,255,.04); font-size: 11px; color: var(--soft); }
+
+/* Стеклянные карточки с градиентной рамкой */
+.card, .kpi, .search-bar, .tbl-wrap, .role-card, .post-card, .proj-card, .goal-card, .file-row, .chat-msg, .hero {
+    border: 1px solid transparent;
+    background: linear-gradient(180deg, rgba(23,23,33,.92), rgba(13,13,20,.92)) padding-box,
+                linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.025) 60%, rgba(255,255,255,.05)) border-box !important;
+    box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 18px 40px -26px rgba(0,0,0,.8);
+    border-radius: 16px;
+}
+.role-card { border-left: 3px solid var(--rc); }
+.card.gold-card { background: linear-gradient(160deg, rgba(40,31,6,.95), rgba(16,16,23,.95) 60%) padding-box, linear-gradient(135deg, #b8901e, rgba(120,90,10,.25)) border-box !important; }
+.hero { background: radial-gradient(600px 240px at 100% 0%, color-mix(in srgb, var(--rc, var(--accent)) 26%, transparent), transparent 70%) padding-box,
+                    linear-gradient(160deg, rgba(26,26,38,.95), rgba(14,14,21,.95)) padding-box,
+                    linear-gradient(135deg, color-mix(in srgb, var(--rc, var(--accent)) 55%, transparent), rgba(255,255,255,.04) 50%) border-box !important; }
+.chat-msg.mine { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, rgba(20,20,30,.95)), rgba(14,14,21,.95)) padding-box, linear-gradient(135deg, color-mix(in srgb, var(--accent) 45%, transparent), rgba(255,255,255,.03)) border-box !important; }
+.card:hover, .proj-card:hover, .goal-card:hover, .post-card:hover { box-shadow: 0 1px 0 rgba(255,255,255,.05) inset, 0 22px 46px -26px rgba(0,0,0,.9); }
+
+/* Появление контента */
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.content > * { animation: rise .38s cubic-bezier(.2,.7,.2,1) both; }
+.content > *:nth-child(2) { animation-delay: .03s; } .content > *:nth-child(3) { animation-delay: .06s; } .content > *:nth-child(4) { animation-delay: .09s; }
+.content > *:nth-child(5) { animation-delay: .12s; } .content > *:nth-child(n+6) { animation-delay: .15s; }
+.kpi-grid > .kpi { animation: rise .4s cubic-bezier(.2,.7,.2,1) both; }
+.kpi-grid > .kpi:nth-child(2) { animation-delay: .04s; } .kpi-grid > .kpi:nth-child(3) { animation-delay: .08s; } .kpi-grid > .kpi:nth-child(4) { animation-delay: .12s; } .kpi-grid > .kpi:nth-child(n+5) { animation-delay: .16s; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Заголовки секций */
+.section-title, .content > h3 { display: flex; align-items: center; gap: 10px; font-size: 12px !important; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--soft) !important; margin: 28px 0 12px !important; }
+.section-title::after, .content > h3::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+.section-title .chip { text-transform: none; letter-spacing: 0; }
+.card h3 { font-size: 15.5px; letter-spacing: -.01em; }
+
+/* KPI */
+.kpi { position: relative; overflow: hidden; }
+.kpi::after { content: ""; position: absolute; right: -30px; top: -30px; width: 110px; height: 110px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%); opacity: 0; transition: opacity .25s; }
+.kpi:hover::after { opacity: 1; }
+.kpi .k-ico { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+.kpi .k-num { font-size: 30px; font-variant-numeric: tabular-nums; }
+.kpi.hot .k-num { background: linear-gradient(135deg, #fff, var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* Кнопки */
+.btn { border-radius: 11px; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 1px 2px rgba(0,0,0,.45); }
+.btn.ghost { box-shadow: none; }
+.btn.primary { box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 8px 22px -8px color-mix(in srgb, var(--accent) 70%, transparent); }
+.btn:focus-visible, .sb-link:focus-visible, a:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
+
+/* Поля */
+textarea, input[type="text"], input[type="password"], input[type="number"], input[type="date"], input[type="time"], input[type="email"], input[type="url"], input[type="search"], select {
+    background: rgba(6,6,10,.7); border-color: rgba(255,255,255,.1); border-radius: 11px; padding: 11px 13px; }
+textarea:hover, input:hover, select:hover { border-color: rgba(255,255,255,.18); }
+input[type="color"] { -webkit-appearance: none; appearance: none; width: 46px; height: 42px; padding: 0; border: 1px solid var(--line-2); border-radius: 11px; background: none; cursor: pointer; }
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 4px; } input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 8px; }
+
+/* Переключатели вместо галочек */
+input[type="checkbox"] { -webkit-appearance: none; appearance: none; width: 40px; height: 23px; border-radius: 999px; background: #2a2a38; border: 1px solid var(--line-2);
+    position: relative; cursor: pointer; transition: background .2s, border-color .2s; vertical-align: middle; margin: 0 8px 0 0; flex: none; }
+input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%; background: #c9c9da; transition: transform .2s, background .2s; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+input[type="checkbox"]:checked { background: var(--accent); border-color: transparent; }
+input[type="checkbox"]:checked::after { transform: translateX(17px); background: #fff; }
+.switch-row { display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text); font-weight: 500; }
+/* В матрице прав — квадратные галочки */
+.perm-table input[type="checkbox"] { width: 22px !important; min-width: 0 !important; height: 22px; padding: 0 !important; border-radius: 7px; margin: 0; }
+.tbl input[type="checkbox"], .tbl input[type="radio"] { min-width: 0; padding: 0; }
+.perm-table input[type="checkbox"]::after { content: "✓"; inset: 0; top: 0; left: 0; width: auto; height: auto; display: grid; place-items: center; background: none; box-shadow: none; color: transparent; font-size: 13px; font-weight: 800; transform: none; }
+.perm-table input[type="checkbox"]:checked::after { color: #fff; transform: none; background: none; }
+
+/* Сегментированный выбор (срок бана) */
+.seg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.seg label { cursor: pointer; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: inline-block; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: rgba(255,255,255,.03); color: var(--soft); font-size: 13px; font-weight: 600; transition: all .15s; }
+.seg input:checked + span { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: color-mix(in srgb, var(--accent) 60%, transparent); color: #fff; }
+.flash-ring { animation: ring 1.6s ease 2; }
+@keyframes ring { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 40% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent); } }
+
+/* Раскладка «форма слева — список справа» */
+.split { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 18px; align-items: start; }
+.sticky-card { position: sticky; top: 92px; }
+@media (max-width: 1100px) { .split { grid-template-columns: 1fr; } .sticky-card { position: static; } }
+
+/* Проекты */
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.proj-card { padding: 16px; display: flex; flex-direction: column; transition: transform .2s; }
+.proj-card:hover { transform: translateY(-3px); }
+.proj-card.is-hidden { opacity: .55; }
+.proj-head { display: flex; gap: 12px; align-items: center; }
+.proj-icon { width: 48px; height: 48px; border-radius: 13px; object-fit: cover; flex: none; display: grid; place-items: center; font-size: 22px; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+.proj-title { font-weight: 700; font-size: 16px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-desc { color: var(--soft); font-size: 13.5px; margin: 12px 0 10px; flex: 1; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.proj-path { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 11.5px; }
+.proj-actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.proj-actions form { margin: 0; }
+
+/* Посты блога и сливы */
+.post-card { padding: 16px 18px; margin-bottom: 12px; }
+.post-card.is-hidden { opacity: .6; }
+.post-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.post-title { font-weight: 700; font-size: 16px; color: #fff; }
+.post-body { color: var(--soft); margin-top: 10px; font-size: 14px; line-height: 1.6; }
+.post-card .row form { margin: 0; }
+.post-edit { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line-2); }
+.post-card.editing .post-edit { display: block; }
+.post-card.editing .post-body { display: none; }
+
+/* Цели */
+.goal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.goal-card { padding: 16px; }
+.goal-card.mine { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, rgba(22,22,32,.95)), rgba(13,13,20,.95)) padding-box, linear-gradient(135deg, color-mix(in srgb, var(--accent) 55%, transparent), rgba(255,255,255,.04)) border-box !important; }
+.goal-card.expired { opacity: .75; }
+.goal-title { font-weight: 700; font-size: 15.5px; color: #fff; }
+.goal-desc { color: var(--soft); font-size: 13.5px; margin-top: 10px; }
+.goal-bar { height: 7px; border-radius: 999px; background: rgba(255,255,255,.06); overflow: hidden; margin-top: 14px; }
+.goal-bar span { display: block; height: 100%; border-radius: 999px; box-shadow: 0 0 12px currentColor; transition: width .6s; }
+
+/* Штрафы */
+.fine-who { font-weight: 700; color: #fff; font-size: 15px; }
+.fine-amount { font-size: 24px; font-weight: 800; letter-spacing: -.02em; color: #fff; font-variant-numeric: tabular-nums; }
+
+/* Темы сайта */
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.theme-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 10px; border-radius: 14px; cursor: pointer; text-align: center;
+    background: rgba(255,255,255,.03); border: 1px solid var(--line); transition: transform .15s, border-color .15s, background .15s; }
+.theme-tile:hover { transform: translateY(-2px); border-color: var(--line-2); }
+.theme-tile input { position: absolute; opacity: 0; pointer-events: none; }
+.theme-tile .tt-ico { font-size: 30px; line-height: 1; }
+.theme-tile .tt-name { font-size: 12.5px; color: var(--soft); font-weight: 600; }
+.theme-tile:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.theme-tile:has(input:checked) .tt-name { color: #fff; }
+.banner-preview { margin-top: 14px; padding: 16px; border-radius: 14px; text-align: center; font-size: 16px; color: #fff;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, transparent), rgba(255,255,255,.03)); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* Настройки: образцы цветов */
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255,255,255,.15); background: var(--sw); cursor: pointer; transition: transform .15s; }
+.swatch:hover { transform: scale(1.12); border-color: #fff; }
+
+/* Боковое меню v2 */
+.sidebar { background: linear-gradient(180deg, rgba(14,14,21,.96), rgba(9,9,14,.98)); backdrop-filter: blur(12px); transition: width .22s ease, transform .25s ease; }
+.sb-brand { position: relative; }
+.sb-collapse { margin-left: auto; width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line-2); background: rgba(255,255,255,.03); color: var(--soft); cursor: pointer; font-size: 13px; transition: transform .2s; }
+.sb-collapse:hover { color: #fff; }
+.sb-search { display: flex; align-items: center; gap: 10px; margin: 0 14px 6px; padding: 9px 12px; border-radius: 11px; border: 1px solid var(--line-2); background: rgba(255,255,255,.03); color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; text-align: left; transition: border-color .15s, color .15s; }
+.sb-search:hover { color: var(--soft); border-color: rgba(255,255,255,.2); }
+.sb-search kbd { margin-left: auto; }
+.sb-link { transition: background .15s, color .15s, transform .15s; }
+.sb-link:hover { transform: translateX(2px); }
+.sb-link.active { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent) 6%, transparent)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent); }
+.sb-count { box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent); animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+
+/* Свёрнутое меню (только иконки) */
+@media (min-width: 961px) {
+    html.sb-mini .sidebar { width: var(--sidebar-mini); }
+    html.sb-mini .main { margin-left: var(--sidebar-mini); }
+    html.sb-mini .sb-label, html.sb-mini .sb-title, html.sb-mini .sb-user .role-badge, html.sb-mini .sb-search kbd { display: none; }
+    html.sb-mini .sb-brand { flex-direction: column; padding: 16px 0 10px; }
+    html.sb-mini .sb-collapse { margin: 8px 0 0; transform: rotate(180deg); }
+    html.sb-mini .sb-user { justify-content: center; margin: 4px 10px 10px; padding: 8px; }
+    html.sb-mini .sb-search { justify-content: center; margin: 0 12px 6px; }
+    html.sb-mini .sb-link { justify-content: center; padding: 10px 0; }
+    html.sb-mini .sb-link .sb-count { position: absolute; top: 2px; right: 8px; min-width: 16px; padding: 0 4px; font-size: 10px; }
+    html.sb-mini .sb-group { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
+    html.sb-mini .sb-foot { flex-direction: column; }
+}
+.main { transition: margin-left .22s ease; }
+
+/* Верхняя панель v2 */
+.topbar { background: rgba(8,8,12,.62); }
+.tb-title { display: flex; flex-direction: column; min-width: 0; }
+.crumbs { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; text-transform: uppercase; letter-spacing: .08em; }
+.crumbs a { color: var(--muted); } .crumbs a:hover { color: #fff; text-decoration: none; }
+.tb-clock { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tb-btn { position: relative; width: 40px; height: 40px; display: inline-grid; place-items: center; border-radius: 11px; border: 1px solid var(--line-2); background: rgba(255,255,255,.03); color: #fff; cursor: pointer; font-size: 16px; list-style: none; }
+.tb-btn:hover { background: rgba(255,255,255,.07); }
+.tb-btn::-webkit-details-marker { display: none; }
+.tb-dot { position: absolute; top: -5px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 10.5px; font-weight: 800; display: grid; place-items: center; box-shadow: 0 0 0 2px #09090e, 0 0 12px color-mix(in srgb, var(--accent) 70%, transparent); }
+.tb-notif { position: relative; }
+.tb-pop { position: absolute; right: 0; top: calc(100% + 10px); width: 300px; padding: 8px; border-radius: 14px; z-index: 80;
+    background: rgba(18,18,26,.97); border: 1px solid var(--line-2); box-shadow: 0 24px 60px -20px rgba(0,0,0,.9); backdrop-filter: blur(14px); animation: rise .18s ease both; }
+.tb-pop-head { padding: 8px 10px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.tb-pop-empty { padding: 16px 10px; color: var(--soft); text-align: center; }
+.tb-pop-item { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 10px; color: var(--text); }
+.tb-pop-item:hover { background: rgba(255,255,255,.05); text-decoration: none; }
+.tb-pop-item .ico { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; background: rgba(255,255,255,.05); }
+.tb-pop-item .go { margin-left: auto; color: var(--muted); }
+
+/* Быстрый переход (Ctrl+K) */
+.palette { position: fixed; inset: 0; z-index: 200; display: none; align-items: flex-start; justify-content: center; padding: 12vh 16px 16px; background: rgba(3,3,6,.6); backdrop-filter: blur(6px); }
+.palette.open { display: flex; animation: fade .15s ease both; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.palette-box { width: min(620px, 100%); border-radius: 18px; overflow: hidden; background: rgba(18,18,26,.98); border: 1px solid var(--line-2); box-shadow: 0 40px 100px -30px rgba(0,0,0,.95); animation: rise .2s ease both; }
+.palette-box > input { margin: 0; border: 0 !important; border-bottom: 1px solid var(--line) !important; border-radius: 0; padding: 18px 20px; font-size: 16px; background: transparent; box-shadow: none !important; }
+.palette-list { max-height: 50vh; overflow-y: auto; padding: 8px; }
+.palette-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 11px; color: var(--text); }
+.palette-item .ico { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; background: rgba(255,255,255,.05); font-size: 16px; }
+.palette-item .grp { margin-left: auto; color: var(--muted); font-size: 12px; }
+.palette-item .sb-count { margin-left: 8px; animation: none; }
+.palette-item.sel, .palette-item:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); text-decoration: none; }
+.palette-foot { display: flex; gap: 16px; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.palette-foot kbd { margin-right: 3px; }
+
+/* Старые встроенные стили — приводим к общему виду */
+.content [style*="background: #050509"], .content [style*="background:#050509"] { background: rgba(6,6,10,.6) !important; border-color: var(--line) !important; border-radius: 11px !important; }
+.content [style*="background: #1a1a24"], .content [style*="background:#1a1a24"] { background: rgba(255,255,255,.03) !important; border-color: var(--line) !important; border-radius: 12px !important; }
+.content [style*="background:#101018"], .content [style*="background: #101018"] { background: rgba(255,255,255,.03) !important; border-color: var(--line) !important; }
+.content [style*="color:#666"], .content [style*="color: #666"], .content [style*="color:#777"], .content [style*="color: #777"], .content [style*="color:#999"], .content [style*="color: #999"] { color: var(--muted) !important; }
+.content [style*="color:#aaa"], .content [style*="color: #aaa"], .content [style*="color:#ccc"], .content [style*="color: #ccc"] { color: var(--soft) !important; }
+.content [style*="solid #333"], .content [style*="solid #222"], .content [style*="solid #2a0000"] { border-color: var(--line) !important; }
+.content [style*="color:#ff7777"], .content [style*="color: #ff7777"] { color: color-mix(in srgb, var(--accent) 60%, #fff) !important; }
+.content p { color: var(--soft); }
+.content table:not(.tbl) th { color: var(--muted); font-weight: 600; }
+
+/* Мобильная версия v2 */
+@media (max-width: 960px) {
+    .sb-collapse { display: none; }
+    .tb-pop { position: fixed; left: 12px; right: 12px; top: 64px; width: auto; }
+    .crumbs { display: none; }
+    .palette { padding-top: 70px; }
+    .palette-foot { display: none; }
+}
 </style>
 <script>
 function updateFormType(prefix = '') {
@@ -2076,16 +2312,33 @@ window.addEventListener('DOMContentLoaded', function() {
 
 <div id="toast-container"></div>
 
+<!-- Быстрый переход по разделам: Ctrl+K или «/» -->
+<div class="palette" id="palette" onclick="if (event.target === this) closePalette()">
+    <div class="palette-box" role="dialog" aria-label="Быстрый переход">
+        <input type="text" id="paletteInput" placeholder="Куда перейти? Например: баны, заявки, чат…" autocomplete="off">
+        <div class="palette-list" id="paletteList">
+            <?php foreach ($TABS as $key => $t): if (!tab_allowed($key)) continue; ?>
+                <a class="palette-item" href="?tab=<?=$key?>" data-q="<?=htmlspecialchars(mb_strtolower($t[0] . " " . $t[3] . " " . $key))?>"><span class="ico"><?=$t[1]?></span><span><?=htmlspecialchars($t[0])?></span><span class="grp"><?=htmlspecialchars($t[3])?></span><?php if (($count[$key] ?? 0) > 0): ?><span class="sb-count"><?=$count[$key]?></span><?php endif; ?></a>
+            <?php endforeach; ?>
+            <a class="palette-item" href="index.php" data-q="сайт главная выход на сайт"><span class="ico">🌐</span><span>Открыть сайт</span><span class="grp">Переход</span></a>
+            <a class="palette-item" href="index.php?logout=1" data-q="выйти выход logout"><span class="ico">⎋</span><span>Выйти из аккаунта</span><span class="grp">Аккаунт</span></a>
+        </div>
+        <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> выбрать</span><span><kbd>Enter</kbd> открыть</span><span><kbd>Esc</kbd> закрыть</span></div>
+    </div>
+</div>
+
 <div class="layout">
     <aside class="sidebar" id="sidebar">
         <div class="sb-brand">
             <div class="sb-logo">R</div>
             <div class="sb-title">RTEAM<small>Админ‑панель</small></div>
+            <button class="sb-collapse" type="button" title="Свернуть меню" onclick="toggleMiniSidebar()">⟨</button>
         </div>
+        <button class="sb-search" type="button" onclick="openPalette()"><span>🔍</span><span class="sb-label">Найти раздел…</span><kbd>Ctrl K</kbd></button>
         <div class="sb-user">
             <div class="avatar" style="--rc:<?=htmlspecialchars($my_role_info["color"])?>"><?=htmlspecialchars(mb_strtoupper(mb_substr($user, 0, 1)))?></div>
             <div style="min-width:0;">
-                <div class="sb-user-name"><?=htmlspecialchars($user)?></div>
+                <div class="sb-user-name sb-label"><?=htmlspecialchars($user)?></div>
                 <?=rt_role_badge($role, $my_direction)?>
             </div>
         </div>
@@ -2095,16 +2348,16 @@ window.addEventListener('DOMContentLoaded', function() {
             foreach ($TABS as $key => $t) if (tab_allowed($key)) $nav_groups[$t[3]][$key] = $t;
             foreach ($nav_groups as $group => $items): ?>
                 <div class="sb-group">
-                    <div class="sb-group-title"><?=htmlspecialchars($group)?></div>
+                    <div class="sb-group-title sb-label"><?=htmlspecialchars($group)?></div>
                     <?php foreach ($items as $key => $t): $cnt = $count[$key] ?? 0; ?>
-                        <a class="sb-link<?=$tab === $key ? ' active' : ''?>" href="?tab=<?=$key?>"><span class="ico"><?=$t[1]?></span><span><?=htmlspecialchars($t[0])?></span><?php if ($cnt > 0): ?><span class="sb-count"><?=$cnt?></span><?php endif; ?></a>
+                        <a class="sb-link<?=$tab === $key ? ' active' : ''?>" href="?tab=<?=$key?>" title="<?=htmlspecialchars($t[0])?>"><span class="ico"><?=$t[1]?></span><span class="sb-label"><?=htmlspecialchars($t[0])?></span><?php if ($cnt > 0): ?><span class="sb-count"><?=$cnt?></span><?php endif; ?></a>
                     <?php endforeach; ?>
                 </div>
             <?php endforeach; ?>
         </nav>
         <div class="sb-foot">
-            <a class="btn ghost sm" href="index.php">← На сайт</a>
-            <a class="btn ghost sm" href="index.php?logout=1">Выйти</a>
+            <a class="btn ghost sm" href="index.php" title="На сайт">←<span class="sb-label"> На сайт</span></a>
+            <a class="btn ghost sm" href="index.php?logout=1" title="Выйти">⎋<span class="sb-label"> Выйти</span></a>
         </div>
     </aside>
     <div class="sb-backdrop" onclick="document.body.classList.remove('nav-open')"></div>
@@ -2112,8 +2365,33 @@ window.addEventListener('DOMContentLoaded', function() {
     <main class="main">
         <header class="topbar">
             <button class="burger" type="button" aria-label="Меню" onclick="document.body.classList.toggle('nav-open')">☰</button>
-            <h1><span class="tb-ico"><?=$TABS[$tab][1] ?? "🛠"?></span><?=htmlspecialchars($TABS[$tab][0] ?? "Админ‑панель")?></h1>
+            <div class="tb-title">
+                <div class="crumbs"><a href="?tab=home">RTEAM</a><span>/</span><?=htmlspecialchars($TABS[$tab][3] ?? "")?></div>
+                <h1><span class="tb-ico"><?=$TABS[$tab][1] ?? "🛠"?></span><?=htmlspecialchars($TABS[$tab][0] ?? "Админ‑панель")?></h1>
+            </div>
             <div class="tb-right">
+                <span class="tb-clock hide-sm" id="tbClock"></span>
+                <button class="tb-btn" type="button" title="Поиск (Ctrl+K)" onclick="openPalette()">🔍</button>
+                <?php
+                $notif = [];
+                if (can("apps.view") && $count["apps"])               $notif[] = ["apps", "📝", $count["apps"], "новых заявок"];
+                if (can("support.view") && $count["support"])         $notif[] = ["support", "🎧", $count["support"], "открытых тикетов"];
+                if (can("mail.view") && $count["messages"])           $notif[] = ["messages", "✉️", $count["messages"], "писем без ответа"];
+                if (can("bot.tickets") && $count["bot"])              $notif[] = ["bot", "🤖", $count["bot"], "заявок в Telegram-боте"];
+                if (can("directors.manage") && $count["directors"])   $notif[] = ["directors", "🏫", $count["directors"], "школ ждут одобрения"];
+                if ($my_unpaid_fines)                                 $notif[] = ["fines", "💸", count($my_unpaid_fines), "неоплаченных штрафов"];
+                $notif_total = array_sum(array_column($notif, 2));
+                ?>
+                <details class="tb-notif">
+                    <summary class="tb-btn" title="Уведомления">🔔<?php if ($notif_total): ?><span class="tb-dot"><?=$notif_total > 99 ? "99+" : $notif_total?></span><?php endif; ?></summary>
+                    <div class="tb-pop">
+                        <div class="tb-pop-head">Уведомления</div>
+                        <?php if (!$notif): ?><div class="tb-pop-empty">✨ Всё разобрано — новых дел нет</div><?php endif; ?>
+                        <?php foreach ($notif as [$nk, $ni, $nc, $nl]): ?>
+                            <a class="tb-pop-item" href="?tab=<?=$nk?>"><span class="ico"><?=$ni?></span><span><b><?=$nc?></b> <?=$nl?></span><span class="go">→</span></a>
+                        <?php endforeach; ?>
+                    </div>
+                </details>
                 <span class="hide-sm"><?=rt_role_badge($role, $my_direction, $user)?></span>
             </div>
         </header>
@@ -2200,9 +2478,10 @@ window.addEventListener('DOMContentLoaded', function() {
         $edit_project = null;
         if (isset($_GET['edit_id'])) { foreach ($projects_data as $p) { if ((string)$p['id'] === (string)$_GET['edit_id']) { $edit_project = $p; break; } } }
         ?>
+        <div class="split">
         <?php if ($edit_project): ?>
-            <h3 style="color: #e67e22;">Редактировать проект: <?= htmlspecialchars($edit_project['title']) ?></h3>
-            <form action="?tab=projects" method="POST" enctype="multipart/form-data" class="card" style="max-width: 600px; margin-bottom:40px; border-color: #e67e22;">
+            <form action="?tab=projects" method="POST" enctype="multipart/form-data" class="card sticky-card" style="margin-top:0; border-color: #e67e22;">
+                <h3 style="color:#ffb46b;">✏️ <?= htmlspecialchars($edit_project['title']) ?></h3>
                 <input type="hidden" name="action" value="edit_project">
                 <input type="hidden" name="id" value="<?= $edit_project['id'] ?>">
                 <label>Название проекта</label>
@@ -2236,8 +2515,8 @@ window.addEventListener('DOMContentLoaded', function() {
                 </div>
             </form>
         <?php else: ?>
-            <h3>Добавить новый проект</h3>
-            <form action="?tab=projects" method="POST" enctype="multipart/form-data" class="card" style="max-width: 600px; margin-bottom:40px;">
+            <form action="?tab=projects" method="POST" enctype="multipart/form-data" class="card sticky-card" style="margin-top:0;">
+                <h3>➕ Новый проект</h3>
                 <input type="hidden" name="action" value="add_project">
                 <label>Название проекта</label>
                 <input type="text" name="title" required placeholder="Введите название проекта">
@@ -2260,30 +2539,39 @@ window.addEventListener('DOMContentLoaded', function() {
                     <label id="file_label" style="display:block; margin-top:10px; color:#ff7777;">Выберите файл</label>
                     <input type="file" name="file" id="file_input">
                 </div>
-                <button class="btn ok" type="submit" style="margin-top:15px; padding:10px 20px;">Опубликовать проект</button>
+                <button class="btn primary" type="submit" style="margin-top:15px; width:100%;">🚀 Опубликовать проект</button>
             </form>
         <?php endif; ?>
-
-        <h3>Управление загрузками</h3>
+            <div>
+        <div class="section-title">Проекты на сайте <span class="chip"><?=count($projects_data)?></span></div>
         <?php if (empty($projects_data)): ?>
-            <p style="color:#666;">Список пуст.</p>
+            <div class="empty">Проектов пока нет — добавьте первый слева.</div>
         <?php else: ?>
-            <?php foreach (array_reverse($projects_data, true) as $key => $p): ?>
-                <div class="card" style="<?= !empty($p['hidden']) ? 'opacity:0.4; border-color:#444;' : '' ?>">
-                    <div style="float: right; display: flex; gap: 5px;">
-                        <a href="?tab=projects&edit_id=<?=$p['id']?>" class="btn blue">Редактировать</a>
-                        <form action="?tab=projects" method="POST" style="display:inline;"><input type="hidden" name="action" value="toggle_project"><input type="hidden" name="id" value="<?=$p['id']?>"><button class="btn gray" type="submit"><?= !empty($p['hidden']) ? 'Показать' : 'Скрыть' ?></button></form>
-                        <form action="?tab=projects" method="POST" style="display:inline;" onsubmit="return confirm('Удалить проект и все его файлы безвозвратно?');"><input type="hidden" name="action" value="del_project"><input type="hidden" name="id" value="<?=$p['id']?>"><button class="btn no" type="submit">Удалить</button></form>
+            <div class="proj-grid">
+            <?php
+            $ptypes = ["link" => ["🔗", "Ссылка"], "site" => ["🌐", "Сайт из ZIP"], "zip_view" => ["🗜️", "ZIP-архив"], "file" => ["📦", "Файл / программа"]];
+            foreach (array_reverse($projects_data, true) as $key => $p): $pt = $ptypes[$p['type']] ?? $ptypes["file"]; ?>
+                <div class="proj-card<?= !empty($p['hidden']) ? ' is-hidden' : '' ?>">
+                    <div class="proj-head">
+                        <?php if(!empty($p['icon']) && file_exists($p['icon'])): ?><img class="proj-icon" src="<?=htmlspecialchars($p['icon'])?>" alt=""><?php else: ?><div class="proj-icon"><?=$pt[0]?></div><?php endif; ?>
+                        <div style="min-width:0;">
+                            <div class="proj-title"><?=htmlspecialchars($p['title'])?></div>
+                            <div class="row" style="gap:6px; margin-top:4px;"><span class="chip"><?=$pt[0]?> <?=$pt[1]?></span><?php if (!empty($p['hidden'])): ?><span class="badge badge-viewed" style="margin:0;">скрыт</span><?php else: ?><span class="badge badge-acc" style="margin:0;">на сайте</span><?php endif; ?></div>
+                        </div>
                     </div>
-                    <div style="display:flex; gap:12px; align-items:center;">
-                        <?php if(!empty($p['icon']) && file_exists($p['icon'])): ?><img src="<?=$p['icon']?>" style="width:44px; height:44px; object-fit:cover; border-radius:8px; border:1px solid #2a0000;"><?php endif; ?>
-                        <h3 style="margin:0; font-size:18px;"><?=htmlspecialchars($p['title'])?></h3>
+                    <p class="proj-desc"><?=nl2br(htmlspecialchars($p['description']))?></p>
+                    <code class="proj-path" title="<?=htmlspecialchars($p['path'])?>"><?=htmlspecialchars($p['path'])?></code>
+                    <div class="proj-actions">
+                        <a href="?tab=projects&edit_id=<?=urlencode($p['id'])?>" class="btn sm blue">✏️ Изменить</a>
+                        <form action="?tab=projects" method="POST"><input type="hidden" name="action" value="toggle_project"><input type="hidden" name="id" value="<?=htmlspecialchars($p['id'])?>"><button class="btn sm gray" type="submit"><?= !empty($p['hidden']) ? '👁 Показать' : '🙈 Скрыть' ?></button></form>
+                        <form action="?tab=projects" method="POST" onsubmit="return confirm('Удалить проект и все его файлы безвозвратно?');"><input type="hidden" name="action" value="del_project"><input type="hidden" name="id" value="<?=htmlspecialchars($p['id'])?>"><button class="btn sm ghost danger" type="submit">🗑</button></form>
                     </div>
-                    <p style="color:#ccc; font-size:14px; margin:10px 0; max-width:70%;"><?=nl2br(htmlspecialchars($p['description']))?></p>
-                    <div class="meta">Тип: <b><?php if($p['type']==='link') echo 'Ссылка (Перейти)'; elseif($p['type']==='site') echo 'Распакованный сайт (Открыть)'; elseif($p['type']==='zip_view') echo 'ZIP-архив (Просмотр содержимого)'; else echo 'Файл / Программа'; ?></b> | Путь: <code style="color:#ff7777; word-break: break-all;"><?=htmlspecialchars($p['path'])?></code></div>
                 </div>
             <?php endforeach; ?>
+            </div>
         <?php endif; ?>
+            </div>
+        </div>
 
     <!-- === ФАЙЛЫ === -->
     <?php elseif ($tab === "files"): ?>
@@ -2393,8 +2681,9 @@ window.addEventListener('DOMContentLoaded', function() {
                 </form>
             </div>
         <?php endif; ?>
-        <h3 style="margin-top: 20px;">Текущие цели команды</h3>
+        <div class="section-title">Цели команды <span class="chip"><?=count($goals)?></span></div>
         <?php if (!$goals): ?><div class="empty">Активных целей пока нет.</div><?php else: ?>
+            <div class="goal-grid">
             <?php foreach (array_reverse($goals) as $g): ?>
                 <?php
                 $now = new DateTime(); $target = new DateTime($g["deadline"]); $is_expired = $now > $target;
@@ -2403,15 +2692,30 @@ window.addEventListener('DOMContentLoaded', function() {
                 $assigned = $g["assigned_to"] ?? "all"; $assigned_text = "Всей команде";
                 if ($assigned === "class:admin") $assigned_text = "Отделу Администрации"; elseif ($assigned === "class:coder") $assigned_text = "Разработчикам и Кодерам"; elseif ($assigned === "class:tester") $assigned_text = "Отделу Тестирования"; elseif (strpos($assigned, "user:") === 0) $assigned_text = "Сотруднику: " . htmlspecialchars(substr($assigned, 5));
                 ?>
-                <?php $is_mine = in_array($g, $my_goals, true); ?>
-                <div class="card"<?=$is_mine ? ' style="border-color: color-mix(in srgb, var(--accent) 35%, transparent);"' : ''?>>
-                    <h3><?=htmlspecialchars($g["title"])?> <span class="badge <?=$badge_class?>"><?=$time_left_str?></span><?php if ($is_mine): ?><span class="badge badge-acc">для вас</span><?php endif; ?></h3>
-                    <div class="meta" style="border-left: 2px solid var(--accent); padding-left: 8px; margin-bottom: 8px;">Назначено: <b style="color:#fff;"><?=$assigned_text?></b></div>
-                    <div class="meta">Поставил: <?=htmlspecialchars($g["created_by"])?> | Точный дедлайн: <?=htmlspecialchars($g["deadline"])?></div>
-                    <?php if (!empty($g["description"])): ?><div style="margin-top: 8px; font-size: 14px; background: #050509; padding: 10px; border-radius: 6px; border: 1px solid #333;"><?=nl2br(htmlspecialchars($g["description"]))?></div><?php endif; ?>
-                    <?php if (can("goals.manage")): ?><form method="POST" style="margin-top:10px;" onsubmit="return confirm('Удалить цель?');"><input type="hidden" name="action" value="del_goal"><input type="hidden" name="id" value="<?=htmlspecialchars($g["id"])?>"><button class="btn no" type="submit">Удалить цель</button></form><?php endif; ?>
+                <?php
+                $is_mine = in_array($g, $my_goals, true);
+                // Полоса: сколько времени прошло от постановки цели до дедлайна
+                $g_start = strtotime($g["created_at"] ?? "") ?: (int)($g["id"] ?? time());
+                $g_end = strtotime($g["deadline"]);
+                $g_pct = $g_end > $g_start ? max(0, min(100, round((time() - $g_start) / ($g_end - $g_start) * 100))) : 100;
+                $g_tone = $is_expired ? "var(--danger)" : ($g_pct > 75 ? "var(--warn)" : "var(--ok)");
+                ?>
+                <div class="goal-card<?=$is_mine ? ' mine' : ''?><?=$is_expired ? ' expired' : ''?>">
+                    <div class="row" style="justify-content:space-between; align-items:flex-start; gap:8px;">
+                        <div class="goal-title"><?=htmlspecialchars($g["title"])?></div>
+                        <?php if ($is_mine): ?><span class="badge badge-acc" style="margin:0;">для вас</span><?php endif; ?>
+                    </div>
+                    <div class="chips" style="margin-top:8px;"><span class="chip">🎯 <?=$assigned_text?></span><span class="chip">👤 <?=htmlspecialchars($g["created_by"])?></span></div>
+                    <?php if (!empty($g["description"])): ?><div class="goal-desc"><?=nl2br(htmlspecialchars($g["description"]))?></div><?php endif; ?>
+                    <div class="goal-bar"><span style="width:<?=$g_pct?>%; background:<?=$g_tone?>;"></span></div>
+                    <div class="row" style="justify-content:space-between; margin-top:6px;">
+                        <span class="meta" style="margin:0; color:<?=$is_expired ? '#ff9b9b' : 'var(--soft)'?>;"><?=$is_expired ? "⏰ Время вышло" : "⏳ " . $diff->format('%a д %h ч %i мин')?></span>
+                        <span class="meta" style="margin:0;">до <?=htmlspecialchars(date("d.m.Y H:i", $g_end))?></span>
+                    </div>
+                    <?php if (can("goals.manage")): ?><form method="POST" style="margin-top:10px;" onsubmit="return confirm('Удалить цель?');"><input type="hidden" name="action" value="del_goal"><input type="hidden" name="id" value="<?=htmlspecialchars($g["id"])?>"><button class="btn sm ghost danger" type="submit">🗑 Удалить</button></form><?php endif; ?>
                 </div>
             <?php endforeach; ?>
+            </div>
         <?php endif; ?>
 
     <!-- === ШТРАФЫ === -->
@@ -2433,7 +2737,7 @@ window.addEventListener('DOMContentLoaded', function() {
             </div>
         <?php endif; ?>
         <?php $shown_fines = can("fines.view_all") ? $fines : array_values(array_filter($fines, fn($f) => ($f["user"] ?? "") === $user)); ?>
-        <h3 style="margin-top: 20px;"><?=can("fines.view_all") ? "Штрафы команды" : "Мои штрафы"?></h3>
+        <div class="section-title"><?=can("fines.view_all") ? "Штрафы команды" : "Мои штрафы"?> <span class="chip"><?=count($shown_fines)?></span></div>
         <?php if (!$shown_fines): ?><div class="empty"><?=can("fines.view_all") ? "Штрафов пока нет." : "У вас нет штрафов 👍"?></div><?php else: ?>
             <?php foreach (array_reverse($shown_fines) as $f): ?>
                 <?php
@@ -2441,9 +2745,11 @@ window.addEventListener('DOMContentLoaded', function() {
                 if ($is_paid) { $status_text = "Оплачен (" . htmlspecialchars($f["paid_date"]) . ")"; $badge = "badge-acc"; } 
                 else { $days_left = 30 - floor((time() - strtotime($f["issue_date"])) / 86400); if ($days_left <= 0) { $status_text = "Просрочен! Права забраны."; $badge = "badge-dec"; } else { $status_text = "Ожидает оплаты (осталось $days_left дн.)"; $badge = "badge-warn"; } }
                 ?>
-                <div class="card">
-                    <h3>Сотрудник: <?=htmlspecialchars($f["user"])?> — <?=htmlspecialchars($f["amount"])?> ₽ <span class="badge <?=$badge?>"><?=$status_text?></span></h3>
-                    <div class="meta">Выписан: <?=htmlspecialchars($f["issue_date"])?> | Выписал: <?=htmlspecialchars($f["issued_by"])?></div>
+                <div class="card fine-card">
+                    <div class="row" style="justify-content:space-between; align-items:flex-start;">
+                        <div><div class="fine-who">👤 <?=htmlspecialchars($f["user"])?></div><div class="meta" style="margin:2px 0 0;">Выписан <?=htmlspecialchars($f["issue_date"])?> · <?=htmlspecialchars($f["issued_by"])?></div></div>
+                        <div style="text-align:right;"><div class="fine-amount"><?=htmlspecialchars($f["amount"])?> ₽</div><span class="badge <?=$badge?>" style="margin:0;"><?=$status_text?></span></div>
+                    </div>
                     <div style="margin-top: 8px; font-size: 14px; border-left: 2px solid var(--danger); padding-left: 10px;"><b>Причина:</b> <?=nl2br(htmlspecialchars($f["reason"]))?></div>
                     <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
                         <?php if (!$is_paid): ?>
@@ -2741,58 +3047,97 @@ window.addEventListener('DOMContentLoaded', function() {
         }
         </script>
 
-        <div class="card" id="geoBlockCard">
-            <h3>🌍 Гео-блокировка по странам</h3>
-            <p class="meta" style="margin-bottom:10px;">Пользователи из указанных стран не смогут открыть сайт (index.php). Коды стран — по стандарту ISO 3166-1 alpha-2, через запятую или пробел.</p>
-            <form method="POST">
-                <input type="hidden" name="action" value="save_geoblock">
-                <label style="display:flex; align-items:center; gap:8px; margin-bottom:10px; font-size:14px;">
-                    <input type="checkbox" name="enabled" <?= !empty($geoblock_settings["enabled"]) ? "checked" : "" ?> style="width:auto;">
-                    Гео-блокировка включена
-                </label>
-                <textarea name="countries" rows="2" placeholder="UA, PL, LT, LV, EE" style="width:100%; resize:vertical;"><?=htmlspecialchars(implode(", ", $geoblock_settings["countries"] ?? []))?></textarea>
-                <div class="meta" style="margin:6px 0 10px;">По умолчанию: UA — Украина, PL — Польша, LT — Литва, LV — Латвия, EE — Эстония.</div>
-                <button class="btn no" type="submit">Сохранить</button>
-            </form>
+        <?php
+        $bans_active = array_values(array_filter($bans, fn($b) => (int)($b["expires"] ?? 0) === 0 || (int)$b["expires"] > time()));
+        $bans_forever = count(array_filter($bans_active, fn($b) => (int)($b["expires"] ?? 0) === 0));
+        ?>
+        <div class="kpi-grid" style="margin-top:0;">
+            <div class="kpi hot"><div class="k-ico">⛔</div><div class="k-num"><?=count($bans_active)?></div><div class="k-lbl">активных банов</div></div>
+            <div class="kpi"><div class="k-ico">♾️</div><div class="k-num"><?=$bans_forever?></div><div class="k-lbl">навсегда</div></div>
+            <div class="kpi"><div class="k-ico">🌍</div><div class="k-num"><?=!empty($geoblock_settings["enabled"]) ? count($geoblock_settings["countries"] ?? []) : "выкл"?></div><div class="k-lbl">стран под гео-блоком</div></div>
+            <div class="kpi"><div class="k-ico">🚧</div><div class="k-num"><?=count($blocked_attempts)?></div><div class="k-lbl">отбитых попыток входа</div></div>
         </div>
 
-        <?php if (!empty($blocked_attempts)): ?>
-        <div class="card" style="margin-top:15px;">
-            <h3>🌍 Последние заблокированные попытки входа (<?=count($blocked_attempts)?>)</h3>
-            <div style="max-height: 320px; overflow-y: auto; padding-right: 10px; margin-top:10px;">
-                <?php foreach (array_reverse(array_slice($blocked_attempts, -50)) as $ba): ?>
-                    <div class="card" style="border-color:#333; margin-top:5px;">
-                        <div class="meta">Страна: <b style="color:#ff7777;"><?=htmlspecialchars($ba["country"] ?? "?")?></b> | IP: <b><?=htmlspecialchars($ba["ip"] ?? "?")?></b> | <?=htmlspecialchars($ba["time"] ?? "")?></div>
-                        <?php $safe_ip2 = htmlspecialchars($ba["ip"] ?? ""); ?>
-                        <button class="btn gray" style="margin-top:6px; font-size:11px; padding:4px 8px;" onclick="quickBanSetup('<?=$safe_ip2?>', 'Гео-блокировка: <?=htmlspecialchars($ba["country"] ?? "")?>')">🎯 Забанить этот IP</button>
+        <div class="grid-2" style="margin-top:14px; align-items:start;">
+            <div class="card" id="banFormCard" style="margin-top:0;">
+                <h3>⛔ Забанить IP</h3>
+                <form method="POST" action="?tab=bans">
+                    <input type="hidden" name="action" value="add_ban">
+                    <label>IP-адрес</label>
+                    <input type="text" name="ip" placeholder="Например: 192.168.1.1" required>
+                    <label style="display:block; margin-top:10px;">Причина</label>
+                    <input type="text" name="reason" placeholder="Например: спам сообщениями" required>
+                    <label style="display:block; margin-top:10px;">Срок</label>
+                    <div class="seg">
+                        <?php foreach (["1" => "1 час", "24" => "1 день", "168" => "7 дней", "720" => "30 дней", "0" => "Навсегда"] as $dv => $dl): ?>
+                            <label><input type="radio" name="duration" value="<?=$dv?>" <?=(string)$dv === "0" ? "checked" : ""?>><span><?=$dl?></span></label>
+                        <?php endforeach; ?>
                     </div>
-                <?php endforeach; ?>
+                    <button class="btn no" type="submit" style="width:100%; margin-top:14px;">Заблокировать</button>
+                    <div class="meta" style="margin-top:8px;">Подсказка: IP можно подставить кнопкой «🎯 Забанить» из любого сообщения или таблицы ниже.</div>
+                </form>
             </div>
-            <form method="POST" style="margin-top:10px;" onsubmit="return confirm('Очистить журнал заблокированных попыток?');">
-                <input type="hidden" name="action" value="clear_blocked_attempts">
-                <button class="btn gray" type="submit">Очистить журнал</button>
-            </form>
+            <div class="card" id="geoBlockCard" style="margin-top:0;">
+                <h3>🌍 Гео-блокировка</h3>
+                <form method="POST" action="?tab=bans">
+                    <input type="hidden" name="action" value="save_geoblock">
+                    <label class="switch-row"><input type="checkbox" name="enabled" <?= !empty($geoblock_settings["enabled"]) ? "checked" : "" ?>> Не пускать на сайт из этих стран</label>
+                    <label style="display:block; margin-top:12px;">Коды стран (ISO, через запятую)</label>
+                    <input type="text" name="countries" value="<?=htmlspecialchars(implode(", ", $geoblock_settings["countries"] ?? []))?>" placeholder="UA, PL, LT, LV, EE">
+                    <div class="chips" style="margin-top:10px;"><?php foreach (($geoblock_settings["countries"] ?? []) as $cc): ?><span class="chip"><?=htmlspecialchars($cc)?></span><?php endforeach; ?></div>
+                    <div class="meta" style="margin-top:8px;">UA — Украина, PL — Польша, LT — Литва, LV — Латвия, EE — Эстония.</div>
+                    <button class="btn gray" type="submit" style="width:100%; margin-top:10px;">Сохранить</button>
+                </form>
+            </div>
         </div>
-        <?php endif; ?>
-
-        <h3 style="margin-top:20px;">Выдать бан по IP вручную</h3>
-        <div class="card" id="banFormCard"><form method="POST"><input type="hidden" name="action" value="add_ban"><input type="text" name="ip" placeholder="IP-адрес нарушителя (например: 192.168.1.1)" required><input type="text" name="reason" placeholder="Причина (например: Спам сообщениями)" required><label style="font-size: 13px; color: #aaa; margin-top: 8px; display: block;">Срок блокировки:</label><select name="duration"><option value="0">Навсегда</option><option value="1">На 1 час</option><option value="24">На 24 часа (1 день)</option><option value="168">На 7 дней</option><option value="720">На 30 дней</option></select><button class="btn no" type="submit">Заблокировать</button></form></div>
         <?php if (!empty($_GET["quickban_ip"])): ?>
         <script>
             (function() {
-                const ipInput = document.querySelector('#banFormCard input[name="ip"]');
-                const reasonInput = document.querySelector('#banFormCard input[name="reason"]');
-                if (ipInput) ipInput.value = <?=json_encode($_GET["quickban_ip"])?>;
-                if (reasonInput) reasonInput.value = <?=json_encode($_GET["quickban_reason"] ?? "")?>;
-                document.getElementById('banFormCard')?.scrollIntoView({ behavior: 'smooth' });
+                const card = document.getElementById('banFormCard');
+                card.querySelector('input[name="ip"]').value = <?=json_encode($_GET["quickban_ip"])?>;
+                card.querySelector('input[name="reason"]').value = <?=json_encode($_GET["quickban_reason"] ?? "")?>;
+                card.classList.add('flash-ring');
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
             })();
         </script>
         <?php endif; ?>
-        <h3 style="margin-top: 20px;">Активные блокировки</h3>
-        <?php if (!$bans): ?><p>Заблокированных пользователей нет.</p><?php else: ?>
-            <?php foreach (array_reverse($bans) as $b): $is_expired = ($b["expires"] > 0 && time() > $b["expires"]); $time_text = ($b["expires"] === 0) ? "Навсегда" : "До: " . date("Y-m-d H:i:s", $b["expires"]); $badge = $is_expired ? "badge-viewed" : "badge-dec"; $status = $is_expired ? "Истек" : "Активен"; ?>
-                <div class="card" <?= $is_expired ? 'style="opacity: 0.6;"' : '' ?>><h3>IP: <?=htmlspecialchars($b["ip"])?> <span class="badge <?=$badge?>"><?=$status?></span></h3><div class="meta">Выдал: <?=htmlspecialchars($b["issued_by"] ?? "Неизвестно")?> | Дата бана: <?=htmlspecialchars($b["date"])?></div><div class="meta" style="color: #ff7777;">Срок: <?=$time_text?></div><div style="margin-top:8px; border-left: 2px solid #c53030; padding-left:10px; font-size:14px;"><b>Причина:</b> <?=htmlspecialchars($b["reason"])?></div><form method="POST" style="margin-top:10px;"><input type="hidden" name="action" value="unban"><input type="hidden" name="id" value="<?=htmlspecialchars($b["id"])?>"><button class="btn gray" type="submit">Снять бан</button></form></div>
-            <?php endforeach; ?>
+
+        <div class="section-title">Блокировки <span class="chip"><?=count($bans)?></span></div>
+        <?php if (!$bans): ?><div class="empty">Заблокированных IP нет.</div><?php else: ?>
+        <div class="tbl-wrap" style="margin-top:0;">
+            <table class="tbl">
+                <thead><tr><th>IP</th><th>Причина</th><th>Срок</th><th>Выдал</th><th style="width:1%;"></th></tr></thead>
+                <tbody>
+                <?php foreach (array_reverse($bans) as $b): $is_expired = ((int)$b["expires"] > 0 && time() > (int)$b["expires"]); ?>
+                    <tr<?= $is_expired ? ' style="opacity:.5;"' : '' ?>>
+                        <td><code><?=htmlspecialchars($b["ip"])?></code> <span class="badge <?=$is_expired ? 'badge-viewed' : 'badge-dec'?>"><?=$is_expired ? 'истёк' : 'активен'?></span></td>
+                        <td style="max-width:320px;"><?=htmlspecialchars($b["reason"] ?? "")?></td>
+                        <td style="white-space:nowrap;"><?=(int)$b["expires"] === 0 ? '♾️ навсегда' : 'до ' . date("d.m.Y H:i", (int)$b["expires"])?></td>
+                        <td class="muted" style="font-size:12px;"><b style="color:var(--text);"><?=htmlspecialchars($b["issued_by"] ?? "—")?></b><br><?=htmlspecialchars($b["date"] ?? "")?></td>
+                        <td><form method="POST" action="?tab=bans" onsubmit="return confirm('Снять бан с <?=htmlspecialchars($b["ip"])?>?');"><input type="hidden" name="action" value="unban"><input type="hidden" name="id" value="<?=htmlspecialchars($b["id"])?>"><button class="btn sm gray" type="submit">Снять</button></form></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($blocked_attempts)): ?>
+        <details class="card">
+            <summary style="cursor:pointer; font-weight:650; color:#fff;">🚧 Отбитые гео-блоком попытки входа (<?=count($blocked_attempts)?>)</summary>
+            <div class="tbl-wrap" style="max-height:320px;">
+                <table class="tbl">
+                    <thead><tr><th>Когда</th><th>Страна</th><th>IP</th><th style="width:1%;"></th></tr></thead>
+                    <tbody>
+                    <?php foreach (array_reverse(array_slice($blocked_attempts, -50)) as $ba): ?>
+                        <tr><td class="muted" style="font-size:12px;"><?=htmlspecialchars($ba["time"] ?? "")?></td><td><span class="chip"><?=htmlspecialchars($ba["country"] ?? "?")?></span></td><td><code><?=htmlspecialchars($ba["ip"] ?? "?")?></code></td>
+                        <td><button type="button" class="btn sm ghost danger" onclick="quickBanSetup(<?=htmlspecialchars(json_encode($ba["ip"] ?? ""))?>, <?=htmlspecialchars(json_encode("Гео-блокировка: " . ($ba["country"] ?? ""), JSON_UNESCAPED_UNICODE))?>)">🎯 Забанить</button></td></tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <form method="POST" action="?tab=bans" style="margin-top:10px;" onsubmit="return confirm('Очистить журнал заблокированных попыток?');"><input type="hidden" name="action" value="clear_blocked_attempts"><button class="btn sm gray" type="submit">Очистить журнал</button></form>
+        </details>
         <?php endif; ?>
         <?php
         /* КТО И ОТКУДА ПИСАЛ: почта, заявки, тикеты и чат в одной ленте с IP */
@@ -2815,7 +3160,7 @@ window.addEventListener('DOMContentLoaded', function() {
         $ip_counts = [];
         foreach ($feed as $f) if ($f["ip"]) $ip_counts[$f["ip"]["ip"]] = ($ip_counts[$f["ip"]["ip"]] ?? 0) + 1;
         ?>
-        <h3 style="margin-top: 24px;">🕵️ Кто и откуда писал</h3>
+        <div class="section-title">🕵️ Кто и откуда писал</div>
         <div class="meta">Почта, заявки, тикеты и чат команды — последние 100 записей. IP берётся из сообщения, а если его там нет — последний IP аккаунта автора. Число рядом с IP — сколько записей с этого адреса (так видно спамеров).</div>
         <?php if (!$feed): ?><div class="empty">Сообщений пока нет.</div><?php else: ?>
         <div class="search-bar" style="margin-top:10px;">
@@ -3031,39 +3376,55 @@ window.addEventListener('DOMContentLoaded', function() {
         <?php endif; ?>
 
     <!-- === ПРОЧИЕ ВКЛАДКИ === -->
-    <?php elseif ($tab === "leaks"): ?>
-        <div class="card">
-            <h3>Добавить слив</h3>
-            <form method="POST"><input type="hidden" name="action" value="add_leak"><input type="text" name="title" placeholder="Заголовок" required><textarea name="content" placeholder="Текст / описание" required></textarea><button class="btn gray" type="submit">Сохранить</button></form>
+    <?php elseif ($tab === "leaks" || $tab === "blog"): ?>
+        <?php
+        // Блог и сливы устроены одинаково: форма слева, записи справа, правка раскрывается по кнопке
+        $pc = $tab === "blog"
+            ? ["items" => $blog, "add" => "add_post", "edit" => "edit_post", "toggle" => "toggle_post", "del" => "del_post", "date" => "date", "new" => "📝 Новый пост", "ph" => "Текст поста", "empty" => "Постов пока нет — напишите первый.", "list" => "Посты блога"]
+            : ["items" => $leaks, "add" => "add_leak", "edit" => "edit_leak", "toggle" => "toggle_leak", "del" => "del_leak", "date" => "time", "new" => "💧 Новый слив", "ph" => "Текст / описание", "empty" => "Сливов пока нет.", "list" => "Сливы"];
+        $pc_shown = count(array_filter($pc["items"], fn($x) => empty($x["hidden"])));
+        ?>
+        <div class="split">
+            <div class="card sticky-card" style="margin-top:0;">
+                <h3><?=$pc["new"]?></h3>
+                <form method="POST" action="?tab=<?=$tab?>">
+                    <input type="hidden" name="action" value="<?=$pc["add"]?>">
+                    <label>Заголовок</label>
+                    <input type="text" name="title" placeholder="Заголовок" required>
+                    <label style="display:block; margin-top:10px;">Текст</label>
+                    <textarea name="content" placeholder="<?=$pc["ph"]?>" required style="height:160px;"></textarea>
+                    <button class="btn primary" type="submit" style="width:100%; margin-top:12px;">Опубликовать</button>
+                </form>
+            </div>
+            <div>
+                <div class="section-title" style="margin-top:0;"><?=$pc["list"]?> <span class="chip"><?=$pc_shown?> на сайте · <?=count($pc["items"]) - $pc_shown?> скрыто</span></div>
+                <?php if (!$pc["items"]): ?><div class="empty"><?=$pc["empty"]?></div><?php else: ?>
+                    <?php foreach (array_reverse($pc["items"]) as $it): $hid = !empty($it["hidden"]); ?>
+                        <article class="post-card<?=$hid ? ' is-hidden' : ''?>">
+                            <div class="post-head">
+                                <div style="min-width:0;">
+                                    <div class="post-title"><?=htmlspecialchars($it["title"])?></div>
+                                    <div class="meta" style="margin:2px 0 0;"><?=htmlspecialchars($it[$pc["date"]] ?? "")?> · #<?=htmlspecialchars($it["id"])?></div>
+                                </div>
+                                <span class="badge <?=$hid ? 'badge-viewed' : 'badge-acc'?>" style="margin:0;"><?=$hid ? 'скрыт' : 'на сайте'?></span>
+                            </div>
+                            <div class="post-body"><?=nl2br(htmlspecialchars(mb_strimwidth($it["content"] ?? "", 0, 420, "…")))?></div>
+                            <div class="row" style="margin-top:12px; gap:6px;">
+                                <button type="button" class="btn sm blue" onclick="this.closest('.post-card').classList.toggle('editing')">✏️ Изменить</button>
+                                <form method="POST" action="?tab=<?=$tab?>"><input type="hidden" name="action" value="<?=$pc["toggle"]?>"><input type="hidden" name="id" value="<?=htmlspecialchars($it["id"])?>"><button class="btn sm gray" type="submit"><?=$hid ? "👁 Показать" : "🙈 Скрыть"?></button></form>
+                                <form method="POST" action="?tab=<?=$tab?>" onsubmit="return confirm('Удалить «<?=htmlspecialchars(addslashes($it["title"]))?>»?');"><input type="hidden" name="action" value="<?=$pc["del"]?>"><input type="hidden" name="id" value="<?=htmlspecialchars($it["id"])?>"><button class="btn sm ghost danger" type="submit">🗑 Удалить</button></form>
+                            </div>
+                            <form method="POST" action="?tab=<?=$tab?>" class="post-edit">
+                                <input type="hidden" name="action" value="<?=$pc["edit"]?>"><input type="hidden" name="id" value="<?=htmlspecialchars($it["id"])?>">
+                                <input type="text" name="title" value="<?=htmlspecialchars($it["title"])?>">
+                                <textarea name="content" style="height:160px;"><?=htmlspecialchars($it["content"] ?? "")?></textarea>
+                                <div class="row" style="margin-top:8px;"><button class="btn sm primary" type="submit">💾 Сохранить</button><button type="button" class="btn sm ghost" onclick="this.closest('.post-card').classList.remove('editing')">Отмена</button></div>
+                            </form>
+                        </article>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
         </div>
-        <?php if ($leaks): ?>
-            <?php foreach (array_reverse($leaks) as $l): ?>
-                <div class="card">
-                    <h3><?=htmlspecialchars($l["title"])?></h3>
-                    <div class="meta">ID: <?=htmlspecialchars($l["id"])?> | <?=htmlspecialchars($l["time"] ?? "")?> | <?=!empty($l["hidden"]) ? "Скрыт" : "Показан"?></div>
-                    <form method="POST" style="margin-top:6px;"><input type="hidden" name="action" value="edit_leak"><input type="hidden" name="id" value="<?=htmlspecialchars($l["id"])?>"><input type="text" name="title" value="<?=htmlspecialchars($l["title"])?>"><textarea name="content"><?=htmlspecialchars($l["content"])?></textarea><button class="btn gray" type="submit">Сохранить изменения</button></form>
-                    <form method="POST" style="margin-top:6px;display:inline-block;"><input type="hidden" name="action" value="toggle_leak"><input type="hidden" name="id" value="<?=htmlspecialchars($l["id"])?>"><button class="btn ok" type="submit"><?=!empty($l["hidden"]) ? "Показать" : "Скрыть"?></button></form>
-                    <form method="POST" style="margin-top:6px;display:inline-block;"><input type="hidden" name="action" value="del_leak"><input type="hidden" name="id" value="<?=htmlspecialchars($l["id"])?>"><button class="btn no" type="submit">Удалить</button></form>
-                </div>
-            <?php endforeach; ?>
-        <?php else: ?><p>Сливов пока нет.</p><?php endif; ?>
-
-    <?php elseif ($tab === "blog"): ?>
-        <div class="card">
-            <h3>Добавить пост</h3>
-            <form method="POST"><input type="hidden" name="action" value="add_post"><input type="text" name="title" placeholder="Заголовок" required><textarea name="content" placeholder="Текст поста" required></textarea><button class="btn gray" type="submit">Сохранить</button></form>
-        </div>
-        <?php if ($blog): ?>
-            <?php foreach (array_reverse($blog) as $p): ?>
-                <div class="card">
-                    <h3><?=htmlspecialchars($p["title"])?></h3>
-                    <div class="meta">ID: <?=htmlspecialchars($p["id"])?> | <?=htmlspecialchars($p["date"] ?? "")?> | <?=!empty($p["hidden"]) ? "Скрыт" : "Показан"?></div>
-                    <form method="POST" style="margin-top:6px;"><input type="hidden" name="action" value="edit_post"><input type="hidden" name="id" value="<?=htmlspecialchars($p["id"])?>"><input type="text" name="title" value="<?=htmlspecialchars($p["title"])?>"><textarea name="content"><?=htmlspecialchars($p["content"])?></textarea><button class="btn gray" type="submit">Сохранить изменения</button></form>
-                    <form method="POST" style="margin-top:6px;display:inline-block;"><input type="hidden" name="action" value="toggle_post"><input type="hidden" name="id" value="<?=htmlspecialchars($p["id"])?>"><button class="btn ok" type="submit"><?=!empty($p["hidden"]) ? "Показать" : "Скрыть"?></button></form>
-                    <form method="POST" style="margin-top:6px;display:inline-block;"><input type="hidden" name="action" value="del_post"><input type="hidden" name="id" value="<?=htmlspecialchars($p["id"])?>"><button class="btn no" type="submit">Удалить</button></form>
-                </div>
-            <?php endforeach; ?>
-        <?php else: ?><p>Постов пока нет.</p><?php endif; ?>
 
     <?php elseif ($tab === "users"): ?>
         <?php
@@ -3455,57 +3816,62 @@ window.addEventListener('DOMContentLoaded', function() {
         <?php endif; ?>
 
     <?php elseif ($tab === "recruit"): ?>
-        <div class="card">
-            <h3>Набор</h3>
-            <form method="POST">
-                <input type="hidden" name="action" value="save_recruit">
-                <label><input type="checkbox" name="recruit_open" <?=!empty($settings["recruit_open"])?"checked":""?>> Набор открыт</label>
-                <h4 style="margin-top:12px;">Вопросы для заявки «Команда» (по одному на строку)</h4>
-                <div class="meta">Вопрос со словом <b>«Направление»</b> на сайте показывается списком (Кодер / Разработчик / Тестер). При одобрении заявки это направление само записывается стажёру. Заявка «Администратор» всегда даёт направление «Администратор».</div>
-                <textarea name="team_questions" style="height:170px;"><?=htmlspecialchars(implode("\n", $questions["team"] ?? []))?></textarea>
-                <h4 style="margin-top:12px;">Вопросы для заявки «Администратор» (по одному на строку)</h4><textarea name="admin_questions" style="height:170px;"><?=htmlspecialchars(implode("\n", $questions["admin"] ?? []))?></textarea>
-                <button class="btn gray" type="submit" style="margin-top:10px;">Сохранить</button>
-            </form>
-        </div>
+        <form method="POST" action="?tab=recruit">
+            <input type="hidden" name="action" value="save_recruit">
+            <div class="card" style="margin-top:0;">
+                <div class="row" style="justify-content:space-between;">
+                    <div><h3 style="margin:0;">📣 Набор в команду</h3><div class="meta" style="margin:4px 0 0;">Когда набор закрыт, на сайте вместо формы заявки — надпись «Набор временно закрыт».</div></div>
+                    <label class="switch-row" style="font-size:14px;"><input type="checkbox" name="recruit_open" <?=!empty($settings["recruit_open"])?"checked":""?>> Набор открыт</label>
+                </div>
+            </div>
+            <div class="grid-2" style="margin-top:14px;">
+                <div class="card" style="margin-top:0;">
+                    <h3>👥 Заявка «Команда»</h3>
+                    <div class="meta">По одному вопросу на строку. Вопрос со словом <b>«Направление»</b> на сайте показывается списком (Кодер / Разработчик / Тестер) — при одобрении это направление само записывается стажёру.</div>
+                    <textarea name="team_questions" style="height:220px;"><?=htmlspecialchars(implode("\n", $questions["team"] ?? []))?></textarea>
+                </div>
+                <div class="card" style="margin-top:0;">
+                    <h3>🛡️ Заявка «Администратор»</h3>
+                    <div class="meta">По одному вопросу на строку. Такая заявка при одобрении всегда даёт направление «Администратор».</div>
+                    <textarea name="admin_questions" style="height:220px;"><?=htmlspecialchars(implode("\n", $questions["admin"] ?? []))?></textarea>
+                </div>
+            </div>
+            <button class="btn primary" type="submit" style="margin-top:14px;">💾 Сохранить</button>
+        </form>
 
     <?php elseif ($tab === "themes"): ?>
-        <div class="card">
-            <h3>🎭 Темы сайта</h3>
-            <p style="color:#999; font-size:13px; margin-top:-6px;">Выберите тематику — на сайте появится баннер и плавающие иконки по выбранной теме (турнир, праздник, событие RTeam). Активна одновременно только одна тема.</p>
-            <form method="POST">
-                <input type="hidden" name="action" value="save_theme">
-                <label><input type="checkbox" name="theme_enabled" <?=!empty($theme_settings["enabled"])?"checked":""?>> Тема включена на сайте</label>
-
-                <h4 style="margin-top:14px;">Тематика</h4>
-                <select name="theme_active" id="themeSelect" onchange="rteamUpdateThemeField()">
-                    <?php
-                    $themeGroups = [];
-                    foreach ($THEME_CATALOG as $tkey => $tinfo) { $themeGroups[$tinfo["group"]][$tkey] = $tinfo; }
-                    foreach ($themeGroups as $groupName => $items):
-                    ?>
-                        <optgroup label="<?=htmlspecialchars($groupName)?>">
-                        <?php foreach ($items as $tkey => $tinfo): ?>
-                            <option value="<?=htmlspecialchars($tkey)?>" <?=($theme_settings["active"]===$tkey)?"selected":""?>><?=$tinfo["icon"]?> <?=htmlspecialchars($tinfo["name"])?></option>
-                        <?php endforeach; ?>
-                        </optgroup>
-                    <?php endforeach; ?>
-                </select>
-
-                <h4 style="margin-top:14px;" id="themeFieldLabel">Текст для баннера</h4>
-                <input type="text" name="theme_text" id="themeTextInput" value="<?=htmlspecialchars($theme_settings["text"] ?? "")?>" placeholder="">
-
-                <button class="btn gray" type="submit" style="margin-top:14px;">Сохранить</button>
-            </form>
-        </div>
-
-        <?php if (!empty($theme_settings["enabled"])): $curTheme = $THEME_CATALOG[$theme_settings["active"]]; ?>
-        <div class="card">
-            <h3>Предпросмотр баннера</h3>
-            <div style="background:#101018; border:1px solid #333; border-radius:8px; padding:14px; text-align:center; font-size:15px;">
-                <?=$curTheme["icon"]?> <b><?=htmlspecialchars($curTheme["name"])?></b><?php if (trim($theme_settings["text"] ?? "") !== ""): ?> — <?=htmlspecialchars($theme_settings["text"])?><?php endif; ?>
+        <?php $curTheme = $THEME_CATALOG[$theme_settings["active"]]; ?>
+        <form method="POST" action="?tab=themes">
+            <input type="hidden" name="action" value="save_theme">
+            <div class="card theme-preview" style="margin-top:0;">
+                <div class="row" style="justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <h3 style="margin:0;">🎭 Тема сайта</h3>
+                        <div class="meta" style="margin:4px 0 0;">На сайте появится баннер и плавающие иконки выбранной темы. Активна одна тема.</div>
+                    </div>
+                    <label class="switch-row" style="font-size:14px;"><input type="checkbox" name="theme_enabled" <?=!empty($theme_settings["enabled"])?"checked":""?>> Тема включена</label>
+                </div>
+                <div class="banner-preview" id="themeBanner"><span id="tpIcon"><?=$curTheme["icon"]?></span> <b id="tpName"><?=htmlspecialchars($curTheme["name"])?></b><span id="tpText"><?= trim($theme_settings["text"] ?? "") !== "" ? " — " . htmlspecialchars($theme_settings["text"]) : "" ?></span></div>
+                <label style="display:block; margin-top:12px;" id="themeFieldLabel">Текст для баннера</label>
+                <input type="text" name="theme_text" id="themeTextInput" value="<?=htmlspecialchars($theme_settings["text"] ?? "")?>" placeholder="" oninput="rteamThemePreview()">
             </div>
-        </div>
-        <?php endif; ?>
+            <?php
+            $themeGroups = [];
+            foreach ($THEME_CATALOG as $tkey => $tinfo) { $themeGroups[$tinfo["group"]][$tkey] = $tinfo; }
+            foreach ($themeGroups as $groupName => $items): ?>
+                <div class="section-title"><?=htmlspecialchars($groupName)?></div>
+                <div class="theme-grid">
+                    <?php foreach ($items as $tkey => $tinfo): ?>
+                        <label class="theme-tile">
+                            <input type="radio" name="theme_active" value="<?=htmlspecialchars($tkey)?>" <?=($theme_settings["active"]===$tkey)?"checked":""?> onchange="rteamUpdateThemeField()">
+                            <span class="tt-ico"><?=$tinfo["icon"]?></span>
+                            <span class="tt-name"><?=htmlspecialchars($tinfo["name"])?></span>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+            <?php endforeach; ?>
+            <button class="btn primary" type="submit" style="margin-top:16px;">💾 Сохранить тему</button>
+        </form>
 
         <div class="card">
             <h3>🦑 Игра в кальмара — управление</h3>
@@ -3569,32 +3935,78 @@ window.addEventListener('DOMContentLoaded', function() {
         <script>
         const RTEAM_THEME_META = <?=json_encode($THEME_CATALOG, JSON_UNESCAPED_UNICODE)?>;
         function rteamUpdateThemeField() {
-            const sel = document.getElementById('themeSelect');
-            const meta = RTEAM_THEME_META[sel.value];
+            const sel = document.querySelector('input[name="theme_active"]:checked');
+            const meta = sel && RTEAM_THEME_META[sel.value];
             if (meta) {
                 document.getElementById('themeFieldLabel').textContent = meta.field;
                 document.getElementById('themeTextInput').placeholder = meta.placeholder || '';
+                document.getElementById('tpIcon').textContent = meta.icon;
+                document.getElementById('tpName').textContent = meta.name;
             }
+            rteamThemePreview();
+        }
+        function rteamThemePreview() {
+            const t = document.getElementById('themeTextInput').value.trim();
+            document.getElementById('tpText').textContent = t ? ' — ' + t : '';
         }
         rteamUpdateThemeField();
         </script>
 
     <?php elseif ($tab === "settings"): ?>
-        <div class="card">
-            <h3>Настройки сайта</h3>
-            <form method="POST">
-                <input type="hidden" name="action" value="save_settings">
-                <label>Название сайта</label><input type="text" name="site_name" value="<?=htmlspecialchars($settings["site_name"])?>">
-                <label>Цвет акцента (hex)</label><input type="text" name="accent" value="<?=htmlspecialchars($settings["accent"])?>">
-                <label><input type="checkbox" name="neon" <?=!empty($settings["neon"])?"checked":""?>> Неон‑эффекты</label>
-                <label><input type="checkbox" name="animations" <?=!empty($settings["animations"])?"checked":""?>> Анимации</label>
-                <button class="btn gray" type="submit">Сохранить</button>
-            </form>
-        </div>
+        <form method="POST" action="?tab=settings" class="grid-2" style="align-items:start;">
+            <input type="hidden" name="action" value="save_settings">
+            <div class="card" style="margin-top:0;">
+                <h3>🌐 Сайт</h3>
+                <label>Название сайта</label>
+                <input type="text" name="site_name" value="<?=htmlspecialchars($settings["site_name"] ?? "")?>">
+                <label style="display:block; margin-top:14px;">Цвет акцента — им окрашены кнопки и подсветка на сайте и в этой панели</label>
+                <div class="row" style="margin-top:6px;">
+                    <input type="color" id="accentPicker" value="<?=htmlspecialchars($accent_css)?>" oninput="document.getElementById('accentText').value=this.value; document.documentElement.style.setProperty('--accent', this.value);">
+                    <input type="text" id="accentText" name="accent" value="<?=htmlspecialchars($settings["accent"] ?? "")?>" style="flex:1; margin-top:0;" oninput="if(/^#[0-9a-f]{6}$/i.test(this.value)){document.getElementById('accentPicker').value=this.value; document.documentElement.style.setProperty('--accent', this.value);}">
+                </div>
+                <div class="swatches">
+                    <?php foreach (["#ff2a2a", "#ff6a00", "#f6c445", "#22c55e", "#14b8a6", "#3b82f6", "#8b5cf6", "#ec4899"] as $sw): ?>
+                        <button type="button" class="swatch" style="--sw:<?=$sw?>" title="<?=$sw?>" onclick="const t=document.getElementById('accentText'); t.value='<?=$sw?>'; t.dispatchEvent(new Event('input'));"></button>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <div class="card" style="margin-top:0;">
+                <h3>✨ Эффекты</h3>
+                <label class="switch-row"><input type="checkbox" name="neon" <?=!empty($settings["neon"])?"checked":""?>> Неон‑эффекты на сайте</label>
+                <label class="switch-row" style="margin-top:12px;"><input type="checkbox" name="animations" <?=!empty($settings["animations"])?"checked":""?>> Анимации на сайте</label>
+                <button class="btn primary" type="submit" style="width:100%; margin-top:18px;">💾 Сохранить настройки</button>
+            </div>
+        </form>
 
     <?php elseif ($tab === "logs"): ?>
-        <?php if (!$logs): ?><p>Логов пока нет.</p><?php else: ?>
-            <?php foreach (array_reverse($logs) as $log): ?><div class="card"><div class="meta"><?=htmlspecialchars($log["time"] ?? "")?> — <?=htmlspecialchars($log["type"] ?? "")?></div><div><?=nl2br(htmlspecialchars($log["msg"] ?? ""))?></div></div><?php endforeach; ?>
+        <?php if (!$logs): ?><div class="empty">Логов пока нет.</div><?php else: ?>
+            <?php
+            $log_types = [];
+            foreach ($logs as $lg) { $lt = $lg["type"] ?? "other"; $log_types[$lt] = ($log_types[$lt] ?? 0) + 1; }
+            arsort($log_types);
+            $log_icons = ["roles" => "👥", "users" => "🗂️", "ban" => "⛔", "blacklist" => "⚫", "geoblock" => "🌍", "application" => "📝", "bot" => "🤖", "golden_ticket" => "🎫", "file_upload" => "📤", "file_del" => "🗑", "fine_ban" => "💸", "squid_game" => "🦑", "director_approve" => "🏫", "director_add" => "🏫", "login" => "🔑", "ny_giveaway" => "🎄"];
+            ?>
+            <div class="search-bar">
+                <div style="flex:2 1 240px;"><label>Поиск по логам</label><input type="search" id="logSearch" placeholder="Кто, что сделал…" oninput="filterLogs()"></div>
+                <div><label>Тип</label><select id="logType" onchange="filterLogs()"><option value="">Все (<?=count($logs)?>)</option><?php foreach ($log_types as $lt => $lc): ?><option value="<?=htmlspecialchars($lt)?>"><?=($log_icons[$lt] ?? "•") . " " . htmlspecialchars($lt)?> (<?=$lc?>)</option><?php endforeach; ?></select></div>
+            </div>
+            <div class="tbl-wrap" style="margin-top:0; max-height:72vh;">
+                <table class="tbl" id="logTable">
+                    <thead><tr><th style="width:150px;">Когда</th><th style="width:140px;">Тип</th><th>Событие</th></tr></thead>
+                    <tbody>
+                    <?php foreach (array_slice(array_reverse($logs), 0, 1000) as $log): $lt = $log["type"] ?? "other"; ?>
+                        <tr data-type="<?=htmlspecialchars($lt)?>"><td class="muted" style="font-size:12px; white-space:nowrap;"><?=htmlspecialchars($log["time"] ?? "")?></td><td><span class="chip"><?=($log_icons[$lt] ?? "•") . " " . htmlspecialchars($lt)?></span></td><td><?=nl2br(htmlspecialchars($log["msg"] ?? ""))?></td></tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php if (count($logs) > 1000): ?><div class="meta" style="margin-top:8px;">Показаны последние 1000 из <?=count($logs)?>.</div><?php endif; ?>
+            <script>
+            function filterLogs() {
+                const q = document.getElementById('logSearch').value.trim().toLowerCase(), t = document.getElementById('logType').value;
+                document.querySelectorAll('#logTable tbody tr').forEach(tr => { tr.style.display = (!t || tr.dataset.type === t) && (!q || tr.textContent.toLowerCase().includes(q)) ? '' : 'none'; });
+            }
+            </script>
         <?php endif; ?>
     <?php endif; ?>
         </div>
@@ -3620,6 +4032,48 @@ window.addEventListener('DOMContentLoaded', function() {
         const upd = () => { dir.style.display = sel.value === <?=json_encode(RT_TRAINEE_ROLE, JSON_UNESCAPED_UNICODE)?> ? '' : 'none'; };
         sel.addEventListener('change', upd); upd();
     });
+
+    // --- БЫСТРЫЙ ПЕРЕХОД (Ctrl+K или «/») ---
+    const palette = document.getElementById('palette'), palInput = document.getElementById('paletteInput');
+    let palSel = 0;
+    function palItems() { return [...document.querySelectorAll('#paletteList .palette-item')].filter(a => a.style.display !== 'none'); }
+    function palMark() { palItems().forEach((a, i) => a.classList.toggle('sel', i === palSel)); const cur = palItems()[palSel]; if (cur) cur.scrollIntoView({ block: 'nearest' }); }
+    function openPalette() { palette.classList.add('open'); palInput.value = ''; palFilter(); palInput.focus(); document.querySelectorAll('details[open].tb-notif').forEach(d => d.removeAttribute('open')); }
+    function closePalette() { palette.classList.remove('open'); }
+    function palFilter() {
+        const q = palInput.value.trim().toLowerCase();
+        document.querySelectorAll('#paletteList .palette-item').forEach(a => { a.style.display = !q || a.dataset.q.includes(q) ? '' : 'none'; });
+        palSel = 0; palMark();
+    }
+    palInput.addEventListener('input', palFilter);
+    palInput.addEventListener('keydown', e => {
+        const items = palItems();
+        if (e.key === 'ArrowDown') { e.preventDefault(); palSel = Math.min(items.length - 1, palSel + 1); palMark(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); palSel = Math.max(0, palSel - 1); palMark(); }
+        else if (e.key === 'Enter') { e.preventDefault(); if (items[palSel]) location.href = items[palSel].href; }
+    });
+    document.addEventListener('keydown', e => {
+        const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); palette.classList.contains('open') ? closePalette() : openPalette(); }
+        else if (e.key === '/' && !typing) { e.preventDefault(); openPalette(); }
+        else if (e.key === 'Escape') { closePalette(); document.querySelectorAll('details[open].tb-notif').forEach(d => d.removeAttribute('open')); }
+    });
+
+    // --- СВЁРНУТОЕ МЕНЮ (запоминается в браузере) ---
+    function toggleMiniSidebar() {
+        const on = document.documentElement.classList.toggle('sb-mini');
+        try { localStorage.setItem('rtSbMini', on ? '1' : '0'); } catch (e) {}
+    }
+
+    // --- ЧАСЫ В ВЕРХНЕЙ ПАНЕЛИ ---
+    (function clock() {
+        const el = document.getElementById('tbClock'); if (!el) return;
+        const tick = () => { el.textContent = new Date().toLocaleString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); };
+        tick(); setInterval(tick, 30000);
+    })();
+
+    // Уведомления закрываются кликом мимо
+    document.addEventListener('click', e => { document.querySelectorAll('details[open].tb-notif').forEach(d => { if (!d.contains(e.target)) d.removeAttribute('open'); }); });
 
     // Быстрый фильтр строк таблицы
     function filterRows(tableId, q) {
