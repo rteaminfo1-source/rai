@@ -45,6 +45,7 @@ if (isset($_POST["action"]) && $_POST["action"] === "verify_2fa") {
         rteam_clear_2fa();
         unset($codes[$login]);
         save_json("2fa_codes.json", $codes);
+        rt_track_login_ip($login); // IP входа — для банов в админ-панели
         rteam_log("login", "Вход (2FA Бот): $login");
         header("Location: " . rteam_post_login_redirect());
         exit;
@@ -89,6 +90,7 @@ if (isset($_POST["action"]) && $_POST["action"] === "login") {
             exit;
         } else {
             rteam_login_user($login, $role);
+            rt_track_login_ip($login); // IP входа — для банов в админ-панели
             rteam_log("login", "Вход: $login");
             header("Location: " . rteam_post_login_redirect());
             exit;

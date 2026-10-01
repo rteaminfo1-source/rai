@@ -306,6 +306,45 @@ function store_password($plain, $users) {
     return ($total > 0 && $hashed * 2 > $total) ? password_hash($plain, PASSWORD_DEFAULT) : $plain;
 }
 
+/* IP АВТОРА СООБЩЕНИЯ (для банов)
+   Берём IP, сохранённый при отправке. Если его нет — последний IP аккаунта
+   автора (сайт запоминает его при каждом заходе, см. rt_track_ip в _roles.php). */
+function author_ip($stored, $login = null, $email = null) {
+    global $users;
+    if ($stored && filter_var($stored, FILTER_VALIDATE_IP)) return ["ip" => $stored, "src" => "при отправке", "login" => $login];
+    $acc = null;
+    if ($login !== null && $login !== "" && isset($users[$login])) $acc = (string)$login;
+    elseif ($email) {
+        $e = mb_strtolower(trim($email));
+        foreach ($users as $l => $u) if (is_array($u) && $e !== "" && mb_strtolower(trim($u["email"] ?? "")) === $e) { $acc = (string)$l; break; }
+    }
+    if ($acc !== null && !empty($users[$acc]["ip"])) return ["ip" => $users[$acc]["ip"], "src" => "аккаунт " . $acc . ", последний заход", "login" => $acc];
+    return null;
+}
+function ip_is_banned($ip) {
+    global $bans;
+    foreach ((array)$bans as $b) {
+        if (($b["ip"] ?? "") === $ip && ((int)($b["expires"] ?? 0) === 0 || (int)$b["expires"] > time())) return true;
+    }
+    return false;
+}
+function ban_link($ip, $reason) {
+    return '?tab=bans&quickban_ip=' . urlencode($ip) . '&quickban_reason=' . urlencode(mb_strimwidth($reason, 0, 120, "…"));
+}
+/* IP + кнопка «Забанить». IP видят только те, кто может банить
+   ($always — показать IP и без права бана, как раньше в «Почте»). */
+function ip_tag($info, $reason, $always = false) {
+    if (!can("bans.manage") && !$always) return "";
+    if (!$info) return '<span class="muted">IP неизвестен</span>';
+    $html = '<span class="ip-tag"><code>' . htmlspecialchars($info["ip"]) . '</code> <span class="muted" style="font-size:12px;">' . htmlspecialchars($info["src"]) . '</span>';
+    if (can("bans.manage")) {
+        $html .= $info["ip"] === rt_client_ip() ? ' <span class="chip">это ваш IP</span>' : (ip_is_banned($info["ip"])
+            ? ' <span class="badge badge-dec" style="margin:0;">⛔ забанен</span>'
+            : ' <a class="btn sm ghost danger" href="' . htmlspecialchars(ban_link($info["ip"], $reason)) . '">🎯 Забанить IP</a>');
+    }
+    return $html . '</span>';
+}
+
 /* Какое право нужно для каждого действия. Действие, которого нет
    в списке, запрещено. "" — достаточно просто быть в команде. */
 $ACTION_PERMS = [
@@ -801,7 +840,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
     if ($tab === "bans") {
         if ($_POST["action"] === "add_ban") {
             $ip = trim($_POST["ip"] ?? ""); $duration = (int)($_POST["duration"] ?? 0); $reason = trim($_POST["reason"] ?? "Спам");
-            if (!empty($ip)) {
+            if ($ip === rt_client_ip()) {
+                flash("Это ваш собственный IP — бан закрыл бы сайт вам самим.", "error");
+            } elseif (!empty($ip)) {
                 $expires = ($duration === 0) ? 0 : time() + ($duration * 3600);
                 $bans[] = ["id" => time(), "ip" => $ip, "reason" => $reason, "expires" => $expires, "issued_by" => $user, "date" => date("Y-m-d H:i:s")];
                 save_json("bans.json", $bans);
@@ -1082,7 +1123,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
                 if (count($opts) > 1) { $votes = []; foreach ($opts as $o) $votes[$o] = []; $poll = ["question" => $poll_q, "votes" => $votes]; }
             }
             if ($text !== "" || $photo_path !== null || $poll !== null) {
-                $chat_data["messages"][] = ["id" => time() . rand(100, 999), "user" => $user, "role" => rt_role_label($role, $my_direction), "time" => date("Y-m-d H:i:s"), "text" => $text, "photo" => $photo_path, "poll" => $poll];
+                $chat_data["messages"][] = ["id" => time() . rand(100, 999), "user" => $user, "role" => rt_role_label($role, $my_direction), "time" => date("Y-m-d H:i:s"), "text" => $text, "photo" => $photo_path, "poll" => $poll, "ip" => rt_client_ip()];
                 save_json("chat.json", $chat_data);
             }
             header("Location: admin.php?tab=chat"); exit;
@@ -1566,6 +1607,7 @@ function render_chat_message($m, $is_pinned, $user) {
     $html = '<div id="msg-' . $mid . '" class="chat-msg' . ($m["user"] === $user ? ' mine' : '') . ($is_pinned ? ' highlight-pinned' : '') . '">';
     $html .= '<div class="chat-header"><div><span class="chat-avatar">' . htmlspecialchars(mb_strtoupper(mb_substr($m["user"], 0, 1))) . '</span><span class="chat-author">' . htmlspecialchars($m["user"]) . '</span> <span class="chat-role">' . htmlspecialchars($m["role"]) . '</span></div><span class="chat-time">' . htmlspecialchars($m["time"]) . '</span></div>';
     if (!empty($m["text"])) $html .= '<div class="chat-text">' . nl2br(htmlspecialchars($m["text"])) . '</div>';
+    if (can("bans.manage") && $m["user"] !== $user) $html .= '<div class="meta" style="margin-top:6px;">IP: ' . ip_tag(author_ip($m["ip"] ?? null, $m["user"]), "Чат команды: " . $m["user"]) . '</div>';
     if (!empty($m["photo"])) $html .= '<div class="chat-photo"><img src="' . htmlspecialchars($m["photo"]) . '" alt="photo"></div>';
     if (!empty($m["poll"])) {
         $html .= '<div class="chat-poll"><h4>📊 ' . htmlspecialchars($m["poll"]["question"]) . '</h4>';
@@ -1717,6 +1759,8 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 .search-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin: 4px 0 16px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 .search-bar > div { flex: 1 1 180px; }
 .search-bar input, .search-bar select { width: 100%; }
+.ip-tag { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ip-count { display: inline-block; min-width: 22px; padding: 0 6px; border-radius: 999px; background: rgba(239,68,68,.15); color: #ff9b9b; font-size: 11px; font-weight: 700; text-align: center; }
 .callout { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(59,130,246,.3); background: rgba(59,130,246,.08); color: #cfe0ff; margin-top: 14px; }
 .callout.warn { border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); color: #ffe2b0; }
 .callout.danger { border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.08); color: #ffd0d0; }
@@ -2314,6 +2358,7 @@ window.addEventListener('DOMContentLoaded', function() {
                         <?php if ($acc): ?><b style="color:#fff;"><?=htmlspecialchars($acc)?></b> <?=rt_role_badge($users[$acc]["role"] ?? "Пользователь", $users[$acc]["direction"] ?? "")?>
                         <?php else: ?><span style="color:#fcc56b;">⚠ не найден по нику и email — впишите логин вручную</span><?php endif; ?>
                     </div>
+                    <?php if (can("bans.manage")): ?><div class="meta">IP: <?=ip_tag(author_ip($app["ip"] ?? null, $acc, $email), "Заявка #" . $app["id"] . " (" . $nick . ")")?></div><?php endif; ?>
                     <?php if ($resolved && !empty($app["decided_by"])): ?>
                         <div class="meta">Решение: <b><?=htmlspecialchars($app["decided_by"])?></b> · <?=htmlspecialchars($app["decided_at"] ?? "")?><?php if (!empty($app["comment"])): ?> · «<?=htmlspecialchars($app["comment"])?>»<?php endif; ?></div>
                     <?php endif; ?>
@@ -2484,7 +2529,7 @@ window.addEventListener('DOMContentLoaded', function() {
                 <div class="card">
                     <h3>От: <?=htmlspecialchars($m["name"])?> (<?=htmlspecialchars($m["email"])?>)</h3>
                     <div class="meta"><?=htmlspecialchars($m["time"] ?? "")?></div>
-                    <?php if(!empty($m["ip"])): ?><div class="meta" style="color:#e67e22;">IP: <b><?=htmlspecialchars($m["ip"])?></b></div><?php endif; ?>
+                    <div class="meta">IP: <?=ip_tag(author_ip($m["ip"] ?? null, null, $m["email"] ?? null), "Спам в почте: " . str_replace(["\r", "\n"], " ", mb_strimwidth($m["text"] ?? "", 0, 60, "…")), true)?></div>
                     <div style="margin-top:10px; background:#050509; padding:10px; border-radius:6px; border:1px solid #333;"><?=nl2br(htmlspecialchars($m["text"]))?></div>
                     <?php if (!empty($m["reply"])): ?>
                         <div class="reply-block"><b>Ваш ответ:</b><br><?=nl2br(htmlspecialchars($m["reply"]["text"]))?><div class="reply-sig">Сотрудник: <?=htmlspecialchars($m["reply"]["author"])?> (<?=htmlspecialchars($m["reply"]["role"])?>)<br>С уважением, Rteam</div></div>
@@ -2510,7 +2555,7 @@ window.addEventListener('DOMContentLoaded', function() {
                 <?php if ($active_id): ?>
                     <?php $curr_ticket = null; foreach ($tickets as $t) if ((string)$t["id"] === (string)$active_id) $curr_ticket = $t; if ($curr_ticket): ?>
                         <div class="sup-header">
-                            <div><h3 style="margin:0; color:#fff;"><?=htmlspecialchars($curr_ticket['topic'])?></h3><div style="font-size: 12px; color: #aaa;">Клиент: <b><?=htmlspecialchars($curr_ticket['client'])?></b> | Статус: <span id="header_status"><?=htmlspecialchars($curr_ticket['status'])?></span></div></div>
+                            <div><h3 style="margin:0; color:#fff;"><?=htmlspecialchars($curr_ticket['topic'])?></h3><div style="font-size: 12px; color: #aaa;">Клиент: <b><?=htmlspecialchars($curr_ticket['client'])?></b> | Статус: <span id="header_status"><?=htmlspecialchars($curr_ticket['status'])?></span></div><?php if (can("bans.manage")): ?><div style="font-size: 12px; margin-top:4px;">IP: <?=ip_tag(author_ip($curr_ticket["ip"] ?? null, $curr_ticket["client"] ?? null), "Тикет #" . $curr_ticket["id"] . ": " . ($curr_ticket["topic"] ?? ""))?></div><?php endif; ?></div>
                             <?php if ($curr_ticket['status'] !== 'Закрыт'): ?><form method="POST" style="margin:0;" id="closeForm"><input type="hidden" name="action" value="close_ticket"><input type="hidden" name="id" value="<?=$curr_ticket['id']?>"><button class="btn no" type="submit" style="margin:0; padding:6px 12px;">Закрыть тикет</button></form><?php endif; ?>
                         </div>
                         <div class="sup-history" id="adminChatHistory">
@@ -2540,6 +2585,16 @@ window.addEventListener('DOMContentLoaded', function() {
 
     <!-- === БАНЫ === -->
     <?php elseif ($tab === "bans"): ?>
+        <script>
+        // Подставляет IP и причину в форму бана ниже и прокручивает к ней
+        function quickBanSetup(ip, reason) {
+            const card = document.getElementById('banFormCard'); if (!card) return;
+            card.querySelector('input[name="ip"]').value = ip;
+            card.querySelector('input[name="reason"]').value = reason;
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            card.querySelector('input[name="reason"]').focus();
+        }
+        </script>
 
         <div class="card" id="geoBlockCard">
             <h3>🌍 Гео-блокировка по странам</h3>
@@ -2594,14 +2649,53 @@ window.addEventListener('DOMContentLoaded', function() {
                 <div class="card" <?= $is_expired ? 'style="opacity: 0.6;"' : '' ?>><h3>IP: <?=htmlspecialchars($b["ip"])?> <span class="badge <?=$badge?>"><?=$status?></span></h3><div class="meta">Выдал: <?=htmlspecialchars($b["issued_by"] ?? "Неизвестно")?> | Дата бана: <?=htmlspecialchars($b["date"])?></div><div class="meta" style="color: #ff7777;">Срок: <?=$time_text?></div><div style="margin-top:8px; border-left: 2px solid #c53030; padding-left:10px; font-size:14px;"><b>Причина:</b> <?=htmlspecialchars($b["reason"])?></div><form method="POST" style="margin-top:10px;"><input type="hidden" name="action" value="unban"><input type="hidden" name="id" value="<?=htmlspecialchars($b["id"])?>"><button class="btn gray" type="submit">Снять бан</button></form></div>
             <?php endforeach; ?>
         <?php endif; ?>
-        <h3 style="margin-top: 20px;">Последние сообщения (для быстрой блокировки)</h3>
-        <?php if (!$messages): ?><p>Сообщений пока нет.</p><?php else: ?>
-            <script> function quickBanSetup(ip, reason) { const ipInput = document.querySelector('input[name="ip"]'); const reasonInput = document.querySelector('input[name="reason"]'); if(ipInput && reasonInput) { ipInput.value = ip; reasonInput.value = reason; ipInput.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); } } </script>
-            <div style="max-height: 400px; overflow-y: auto; padding-right: 10px;">
-            <?php foreach (array_reverse(array_slice($messages, -20)) as $m): ?>
-                <div class="card" style="border-color: #333; margin-top: 5px;"><div class="meta" style="margin-bottom: 2px;">От: <b><?=htmlspecialchars($m["name"])?></b> (<?=htmlspecialchars($m["email"])?>) | Дата: <?=htmlspecialchars($m["time"] ?? "")?></div><?php if(!empty($m["ip"])): ?><div class="meta" style="color:#e67e22;">IP: <b><?=htmlspecialchars($m["ip"])?></b></div><?php endif; ?><div style="font-size: 13px; margin-top: 4px; color: #ccc;"><?=mb_strimwidth(htmlspecialchars($m["text"]), 0, 100, "...")?></div><?php if(!empty($m["ip"])): ?><?php $safe_ip = htmlspecialchars($m["ip"]); $safe_reason = htmlspecialchars(addslashes("Спам: " . str_replace(["\r","\n"], " ", mb_strimwidth($m["text"], 0, 40, "...")))); ?><button class="btn gray" style="margin-top:8px; font-size:11px; padding:4px 8px;" onclick="quickBanSetup('<?=$safe_ip?>', '<?=$safe_reason?>')">🎯 Выбрать для бана</button><?php else: ?><div style="margin-top: 8px; font-size: 11px; color: #777;">IP-адрес неизвестен</div><?php endif; ?></div>
-            <?php endforeach; ?>
-            </div>
+        <?php
+        /* КТО И ОТКУДА ПИСАЛ: почта, заявки, тикеты и чат в одной ленте с IP */
+        $feed = [];
+        foreach ($messages as $m) $feed[] = ["t" => $m["time"] ?? "", "kind" => "✉️ Почта", "who" => trim(($m["name"] ?? "") . (!empty($m["email"]) ? " · " . $m["email"] : "")), "text" => $m["text"] ?? "", "ip" => author_ip($m["ip"] ?? null, null, $m["email"] ?? null), "link" => "?tab=messages"];
+        foreach (load_json("applications.json", []) as $a) {
+            $a_nick = rt_app_answer($a, "Ник");
+            $feed[] = ["t" => $a["time"] ?? "", "kind" => "📝 Заявка", "who" => $a_nick !== "" ? $a_nick : "—", "text" => "Заявка «" . ($a["type"] ?? "") . "»", "ip" => author_ip($a["ip"] ?? null, $a["account"] ?? rt_app_account($a, $users), rt_app_answer($a, "email")), "link" => "?tab=apps"];
+        }
+        foreach ($tickets as $t) $feed[] = ["t" => $t["date"] ?? "", "kind" => "🎧 Тикет", "who" => $t["client"] ?? "", "text" => ($t["topic"] ?? "") . ": " . ($t["description"] ?? ""), "ip" => author_ip($t["ip"] ?? null, $t["client"] ?? null), "link" => "?tab=support&ticket_id=" . urlencode($t["id"] ?? "")];
+        foreach ($chat_data["messages"] as $c) $feed[] = ["t" => $c["time"] ?? "", "kind" => "💬 Чат", "who" => $c["user"] ?? "", "text" => $c["text"] ?? "", "ip" => author_ip($c["ip"] ?? null, $c["user"] ?? null), "link" => "?tab=chat#msg-" . urlencode($c["id"] ?? "")];
+        usort($feed, fn($a, $b) => ((int)strtotime($b["t"])) <=> ((int)strtotime($a["t"])));
+        $feed = array_slice($feed, 0, 100);
+        $ip_counts = [];
+        foreach ($feed as $f) if ($f["ip"]) $ip_counts[$f["ip"]["ip"]] = ($ip_counts[$f["ip"]["ip"]] ?? 0) + 1;
+        ?>
+        <h3 style="margin-top: 24px;">🕵️ Кто и откуда писал</h3>
+        <div class="meta">Почта, заявки, тикеты и чат команды — последние 100 записей. IP берётся из сообщения, а если его там нет — последний IP аккаунта автора. Число рядом с IP — сколько записей с этого адреса (так видно спамеров).</div>
+        <?php if (!$feed): ?><div class="empty">Сообщений пока нет.</div><?php else: ?>
+        <div class="search-bar" style="margin-top:10px;">
+            <div style="flex:2 1 240px;"><label>Фильтр по IP, автору или тексту</label><input type="search" placeholder="Например: 5.5.5.5 или vasya" oninput="filterRows('ipFeed', this.value)"></div>
+        </div>
+        <div class="tbl-wrap" style="margin-top:0; max-height:560px;">
+            <table class="tbl" id="ipFeed">
+                <thead><tr><th>Когда</th><th>Что</th><th>Кто</th><th>Текст</th><th>IP</th><th style="width:1%;"></th></tr></thead>
+                <tbody>
+                <?php foreach ($feed as $f): $fip = $f["ip"]["ip"] ?? null; ?>
+                    <tr>
+                        <td class="muted" style="font-size:12px; white-space:nowrap;"><?=htmlspecialchars($f["t"])?></td>
+                        <td style="white-space:nowrap;"><a href="<?=htmlspecialchars($f["link"])?>"><?=$f["kind"]?></a></td>
+                        <td><b><?=htmlspecialchars($f["who"])?></b></td>
+                        <td style="max-width:320px; color:var(--soft);"><?=htmlspecialchars(mb_strimwidth(str_replace(["\r", "\n"], " ", $f["text"]), 0, 90, "…"))?></td>
+                        <td style="white-space:nowrap;">
+                            <?php if ($fip): ?>
+                                <code><?=htmlspecialchars($fip)?></code><?php if (($ip_counts[$fip] ?? 0) > 1): ?> <span class="ip-count" title="Записей с этого IP">×<?=$ip_counts[$fip]?></span><?php endif; ?>
+                                <div class="muted" style="font-size:11px;"><?=htmlspecialchars($f["ip"]["src"])?></div>
+                            <?php else: ?><span class="muted">неизвестен</span><?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if ($fip && $fip === rt_client_ip()): ?><span class="chip">ваш IP</span>
+                            <?php elseif ($fip && ip_is_banned($fip)): ?><span class="badge badge-dec" style="margin:0;">⛔ забанен</span>
+                            <?php elseif ($fip): ?><button type="button" class="btn sm ghost danger" onclick="quickBanSetup(<?=htmlspecialchars(json_encode($fip))?>, <?=htmlspecialchars(json_encode(mb_strimwidth($f["kind"] . " от " . $f["who"] . ": " . str_replace(["\r", "\n"], " ", $f["text"]), 0, 100, "…"), JSON_UNESCAPED_UNICODE))?>)">🎯 Забанить</button><?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
         <?php endif; ?>
 
     <!-- === ЧЁРНЫЙ СПИСОК === -->
@@ -2801,7 +2895,7 @@ window.addEventListener('DOMContentLoaded', function() {
             $r = $u["role"] ?? "Пользователь";
             if ($urole === "staff" && !rt_is_staff($r, $login)) continue;
             if ($urole !== "" && $urole !== "staff" && $r !== $urole) continue;
-            if ($uq !== "" && mb_stripos($login . " " . ($u["email"] ?? "") . " " . ($u["ip"] ?? ""), $uq) === false) continue;
+            if ($uq !== "" && mb_stripos($login . " " . ($u["email"] ?? "") . " " . ($u["ip"] ?? "") . " " . implode(" ", array_column((array)($u["ip_history"] ?? []), "ip")), $uq) === false) continue;
             $ulist[$login] = $u;
         }
         $uper = 40; $utotal = count($ulist); $upages = max(1, (int)ceil($utotal / $uper)); $upage = min($upages, max(1, (int)($_GET["p"] ?? 1)));
@@ -2844,9 +2938,10 @@ window.addEventListener('DOMContentLoaded', function() {
                     <tr>
                         <td><div class="who"><div class="avatar sm" style="--rc:<?=htmlspecialchars($ri["color"])?>"><?=htmlspecialchars(mb_strtoupper(mb_substr($login, 0, 1)))?></div><div><b><?=htmlspecialchars($login)?></b><?php if (!empty($u["email"])): ?><span class="muted" style="font-size:12px;"><?=htmlspecialchars($u["email"])?></span><?php endif; ?></div></div></td>
                         <td><?=rt_role_badge($ur, $ud, $login)?><?php if (!empty($u["golden"])): ?> <span class="badge badge-gold" style="margin:0;">🎫</span><?php endif; ?><?php if (!empty($u["tg_id"])): ?> <span class="chip" title="Telegram привязан<?=!empty($u["tg_username"]) ? ': @' . htmlspecialchars($u["tg_username"]) : ''?> — вход в панель с кодом 2FA">🤖 TG</span><?php endif; ?></td>
-                        <td><?php if (!empty($u["ip"])): ?><code><?=htmlspecialchars($u["ip"])?></code><?php else: ?><span class="muted">—</span><?php endif; ?><?php if (!empty($u["last_seen"])): ?><div class="muted" style="font-size:12px;"><?=htmlspecialchars($u["last_seen"])?></div><?php endif; ?></td>
+                        <td><?php if (!empty($u["ip"])): ?><code><?=htmlspecialchars($u["ip"])?></code><?php if (count($u["ip_history"] ?? []) > 1): ?> <span class="chip" title="Разных IP в истории">+<?=count($u["ip_history"]) - 1?></span><?php endif; ?><?php if ($can_bans && ip_is_banned($u["ip"])): ?> <span class="badge badge-dec" style="margin:0;">⛔</span><?php endif; ?><?php else: ?><span class="muted">—</span><?php endif; ?><?php if (!empty($u["last_seen"])): ?><div class="muted" style="font-size:12px;"><?=htmlspecialchars($u["last_seen"])?></div><?php endif; ?></td>
                         <td>
-                            <?php if ($editable && ($can_roles || $can_users) || ($can_bans && !empty($u["ip"]))): ?>
+                            <?php $u_hist = (isset($u["ip_history"]) && is_array($u["ip_history"])) ? $u["ip_history"] : (!empty($u["ip"]) ? [["ip" => $u["ip"], "last" => $u["last_seen"] ?? "", "visits" => 0]] : []); ?>
+                            <?php if ($editable && ($can_roles || $can_users) || ($can_bans && $u_hist)): ?>
                             <details class="act">
                                 <summary class="btn ghost sm">Управлять ▾</summary>
                                 <div class="act-panel">
@@ -2865,8 +2960,21 @@ window.addEventListener('DOMContentLoaded', function() {
                                             <button class="btn sm gray" type="submit">Сменить пароль</button>
                                         </form>
                                     <?php endif; ?>
+                                    <?php if ($can_bans && $u_hist): ?>
+                                        <div>
+                                            <div class="muted" style="font-size:12px; margin-bottom:4px;">IP-адреса аккаунта (последние <?=count($u_hist)?>):</div>
+                                            <?php foreach ($u_hist as $h): ?>
+                                                <div class="inline-form" style="margin-bottom:4px;">
+                                                    <code><?=htmlspecialchars($h["ip"])?></code>
+                                                    <span class="muted" style="font-size:11px;"><?=htmlspecialchars(substr($h["last"] ?? "", 0, 16))?><?=!empty($h["visits"]) ? " · заходов: " . (int)$h["visits"] : ""?></span>
+                                                    <?php if ($h["ip"] === rt_client_ip()): ?><span class="chip">ваш IP</span>
+                                                    <?php elseif (ip_is_banned($h["ip"])): ?><span class="badge badge-dec" style="margin:0;">⛔ забанен</span>
+                                                    <?php else: ?><a class="btn sm ghost danger" href="<?=htmlspecialchars(ban_link($h["ip"], "Блокировка по IP пользователя " . $login))?>">🎯 Забанить</a><?php endif; ?>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
                                     <div class="inline-form">
-                                        <?php if ($can_bans && !empty($u["ip"])): ?><a class="btn sm ghost" href="?tab=bans&quickban_ip=<?=urlencode($u["ip"])?>&quickban_reason=<?=urlencode("Блокировка по IP пользователя " . $login)?>">🎯 Забанить IP</a><?php endif; ?>
                                         <?php if ($can_users && $editable && !empty($u["tg_id"])): ?>
                                             <form method="POST" action="?tab=users" onsubmit="return confirm('Отвязать Telegram? Вход будет по паролю, без кода из бота.');"><input type="hidden" name="action" value="unlink_tg"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn sm ghost" type="submit">🤖 Отвязать Telegram</button></form>
                                         <?php endif; ?>

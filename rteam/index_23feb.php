@@ -206,10 +206,10 @@ if ($user && isset($users[$user]) && is_array($users[$user])) {
 $role_label = rt_role_label($role, $user ? ($users[$user]["direction"] ?? "") : "");
 $is_golden = $user && !empty($users[$user]["golden"] ?? false);
 
-/* Сохраняем IP и время последнего захода — видно в admin.php → Пользователи */
-if ($user && isset($users[$user])) {
-    $users[$user]["ip"] = $rteam_visitor_ip;
-    $users[$user]["last_seen"] = date("Y-m-d H:i:s");
+/* Сохраняем IP, историю IP и время последнего захода — видно в admin.php
+   (Пользователи, Баны): по ним можно забанить автора сообщения или заявки */
+if ($user && isset($users[$user]) && is_array($users[$user])) {
+    rt_track_ip($users[$user], $rteam_visitor_ip);
     save_json("users.json", $users);
 }
 

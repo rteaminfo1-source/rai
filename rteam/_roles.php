@@ -360,3 +360,42 @@ function rt_app_account($app, $users) {
     }
     return null;
 }
+
+/* ---------- IP (для банов) ---------- */
+
+/* IP посетителя: Cloudflare / прокси заголовки, затем REMOTE_ADDR */
+function rt_client_ip() {
+    foreach (["HTTP_CF_CONNECTING_IP", "HTTP_X_FORWARDED_FOR", "HTTP_X_REAL_IP", "REMOTE_ADDR"] as $key) {
+        if (!empty($_SERVER[$key])) {
+            $candidate = trim(explode(",", $_SERVER[$key])[0]);
+            if (filter_var($candidate, FILTER_VALIDATE_IP)) return $candidate;
+        }
+    }
+    return $_SERVER["REMOTE_ADDR"] ?? "0.0.0.0";
+}
+
+/* Запоминает IP аккаунта: последний адрес и историю до 10 разных адресов
+   (когда впервые и когда последний раз заходил с каждого) — видно в админ-панели */
+function rt_track_ip(array &$u, $ip) {
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) return;
+    $now = date("Y-m-d H:i:s");
+    $u["ip"] = $ip;
+    $u["last_seen"] = $now;
+    $hist = (isset($u["ip_history"]) && is_array($u["ip_history"])) ? $u["ip_history"] : [];
+    $found = false;
+    foreach ($hist as &$h) {
+        if (($h["ip"] ?? "") === $ip) { $h["last"] = $now; $h["visits"] = (int)($h["visits"] ?? 0) + 1; $found = true; break; }
+    }
+    unset($h);
+    if (!$found) $hist[] = ["ip" => $ip, "first" => $now, "last" => $now, "visits" => 1];
+    usort($hist, fn($a, $b) => strcmp($b["last"] ?? "", $a["last"] ?? ""));
+    $u["ip_history"] = array_slice($hist, 0, 10);
+}
+
+/* То же, но сразу с записью в users.json (для входа: перечитываем свежий файл) */
+function rt_track_login_ip($login) {
+    $users = rt_json_load("users.json", []);
+    if (!isset($users[$login]) || !is_array($users[$login])) return;
+    rt_track_ip($users[$login], rt_client_ip());
+    rt_json_save("users.json", $users);
+}
