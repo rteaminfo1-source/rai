@@ -9,6 +9,15 @@ if (empty($token)) {
     die("Бот не настроен. Укажите токен во вкладке 'Бот' в админ-панели.");
 }
 
+// Принимаем запросы только от Telegram: секрет задаётся кнопкой
+// «Установить вебхук автоматически» в админ-панели (вкладка «Telegram-бот»).
+// Без этого любой мог бы прислать поддельное сообщение от имени админа.
+$wh_secret = (string)($settings['bot_webhook_secret'] ?? '');
+if ($wh_secret !== '' && !hash_equals($wh_secret, (string)($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? ''))) {
+    http_response_code(403);
+    exit;
+}
+
 $update = json_decode(file_get_contents('php://input'), TRUE);
 
 // Функция для сохранения ID пользователей бота (для рассылки)

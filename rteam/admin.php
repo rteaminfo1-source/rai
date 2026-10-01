@@ -345,6 +345,49 @@ function ip_tag($info, $reason, $always = false) {
     return $html . '</span>';
 }
 
+/* ВЕБХУК TELEGRAM-БОТА */
+
+/* Запрос к Telegram Bot API от имени бота из настроек */
+function tg_api($method, $params = []) {
+    global $settings;
+    $token = trim($settings["bot_token"] ?? "");
+    if ($token === "") return ["ok" => false, "description" => "Не указан токен бота"];
+    $call = function ($verify) use ($token, $method, $params) {
+        $ch = curl_init("https://api.telegram.org/bot" . $token . "/" . $method);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params, CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 6, CURLOPT_TIMEOUT => 15, CURLOPT_SSL_VERIFYPEER => $verify, CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0]);
+        $res = curl_exec($ch); $errno = curl_errno($ch); $err = curl_error($ch); curl_close($ch);
+        return [$res, $errno, $err];
+    };
+    [$res, $errno, $err] = $call(true);
+    if ($res === false && in_array($errno, [35, 51, 58, 60, 77], true)) [$res, $errno, $err] = $call(false); // хостинг без корневых сертификатов
+    if ($res === false) return ["ok" => false, "description" => "Нет связи с Telegram: " . $err];
+    $json = json_decode($res, true);
+    return is_array($json) ? $json : ["ok" => false, "description" => "Непонятный ответ Telegram"];
+}
+
+/* Стучится на адрес вебхука так же, как Telegram: POST, без перехода по редиректам.
+   Возвращает [код ответа, куда перенаправляет (или null), ошибка связи (или null)] */
+function probe_webhook($url, $secret) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => "{}", CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_HTTPHEADER => ["Content-Type: application/json", "X-Telegram-Bot-Api-Secret-Token: " . $secret],
+        CURLOPT_CONNECTTIMEOUT => 6, CURLOPT_TIMEOUT => 12, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSL_VERIFYHOST => 0]);
+    curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $loc  = curl_getinfo($ch, CURLINFO_REDIRECT_URL) ?: null;
+    $err  = curl_errno($ch) ? curl_error($ch) : null;
+    curl_close($ch);
+    return [$code, $loc, $err];
+}
+
+/* Адрес bot.php по умолчанию: тот же сайт и та же папка, что у admin.php */
+function default_webhook_url() {
+    $host = $_SERVER["HTTP_HOST"] ?? "rteam.info";
+    $dir  = rtrim(str_replace("\\", "/", dirname($_SERVER["SCRIPT_NAME"] ?? "/admin.php")), "/");
+    return "https://" . $host . $dir . "/bot.php";
+}
+
 /* Какое право нужно для каждого действия. Действие, которого нет
    в списке, запрещено. "" — достаточно просто быть в команде. */
 $ACTION_PERMS = [
@@ -374,7 +417,7 @@ $ACTION_PERMS = [
     // бот
     "reply_tg_ticket" => "bot.tickets", "close_tg_ticket" => "bot.tickets",
     "broadcast_tg" => "bot.manage", "add_bot_gw" => "bot.manage", "del_bot_gw" => "bot.manage", "roll_bot_gw" => "bot.manage",
-    "save_bot_token" => "settings.manage",
+    "save_bot_token" => "settings.manage", "setup_webhook" => "settings.manage", "check_webhook" => "settings.manage", "delete_webhook" => "settings.manage",
     // контент
     "save_recruit" => "recruit.manage",
     "add_leak" => "leaks.manage", "edit_leak" => "leaks.manage", "toggle_leak" => "leaks.manage", "del_leak" => "leaks.manage",
@@ -1341,6 +1384,104 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
             }
             save_json("bot_giveaways.json", $bot_gws);
             if (isset($_POST['is_ajax'])) { echo "ok"; exit; }
+            header("Location: admin.php?tab=bot"); exit;
+        }
+
+        /* --- ВЕБХУК: установка одной кнопкой ---
+           1) проверяем токен (getMe) и запоминаем имя бота для кабинета;
+           2) стучимся на bot.php как Telegram и идём по редиректам (например,
+              на www.) — так находим адрес, который отвечает без перенаправления;
+           3) ставим вебхук с секретом: bot.php примет запросы только от Telegram;
+           4) старые накопившиеся сообщения сбрасываем, чтобы бот не отвечал на них разом. */
+        if ($_POST["action"] === "setup_webhook") {
+            $report = [];
+            $me_info = tg_api("getMe");
+            if (empty($me_info["ok"])) {
+                $desc = $me_info["description"] ?? "ошибка";
+                flash("Telegram не принял токен: " . $desc . (($me_info["error_code"] ?? 0) == 401 ? ". Возьмите токен заново в @BotFather и сохраните его выше." : ""), "error");
+                header("Location: admin.php?tab=bot"); exit;
+            }
+            $settings["bot_username"] = $me_info["result"]["username"] ?? ($settings["bot_username"] ?? "");
+            $report[] = "✅ Токен верный, бот @" . $settings["bot_username"];
+
+            if (empty($settings["bot_webhook_secret"])) $settings["bot_webhook_secret"] = bin2hex(random_bytes(16));
+            $secret = $settings["bot_webhook_secret"];
+
+            $url = trim($_POST["webhook_url"] ?? "") ?: default_webhook_url();
+            if (stripos($url, "https://") !== 0) $url = "https://" . preg_replace('~^[a-z]+://~i', "", $url);
+
+            $problem = null;
+            for ($hop = 0; $hop < 4; $hop++) {
+                [$code, $loc, $err] = probe_webhook($url, $secret);
+                if ($err) { $report[] = "⚠️ Сервер не смог сам проверить адрес ($err) — ставлю вебхук как есть"; break; }
+                if ($code >= 300 && $code < 400 && $loc) {
+                    $report[] = "↪️ $url отвечает $code и перенаправляет на $loc";
+                    if (preg_match('~/bot\.php(\?.*)?$~i', parse_url($loc, PHP_URL_PATH) . (parse_url($loc, PHP_URL_QUERY) ? "?" . parse_url($loc, PHP_URL_QUERY) : "")) && stripos($loc, "https://") === 0) {
+                        $url = $loc; // тот же bot.php по другому адресу (например, www.) — используем его
+                        continue;
+                    }
+                    $problem = "Сайт перенаправляет bot.php на $loc. Telegram по редиректам не ходит. Проверьте, что bot.php лежит рядом с admin.php, и что в .htaccess или настройках хостинга нет правила, которое перенаправляет запросы к bot.php.";
+                    break;
+                }
+                if ($code === 200) { $report[] = "✅ $url отвечает 200 OK"; break; }
+                $problem = "Адрес $url отвечает кодом $code" . ($code == 404 ? " — файла bot.php по этому адресу нет." : ($code >= 500 ? " — bot.php падает с ошибкой (проверьте, что рядом загружен _roles.php)." : "."));
+                break;
+            }
+            save_json("settings.json", $settings);
+
+            if ($problem) {
+                $report[] = "❌ " . $problem;
+                $_SESSION["webhook_report"] = $report;
+                flash("Вебхук не установлен — подробности в блоке «Вебхук бота».", "error");
+                header("Location: admin.php?tab=bot"); exit;
+            }
+
+            $res = tg_api("setWebhook", [
+                "url" => $url,
+                "secret_token" => $secret,
+                "allowed_updates" => json_encode(["message", "callback_query"]),
+                "drop_pending_updates" => "true",
+                "max_connections" => 40,
+            ]);
+            if (!empty($res["ok"])) {
+                $settings["bot_webhook_url"] = $url;
+                save_json("settings.json", $settings);
+                $report[] = "✅ Вебхук установлен: $url (старые накопившиеся сообщения сброшены)";
+                $report[] = "👉 Напишите боту /start — он должен ответить. Потом нажмите «Проверить статус».";
+                $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "bot", "msg" => "$user установил вебхук бота: $url"];
+                save_json("logs.json", $logs);
+                flash("Вебхук установлен. Напишите боту /start.", "success");
+            } else {
+                $report[] = "❌ Telegram не принял вебхук: " . ($res["description"] ?? "ошибка");
+                flash("Telegram не принял вебхук: " . ($res["description"] ?? "ошибка"), "error");
+            }
+            $_SESSION["webhook_report"] = $report;
+            header("Location: admin.php?tab=bot"); exit;
+        }
+
+        if ($_POST["action"] === "check_webhook") {
+            $info = tg_api("getWebhookInfo");
+            $report = [];
+            if (empty($info["ok"])) {
+                $report[] = "❌ " . ($info["description"] ?? "Не удалось получить статус") . (($info["error_code"] ?? 0) == 401 ? " — неверный токен." : "");
+            } else {
+                $r = $info["result"];
+                $report[] = !empty($r["url"]) ? "🔗 Адрес: " . $r["url"] : "❌ Вебхук не установлен — нажмите «Установить вебхук автоматически»";
+                $report[] = "📨 Ждут доставки: " . (int)($r["pending_update_count"] ?? 0);
+                if (!empty($r["last_error_message"])) {
+                    $fresh = time() - (int)($r["last_error_date"] ?? 0) < 600;
+                    $report[] = ($fresh ? "❌ " : "ℹ️ ") . "Последняя ошибка (" . date("d.m.Y H:i", (int)$r["last_error_date"]) . "): " . $r["last_error_message"] . ($fresh ? "" : " — давно, сейчас может быть уже исправлено");
+                } elseif (!empty($r["url"])) {
+                    $report[] = "✅ Ошибок нет — Telegram доставляет сообщения боту";
+                }
+            }
+            $_SESSION["webhook_report"] = $report;
+            header("Location: admin.php?tab=bot"); exit;
+        }
+
+        if ($_POST["action"] === "delete_webhook") {
+            $res = tg_api("deleteWebhook");
+            flash(!empty($res["ok"]) ? "Вебхук отключён — бот перестал получать сообщения." : "Не удалось: " . ($res["description"] ?? "ошибка"), !empty($res["ok"]) ? "success" : "error");
             header("Location: admin.php?tab=bot"); exit;
         }
 
@@ -2810,6 +2951,36 @@ window.addEventListener('DOMContentLoaded', function() {
                     <button class="btn" type="submit" style="background:#805ad5; color:#fff; width: 100%;">Отправить всем пользователям</button>
                 </form>
             </div>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- ВЕБХУК БОТА -->
+        <?php if (can("settings.manage")): $wh_report = $_SESSION["webhook_report"] ?? null; unset($_SESSION["webhook_report"]); $wh_url = $settings["bot_webhook_url"] ?? default_webhook_url(); ?>
+        <div class="card">
+            <h3>🔗 Вебхук бота<?php if (!empty($settings["bot_username"])): ?> <span class="chip">@<?=htmlspecialchars($settings["bot_username"])?></span><?php endif; ?></h3>
+            <p class="meta">Вебхук — это адрес, куда Telegram пересылает сообщения боту. Кнопка сама проверит токен, найдёт рабочий адрес bot.php (даже если сайт перенаправляет, например на www), установит вебхук с защитой от поддельных запросов и сбросит накопившиеся сообщения. После смены токена нажмите её ещё раз.</p>
+            <?php if ($wh_report): ?>
+                <div class="callout" style="flex-direction:column; gap:4px;"><?php foreach ($wh_report as $line): ?><div><?=htmlspecialchars($line)?></div><?php endforeach; ?></div>
+            <?php endif; ?>
+            <form method="POST" action="?tab=bot" style="margin-top:10px;">
+                <input type="hidden" name="action" value="setup_webhook">
+                <label>Адрес bot.php</label>
+                <input type="text" name="webhook_url" value="<?=htmlspecialchars($wh_url)?>" placeholder="https://rteam.info/bot.php">
+                <div class="row" style="margin-top:10px;">
+                    <button class="btn primary" type="submit" style="margin-top:0;" <?=empty($bot_token) ? "disabled title=\"Сначала сохраните токен\"" : ""?>>⚡ Установить вебхук автоматически</button>
+                    <button class="btn gray" type="submit" form="whCheckForm" style="margin-top:0;" <?=empty($bot_token) ? "disabled" : ""?>>Проверить статус</button>
+                    <button class="btn ghost danger" type="submit" form="whDeleteForm" style="margin-top:0;" <?=empty($bot_token) ? "disabled" : ""?>>Отключить</button>
+                </div>
+            </form>
+            <form id="whCheckForm" method="POST" action="?tab=bot"><input type="hidden" name="action" value="check_webhook"></form>
+            <form id="whDeleteForm" method="POST" action="?tab=bot" onsubmit="return confirm('Отключить вебхук? Бот перестанет отвечать.');"><input type="hidden" name="action" value="delete_webhook"></form>
+            <?php if (!empty($bot_token)): $manual = "https://api.telegram.org/bot" . $bot_token . "/setWebhook?url=" . urlencode($wh_url) . (!empty($settings["bot_webhook_secret"]) ? "&secret_token=" . urlencode($settings["bot_webhook_secret"]) : "") . "&drop_pending_updates=true"; ?>
+                <details style="margin-top:12px;">
+                    <summary class="muted" style="cursor:pointer;">Ссылка для установки вручную</summary>
+                    <p class="meta" style="margin-top:8px;">Откройте в браузере — Telegram ответит <code>"ok":true</code>. В ссылке есть токен бота, никому её не показывайте.</p>
+                    <div class="row"><input type="text" readonly value="<?=htmlspecialchars($manual)?>" onclick="this.select()" style="flex:1; margin-top:0;"><a class="btn gray" href="<?=htmlspecialchars($manual)?>" target="_blank" rel="noopener" style="margin-top:0;">Открыть</a></div>
+                </details>
             <?php endif; ?>
         </div>
         <?php endif; ?>
