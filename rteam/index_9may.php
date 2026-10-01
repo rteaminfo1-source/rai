@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/config.php';
+require_once __DIR__ . '/_roles.php'; // роли и права (общий файл с admin.php)
 
 /* ==========================================
    ГЕО-БЛОКИРОВКА ПО СТРАНАМ
@@ -197,6 +198,12 @@ if (isset($_GET["logout"])) {
 
 $user = $_SESSION["user"] ?? null;
 $role = $_SESSION["role"] ?? "Гость";
+// Роль берём из users.json: повышение или понижение в админ-панели видно сразу, без перевхода
+if ($user && isset($users[$user]) && is_array($users[$user])) {
+    $role = $users[$user]["role"] ?? "Пользователь";
+    $_SESSION["role"] = $role;
+}
+$role_label = rt_role_label($role, $user ? ($users[$user]["direction"] ?? "") : "");
 $is_golden = $user && !empty($users[$user]["golden"] ?? false);
 
 /* Сохраняем IP и время последнего захода — видно в admin.php → Пользователи */
@@ -2179,9 +2186,11 @@ body.hol-on {
             <a href="pay.html">Поддержать</a>
 			<a href="support.php">Поддержка</a>
             
-            <?php if (in_array($role, ["Главный разработчик", "Администратор", "Главный Администратор", "Тестер", "Главный Тестер", "Кодер", "Главный Кодер", "Руководитель"])): ?>
+            <?php if ($user && rt_is_staff($role, $user)): ?>
                 <a href="admin.php" style="color: var(--accent); font-weight: bold; border: 1px solid var(--accent); padding: 4px 10px; border-radius: 6px;">Админ-Панель</a>
+                <?php if (rt_is_owner($user) || rt_level($role) > rt_level(RT_TRAINEE_ROLE)): ?>
                 <a href="oauth/apps.php" style="color: var(--accent-2); font-weight: bold; border: 1px solid var(--accent-2); padding: 4px 10px; border-radius: 6px;">Вход через RTeam</a>
+                <?php endif; ?>
             <?php endif; ?>
             <?php if ($is_golden): ?>
                 <a href="https://rteam.info/profile.php" style="color:#3a2a00; font-weight: bold; background: linear-gradient(135deg,#ffe066,#d4a017); padding: 4px 10px; border-radius: 6px; box-shadow: 0 0 10px rgba(255,215,0,.5);">🎫 Золотой профиль</a>
@@ -2194,7 +2203,7 @@ body.hol-on {
             <?php if ($user): ?>
                 <span class="user-chip">
                     <span class="user-chip-avatar"><?=strtoupper(mb_substr($user,0,1))?></span>
-                    <span><b><?=htmlspecialchars($user)?></b><small><?=htmlspecialchars($role)?></small></span>
+                    <span><b><?=htmlspecialchars($user)?></b><small><?=htmlspecialchars($role_label)?></small></span>
                 </span>
                 <?php if ($is_golden): ?><span class="badge-golden">🎫 <?=htmlspecialchars($users[$user]["golden_title"] ?? "Золотой билет RTeam")?></span><?php endif; ?>
                 <a href="?logout=1" class="nav-btn nav-btn-ghost">Выйти</a>
@@ -2575,7 +2584,7 @@ body.hol-on {
                 <div class="box-kicker">Аккаунт</div>
                 <?php if ($user): ?>
                     <h3 class="box-title">С возвращением, <?=htmlspecialchars($user)?>!</h3>
-                    <p class="muted">Вы вошли как <b><?=htmlspecialchars($user)?></b> · роль «<?=htmlspecialchars($role)?>».</p>
+                    <p class="muted">Вы вошли как <b><?=htmlspecialchars($user)?></b> · роль «<?=htmlspecialchars($role_label)?>».</p>
                     <?php if ($is_golden): ?>
                         <a href="https://rteam.info/profile.php" class="btn btn-block btn-golden">🎫 Открыть золотой профиль</a>
                     <?php endif; ?>
@@ -2849,6 +2858,9 @@ changePhrase();
 
 const teamQ  = <?=json_encode($teamQ,  JSON_UNESCAPED_UNICODE)?>;
 const adminQ = <?=json_encode($adminQ, JSON_UNESCAPED_UNICODE)?>;
+// Направления для заявки «Команда»: при одобрении в админ-панели человек
+// получает роль «Стажёр» с выбранным здесь направлением.
+const teamDirections = <?=json_encode(array_values(array_diff(array_keys(rt_directions()), ["Администратор"])), JSON_UNESCAPED_UNICODE)?>;
 const typeSelect = document.getElementById("typeSelect");
 const formFields = document.getElementById("formFields");
 
@@ -2857,6 +2869,13 @@ function render(type) {
     formFields.innerHTML = "";
     list.forEach((q, i) => {
         const name = "field" + i;
+        if (/направлен/i.test(q) && type === "Команда") {
+            formFields.innerHTML += `
+                <label class="field-label">${q}</label>
+                <select name="${name}" required>${teamDirections.map(d => `<option value="${d}">${d}</option>`).join("")}</select>
+            `;
+            return;
+        }
         formFields.innerHTML += `
             <label class="field-label">${q}</label>
             <input type="text" name="${name}" required>

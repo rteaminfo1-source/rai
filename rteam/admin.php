@@ -169,7 +169,8 @@ function process_and_compress_image($file_info) {
 }
 
 // ФУНКЦИЯ: Отрисовка HTML для ЗАЯВОК (AJAX)
-function render_bot_tickets($tg_tickets, $banned_users) {
+// $can_reply — может отвечать/закрывать, $can_mute — может выдавать мут (это бан, только для тех, кто банит)
+function render_bot_tickets($tg_tickets, $banned_users, $can_reply = true, $can_mute = true) {
     $html = "";
     if (empty($tg_tickets)) return '<p style="color:#666;">Заявок пока нет.</p>';
     
@@ -192,17 +193,19 @@ function render_bot_tickets($tg_tickets, $banned_users) {
         $html .= nl2br(htmlspecialchars($ticket['text']));
         $html .= '</div>';
         
-        if (!$is_closed) {
+        if (!$is_closed && ($can_reply || $can_mute)) {
             $html .= '<div style="background: #1a1a24; padding: 12px; border-radius: 8px; border: 1px solid #333;">';
             $placeholder = $is_new ? 'Написать ответ пользователю...' : 'Написать еще одно сообщение...';
-            $html .= '<textarea id="reply_text_'.htmlspecialchars($ticket['id']).'" required placeholder="'.$placeholder.'" style="height: 60px; background: #050509; margin-bottom: 10px; width: 100%; box-sizing: border-box;"></textarea>';
+            if ($can_reply) $html .= '<textarea id="reply_text_'.htmlspecialchars($ticket['id']).'" required placeholder="'.$placeholder.'" style="height: 60px; background: #050509; margin-bottom: 10px; width: 100%; box-sizing: border-box;"></textarea>';
             $html .= '<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">';
             
-            $html .= '<button class="btn blue" style="margin-top:0;" type="button" onclick="const t=document.getElementById(\'reply_text_'.htmlspecialchars($ticket['id']).'\').value; if(!t){alert(\'Введите текст ответа!\'); return;} sendBotAction(\'reply_tg_ticket\', \''.htmlspecialchars($ticket['user_id']).'\', \''.htmlspecialchars($ticket['id']).'\', t); document.getElementById(\'reply_text_'.htmlspecialchars($ticket['id']).'\').value=\'\';">Отправить ответ</button>';
-            $html .= '<button class="btn gray" style="margin-top:0;" type="button" onclick="sendBotAction(\'close_tg_ticket\', \''.htmlspecialchars($ticket['user_id']).'\', \''.htmlspecialchars($ticket['id']).'\')">Закрыть диалог</button>';
+            if ($can_reply) $html .= '<button class="btn blue" style="margin-top:0;" type="button" onclick="const t=document.getElementById(\'reply_text_'.htmlspecialchars($ticket['id']).'\').value; if(!t){alert(\'Введите текст ответа!\'); return;} sendBotAction(\'reply_tg_ticket\', \''.htmlspecialchars($ticket['user_id']).'\', \''.htmlspecialchars($ticket['id']).'\', t); document.getElementById(\'reply_text_'.htmlspecialchars($ticket['id']).'\').value=\'\';">Отправить ответ</button>';
+            if ($can_reply) $html .= '<button class="btn gray" style="margin-top:0;" type="button" onclick="sendBotAction(\'close_tg_ticket\', \''.htmlspecialchars($ticket['user_id']).'\', \''.htmlspecialchars($ticket['id']).'\')">Закрыть диалог</button>';
             
             $html .= '<div style="flex:1; text-align:right; min-width: 150px;">';
-            if ($is_banned) {
+            if (!$can_mute) {
+                // мут выдают только те, у кого есть право банить
+            } elseif ($is_banned) {
                 $html .= '<button class="btn ok" style="margin-top:0;" type="button" onclick="sendBotAction(\'unban_bot_user\', \''.htmlspecialchars($ticket['user_id']).'\', \''.htmlspecialchars($ticket['id']).'\')">🔊 Снять Мут</button>';
             } else {
                 $html .= '<button class="btn no" style="margin-top:0;" type="button" onclick="if(confirm(\'Запретить этому пользователю создавать заявки в боте?\')) sendBotAction(\'ban_bot_user\', \''.htmlspecialchars($ticket['user_id']).'\', \''.htmlspecialchars($ticket['id']).'\')">🔇 Выдать Мут</button>';
@@ -215,7 +218,7 @@ function render_bot_tickets($tg_tickets, $banned_users) {
 }
 
 // ФУНКЦИЯ: Отрисовка HTML для РОЗЫГРЫШЕЙ (AJAX)
-function render_bot_giveaways_list($gws) {
+function render_bot_giveaways_list($gws, $can_manage = true) {
     $html = "";
     if (empty($gws)) return '<p style="color:#666;">Розыгрышей пока нет.</p>';
     foreach (array_reverse($gws) as $gw) {
@@ -226,20 +229,20 @@ function render_bot_giveaways_list($gws) {
         $html .= '<div class="meta" style="margin-bottom: 10px;">Кол-во победителей: <b>' . $gw['winners_count'] . '</b> | Текущих участников: <b style="color:#1f9d55;">' . count($gw['participants']) . '</b></div>';
         $html .= '<p style="font-size:13px; color:#ccc; background:#050509; padding:8px; border-radius:6px; border:1px solid #222;">' . nl2br(htmlspecialchars($gw['description'])) . '</p>';
         
-        if ($is_active) {
+        if ($is_active && $can_manage) {
             $html .= '<form class="ajax-bot-form" method="POST" style="margin-top:10px;" onsubmit="if(!confirm(\'Завершить розыгрыш и выбрать победителей?\')) return false;">
                         <input type="hidden" name="action" value="roll_bot_gw">
                         <input type="hidden" name="gw_id" value="'.$gw['id'].'">
                         <input type="hidden" name="is_ajax" value="1">
                         <button class="btn orange" type="submit">🎲 Подвести итоги</button>
                       </form>';
-        } else {
+        } elseif (!$is_active) {
             $win_mentions = [];
             foreach ($gw['winners'] as $w) { $win_mentions[] = "👤 <a href='tg://user?id=".$w."' style='color:#3182ce;'>".$w."</a>"; }
             $html .= '<div style="background:#1a1a24; padding:10px; border-radius:6px; margin:10px 0; border:1px solid #333; font-size:14px;">🏆 <b>Победители:</b><br> ' . (empty($win_mentions) ? 'Никто не участвовал' : implode(', ', $win_mentions)) . '</div>';
         }
         
-        $html .= '<form class="ajax-bot-form" method="POST" style="margin-top:8px;" onsubmit="if(!confirm(\'Точно удалить этот розыгрыш из списка?\')) return false;">
+        if ($can_manage) $html .= '<form class="ajax-bot-form" method="POST" style="margin-top:8px;" onsubmit="if(!confirm(\'Точно удалить этот розыгрыш из списка?\')) return false;">
                     <input type="hidden" name="action" value="del_bot_gw">
                     <input type="hidden" name="gw_id" value="'.$gw['id'].'">
                     <input type="hidden" name="is_ajax" value="1">
@@ -250,31 +253,129 @@ function render_bot_giveaways_list($gws) {
     return $html;
 }
 
-// --- API ДЛЯ ОБНОВЛЕНИЯ ВКЛАДКИ БОТА (AJAX JSON) ---
-if (isset($_GET['ajax_bot_data'])) {
-    header('Content-Type: application/json');
-    $tg_tickets = load_json("bot_tickets.json", []);
-    $banned_users = load_json("bot_banned.json", []);
-    $gws = load_json("bot_giveaways.json", []);
-    if (!is_array($banned_users)) $banned_users = [];
-    
-    echo json_encode([
-        "tickets" => render_bot_tickets($tg_tickets, $banned_users),
-        "giveaways" => render_bot_giveaways_list($gws)
-    ]);
-    exit;
+/* ==========================================================
+   ВХОД В ПАНЕЛЬ И ПРАВА
+   Роль каждый раз берётся из users.json, а не только из сессии:
+   повышение, понижение или исключение из команды действуют сразу,
+   без перевхода. Что может каждая роль — см. _roles.php и вкладку
+   «Права ролей».
+   ========================================================== */
+require_once __DIR__ . '/_roles.php';
+
+$user  = $_SESSION["user"] ?? "Гость";
+$users = load_json("users.json", []);
+if (isset($users[$user]) && is_array($users[$user])) {
+    $role = $users[$user]["role"] ?? "Пользователь";
+    $_SESSION["role"] = $role;
+} elseif ($users) {
+    $role = "Гость"; // аккаунт удалён — доступа больше нет
+} else {
+    $role = $_SESSION["role"] ?? "Гость"; // users.json недоступен — как раньше, по сессии
 }
 
-$role = $_SESSION["role"] ?? "Гость";
-$user = $_SESSION["user"] ?? "Гость";
-
-$allowed_roles = ["Главный разработчик", "Администратор", "Главный Администратор", "Тестер", "Главный Тестер", "Кодер", "Главный Кодер", "Руководитель", "Разработчик"];
-if (!in_array($role, $allowed_roles)) {
+if (!rt_is_staff($role, $user)) {
+    http_response_code(403);
     echo "Доступ запрещён.";
     exit;
 }
 
-$is_leader = ($role === "Руководитель");
+$my_direction = (string)($users[$user]["direction"] ?? "");
+$my_dept      = rt_user_dept($role, $my_direction);
+
+function can($perm) {
+    global $user, $role;
+    return rt_can($user, $role, $perm);
+}
+function can_any(array $perms) {
+    foreach ($perms as $p) if (can($p)) return true;
+    return false;
+}
+// Короткие сообщения после действия (показываются всплывашкой на следующей странице)
+function flash($text, $type = "info") {
+    $_SESSION["flash"][] = ["text" => $text, "type" => $type];
+}
+// Пароль сохраняем в том же виде, что и у остальных аккаунтов:
+// если в users.json пароли захешированы — хешируем, иначе как было.
+function store_password($plain, $users) {
+    $hashed = 0; $total = 0;
+    foreach ($users as $u) {
+        if (!is_array($u) || !isset($u["password"])) continue;
+        $total++;
+        if (preg_match('/^\$(2y|2a|argon2)/', (string)$u["password"])) $hashed++;
+    }
+    return ($total > 0 && $hashed * 2 > $total) ? password_hash($plain, PASSWORD_DEFAULT) : $plain;
+}
+
+/* Какое право нужно для каждого действия. Действие, которого нет
+   в списке, запрещено. "" — достаточно просто быть в команде. */
+$ACTION_PERMS = [
+    // заявки
+    "mark_viewed" => "apps.view", "app_decide" => "apps.decide",
+    // директора школ
+    "approve_request" => "directors.manage", "decline_request" => "directors.manage", "delete_request" => "directors.manage",
+    "add_director" => "directors.manage", "reset_director_password" => "directors.manage", "regenerate_file" => "directors.manage",
+    "regenerate_all" => "directors.manage", "delete_director" => "directors.manage",
+    // баны и чёрный список
+    "add_ban" => "bans.manage", "unban" => "bans.manage", "save_geoblock" => "bans.manage", "clear_blocked_attempts" => "bans.manage",
+    "add_blacklist" => "bans.manage", "sign_blacklist" => "bans.manage", "release_blacklist" => "bans.manage",
+    "edit_blacklist" => "bans.manage", "delete_blacklist" => "bans.manage",
+    "ban_bot_user" => "bans.manage", "unban_bot_user" => "bans.manage",
+    // проекты и файлы
+    "add_project" => "projects.manage", "edit_project" => "projects.manage", "toggle_project" => "projects.manage", "del_project" => "projects.manage",
+    "upload_file" => "files.upload", "del_file" => "files.view",
+    // чат
+    "send_chat_msg" => "chat.view", "vote_poll" => "chat.view", "del_chat_msg" => "chat.view",
+    "pin_msg" => "chat.pin", "unpin_msg" => "chat.pin",
+    // цели и штрафы
+    "add_goal" => "goals.manage", "del_goal" => "goals.manage",
+    "add_fine" => "fines.manage", "pay_fine_manual" => "fines.manage", "del_fine" => "fines.manage", "pay_fine_online" => "",
+    // почта и тикеты
+    "reply_msg" => "mail.view", "del_msg" => "mail.view",
+    "reply_ticket" => "support.view", "close_ticket" => "support.view", "pin_photo" => "support.view",
+    // бот
+    "reply_tg_ticket" => "bot.tickets", "close_tg_ticket" => "bot.tickets",
+    "broadcast_tg" => "bot.manage", "add_bot_gw" => "bot.manage", "del_bot_gw" => "bot.manage", "roll_bot_gw" => "bot.manage",
+    "save_bot_token" => "settings.manage",
+    // контент
+    "save_recruit" => "recruit.manage",
+    "add_leak" => "leaks.manage", "edit_leak" => "leaks.manage", "toggle_leak" => "leaks.manage", "del_leak" => "leaks.manage",
+    "add_post" => "blog.manage", "edit_post" => "blog.manage", "toggle_post" => "blog.manage", "del_post" => "blog.manage",
+    "save_theme" => "themes.manage", "squid_set_paused" => "themes.manage", "squid_reset_user" => "themes.manage",
+    "save_settings" => "settings.manage",
+    // золотой билет
+    "grant_golden" => "gold.manage", "revoke_golden" => "gold.manage", "add_gold_service" => "gold.manage",
+    "edit_gold_service" => "gold.manage", "delete_gold_service" => "gold.manage", "gold_reply" => "gold.chat",
+    // люди и роли
+    "add_user" => "users.manage", "set_pass" => "users.manage", "del_user" => "users.manage",
+    "set_role" => "roles.manage", "add_to_team" => "roles.manage", "change_team_role" => "roles.manage", "remove_from_team" => "roles.manage",
+    "save_perms" => "perms.manage", "reset_perms" => "perms.manage",
+];
+
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"])) {
+    $__act  = (string)$_POST["action"];
+    $__need = array_key_exists($__act, $ACTION_PERMS) ? $ACTION_PERMS[$__act] : false;
+    if ($__need === false || ($__need !== "" && !can($__need))) {
+        if (isset($_POST["is_ajax"])) { echo "forbidden"; exit; }
+        flash("Недостаточно прав для этого действия (роль «" . rt_role_label($role, $my_direction) . "»).", "error");
+        header("Location: admin.php?tab=" . urlencode($_GET["tab"] ?? "home")); exit;
+    }
+}
+
+// --- API ДЛЯ ОБНОВЛЕНИЯ ВКЛАДКИ БОТА (AJAX JSON) ---
+if (isset($_GET['ajax_bot_data'])) {
+    header('Content-Type: application/json');
+    if (!can_any(["bot.tickets", "bot.manage"])) { echo json_encode(["tickets" => "", "giveaways" => ""]); exit; }
+    $tg_tickets = load_json("bot_tickets.json", []);
+    $banned_users = load_json("bot_banned.json", []);
+    $gws = load_json("bot_giveaways.json", []);
+    if (!is_array($banned_users)) $banned_users = [];
+
+    echo json_encode([
+        "tickets" => can("bot.tickets") ? render_bot_tickets($tg_tickets, $banned_users, true, can("bans.manage")) : "",
+        "giveaways" => render_bot_giveaways_list($gws, can("bot.manage"))
+    ]);
+    exit;
+}
 
 /* --- API ДЛЯ УВЕДОМЛЕНИЙ (AJAX) --- */
 if (isset($_GET['ajax_check'])) {
@@ -301,6 +402,7 @@ if (isset($_GET['ajax_check'])) {
 /* --- API ДЛЯ ОБНОВЛЕНИЯ ЧАТА ТИКЕТА --- */
 if (isset($_GET['ajax_html_ticket'])) {
     header('Content-Type: application/json');
+    if (!can("support.view")) { echo json_encode(["html" => "", "status" => ""]); exit; }
     $id = $_GET['ajax_html_ticket'];
     $tickets_data = load_json("tickets.json", []);
     $html = ""; $status = "Закрыт";
@@ -327,6 +429,7 @@ if (isset($_GET['ajax_html_ticket'])) {
 /* --- API ДЛЯ ОБНОВЛЕНИЯ СПИСКА ТИКЕТОВ СЛЕВА --- */
 if (isset($_GET['ajax_ticket_list'])) {
     header('Content-Type: application/json');
+    if (!can("support.view")) { echo json_encode(["html" => ""]); exit; }
     $tickets_data = load_json("tickets.json", []);
     $html = "";
     $active_id = $_GET['active_id'] ?? null;
@@ -336,11 +439,11 @@ if (isset($_GET['ajax_ticket_list'])) {
         foreach (array_reverse($tickets_data) as $t) {
             $statusColor = $t['status'] === 'Открыт' ? '#1f9d55' : ($t['status'] === 'Закрыт' ? '#777' : '#d97706');
             $activeClass = ($active_id == $t['id']) ? 'active' : '';
-            $html .= '<a href="?tab=support&ticket_id='.$t['id'].'" class="sup-ticket '.$activeClass.'">';
+            $html .= '<a href="?tab=support&ticket_id='.urlencode($t['id']).'" class="sup-ticket '.$activeClass.'">';
             $html .= '<div style="font-weight: bold; margin-bottom: 5px; color: #ff7777;">'.htmlspecialchars($t['topic']).'</div>';
             $html .= '<div style="font-size: 11px; color: #777; display: flex; justify-content: space-between;">';
-            $html .= '<span>#'.$t['id'].' | '.htmlspecialchars($t['client']).'</span>';
-            $html .= '<span id="sidebar_status_'.$t['id'].'" style="background: '.$statusColor.'; padding: 2px 6px; border-radius: 4px; color: #fff;">'.$t['status'].'</span>';
+            $html .= '<span>#'.htmlspecialchars($t['id']).' | '.htmlspecialchars($t['client']).'</span>';
+            $html .= '<span id="sidebar_status_'.htmlspecialchars($t['id']).'" style="background: '.$statusColor.'; padding: 2px 6px; border-radius: 4px; color: #fff;">'.htmlspecialchars($t['status']).'</span>';
             $html .= '</div></a>';
         }
     }
@@ -349,10 +452,49 @@ if (isset($_GET['ajax_ticket_list'])) {
 }
 
 /* --------------------------------- */
-$tab = $_GET["tab"] ?? "apps";
+/* ВКЛАДКИ: [название, иконка, нужное право (null — всем в команде), группа в меню] */
+$TABS = [
+    "home"      => ["Главная",        "🏠", null,                                           "Основное"],
+    "chat"      => ["Чат команды",    "💬", "chat.view",                                    "Основное"],
+    "goals"     => ["Цели",           "🎯", "goals.view",                                   "Основное"],
+    "fines"     => ["Штрафы",         "💸", null,                                           "Основное"],
+    "files"     => ["Файлы",          "📁", "files.view",                                   "Основное"],
+    "team"      => ["Команда и роли", "👥", "team.view",                                    "Основное"],
+    "apps"      => ["Заявки",         "📝", "apps.view",                                    "Работа"],
+    "projects"  => ["Проекты",        "🧩", "projects.manage",                              "Работа"],
+    "support"   => ["Тикеты",         "🎧", "support.view",                                 "Работа"],
+    "messages"  => ["Почта",          "✉️", "mail.view",                                    "Работа"],
+    "bot"       => ["Telegram-бот",   "🤖", ["bot.tickets", "bot.manage", "settings.manage"], "Работа"],
+    "directors" => ["Директора школ", "🏫", "directors.manage",                             "Работа"],
+    "blog"      => ["Блог",           "📰", "blog.manage",                                  "Контент"],
+    "leaks"     => ["Сливы",          "💧", "leaks.manage",                                 "Контент"],
+    "themes"    => ["Темы сайта",     "🎭", "themes.manage",                                "Контент"],
+    "recruit"   => ["Набор",          "📣", "recruit.manage",                               "Контент"],
+    "gold"      => ["Золотой билет",  "🎫", ["gold.chat", "gold.manage"],                   "Контент"],
+    "users"     => ["Пользователи",   "🗂️", "users.view",                                   "Управление"],
+    "perms"     => ["Права ролей",    "🔐", null,                                           "Управление"],
+    "bans"      => ["Баны",           "⛔", "bans.manage",                                  "Управление"],
+    "blacklist" => ["Чёрный список",  "⚫", "bans.manage",                                  "Управление"],
+    "settings"  => ["Настройки",      "⚙️", "settings.manage",                              "Управление"],
+    "logs"      => ["Логи",           "📜", "logs.view",                                    "Управление"],
+];
+function tab_allowed($key) {
+    global $TABS;
+    if (!isset($TABS[$key])) return false;
+    $need = $TABS[$key][2];
+    if ($need === null) return true;
+    return is_array($need) ? can_any($need) : can($need);
+}
+
+$tab = $_GET["tab"] ?? "home";
+if (!tab_allowed($tab)) {
+    if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+        if (isset($TABS[$tab])) flash("Раздел «" . $TABS[$tab][0] . "» недоступен для роли «" . rt_role_label($role, $my_direction) . "».", "error");
+        header("Location: admin.php?tab=home"); exit;
+    }
+}
 
 $applications = load_json("applications.json", []);
-$users        = load_json("users.json", []);
 $leaks        = load_json("leaks.json", []);
 $goals        = load_json("goals.json", []);
 $fines        = load_json("fines.json", []);
@@ -384,8 +526,9 @@ $users_changed = false;
 foreach ($fines as &$fine) {
     if (empty($fine["paid"]) && time() - strtotime($fine["issue_date"]) >= 30 * 86400) {
         $fine_user = $fine["user"];
-        if (isset($users[$fine_user]) && $users[$fine_user]["role"] !== "Пользователь") {
+        if (isset($users[$fine_user]) && ($users[$fine_user]["role"] ?? "Пользователь") !== "Пользователь" && !rt_is_owner($fine_user)) {
             $users[$fine_user]["role"] = "Пользователь";
+            unset($users[$fine_user]["direction"]);
             $users_changed = true;
             $logs[] = ["time" => date("Y-m-d H:i:s"),"type" => "fine_ban","msg"  => "Пользователь {$fine_user} автоматически исключен."];
         }
@@ -393,6 +536,29 @@ foreach ($fines as &$fine) {
 }
 unset($fine);
 if ($users_changed) { save_json("users.json", $users); save_json("logs.json", $logs); }
+
+/* ВОПРОС «НАПРАВЛЕНИЕ» В ЗАЯВКЕ
+   В заявке «Команда» на сайте он показывается списком (Кодер / Разработчик /
+   Тестер), а при одобрении направление само записывается стажёру.
+   Добавляется в конец списка вопросов один раз: если потом удалить его
+   во вкладке «Набор», он не вернётся. */
+if (empty($settings["direction_q_added"])) {
+    $qfile = load_json("questions.json", []);
+    if (empty($qfile["team"]) || empty($qfile["admin"])) {
+        // файла ещё нет — берём те же вопросы, что сайт показывает по умолчанию
+        $qfile = [
+            "team"  => ["Ник", "Email", "Возраст", "Навыки", "Почему хотите в команду", "Опыт", "Discord"],
+            "admin" => ["Ник", "Email", "Возраст", "Опыт модерации / управления", "Какие проекты модерировали", "Почему хотите быть администратором", "Готовность быть активным (да/нет)", "Discord"],
+        ];
+    }
+    $hasDirection = false;
+    foreach ($qfile["team"] as $q) if (mb_stripos($q, "направлен") !== false) $hasDirection = true;
+    if (!$hasDirection) $qfile["team"][] = "Направление";
+    save_json("questions.json", $qfile);
+    $questions = $qfile;
+    $settings["direction_q_added"] = true;
+    save_json("settings.json", $settings);
+}
 
 /* ПОИСК И СОРТИРОВКА ДЛЯ ЗАЯВОК */
 $search = trim($_GET["search"] ?? ""); $sort = $_GET["sort"] ?? "newest";
@@ -417,6 +583,67 @@ if ($tab === "apps") {
         }
         return $b["id"] <=> $a["id"];
     });
+    /* РЕШЕНИЕ ПО ЗАЯВКЕ: «Принять» сразу выдаёт роль «Стажёр» и направление,
+       на которое человек подавал, и отправляет письмо с решением. */
+    if ($_SERVER["REQUEST_METHOD"] === "POST" && ($_POST["action"] ?? "") === "app_decide") {
+        $id = $_POST["id"] ?? ""; $decision = $_POST["decision"] ?? ""; $comment = trim($_POST["comment"] ?? "");
+        $back = "admin.php?tab=apps&search=" . urlencode($search) . "&sort=" . urlencode($sort);
+        $all = load_json("applications.json", []);
+        $idx = null;
+        foreach ($all as $k => $a) if ((string)$a["id"] === (string)$id) { $idx = $k; break; }
+        if ($idx === null || !in_array($decision, ["accept", "decline"], true)) { flash("Заявка не найдена.", "error"); header("Location: $back"); exit; }
+        $app = $all[$idx];
+        $nick = rt_app_answer($app, "Ник");
+        $email = rt_app_answer($app, "email");
+
+        if ($decision === "accept") {
+            $login = trim($_POST["login"] ?? "");
+            $direction = $_POST["direction"] ?? "";
+            if (!isset(rt_directions()[$direction])) $direction = rt_app_direction($app);
+            if ($login === "" || !isset($users[$login])) {
+                flash("Аккаунт «" . ($login !== "" ? $login : $nick) . "» не найден. Укажите логин, под которым человек зарегистрирован на сайте.", "error");
+                header("Location: $back"); exit;
+            }
+            $curRole = $users[$login]["role"] ?? "Пользователь";
+            $roleNote = "";
+            if (rt_is_owner($login) || (rt_level($curRole) > rt_level(RT_TRAINEE_ROLE))) {
+                $roleNote = "роль не менялась — уже «" . rt_role_label($curRole, $users[$login]["direction"] ?? "") . "»";
+            } else {
+                $users[$login]["role"] = RT_TRAINEE_ROLE;
+                $users[$login]["direction"] = $direction;
+                $users[$login]["role_by"] = $user;
+                $users[$login]["role_at"] = date("Y-m-d H:i:s");
+                save_json("users.json", $users);
+                $roleNote = "выдана роль «" . rt_role_label(RT_TRAINEE_ROLE, $direction) . "»";
+            }
+            $all[$idx]["status"] = "resolved_accept";
+            $all[$idx]["account"] = $login;
+            $all[$idx]["direction"] = $direction;
+            $mailText = "Здравствуйте" . ($nick !== "" ? ", $nick" : "") . "!\n\nВаша заявка «" . ($app["type"] ?? "") . "» в Rteam одобрена.\n"
+                . "Вам выдана роль «Стажёр», направление: $direction.\n"
+                . "Войдите на сайт под своим аккаунтом ($login) — откроется админ-панель с чатом команды.\n";
+        } else {
+            $all[$idx]["status"] = "resolved_decline";
+            $roleNote = "отказ";
+            $mailText = "Здравствуйте" . ($nick !== "" ? ", $nick" : "") . "!\n\nК сожалению, ваша заявка «" . ($app["type"] ?? "") . "» в Rteam отклонена.\n";
+        }
+        if ($comment !== "") $mailText .= "\nКомментарий: $comment\n";
+        $mailText .= "\nС уважением, Rteam";
+        $all[$idx]["decided_by"] = $user;
+        $all[$idx]["decided_at"] = date("Y-m-d H:i:s");
+        $all[$idx]["comment"] = $comment;
+        save_json("applications.json", $all);
+
+        $mailed = false;
+        if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $mailed = @mail($email, "Решение по заявке — Rteam", $mailText, "From: team@rteam.info\r\nContent-Type: text/plain; charset=UTF-8\r\n");
+        }
+        $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "application", "msg" => "$user " . ($decision === "accept" ? "принял" : "отклонил") . " заявку #{$app["id"]} (" . ($nick !== "" ? $nick : "без ника") . "): $roleNote."];
+        save_json("logs.json", $logs);
+        flash(($decision === "accept" ? "Заявка принята: $roleNote." : "Заявка отклонена.") . ($mailed ? " Письмо отправлено." : ""), $decision === "accept" ? "success" : "info");
+        header("Location: $back"); exit;
+    }
+
     if ($_SERVER["REQUEST_METHOD"] === "POST" && ($_POST["action"] ?? "") === "mark_viewed") {
         $id = $_POST["id"] ?? ""; $all = load_json("applications.json", []);
         foreach ($all as &$app) { if ((string)$app["id"] === (string)$id && ($app["status"] ?? "new") === "new") { $app["status"] = "viewed"; break; } } unset($app);
@@ -835,7 +1062,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
         }
         if ($_POST["action"] === "del_file") {
             $id = $_POST["id"];
-            foreach ($files_data as $k => $f) { if ((string)$f["id"] === (string)$id) { if ($is_leader || $f["uploader"] === $user) { @unlink($f["path"]); unset($files_data[$k]); $logs[] = ["time"=>date("Y-m-d H:i:s"),"type"=>"file_del","msg"=>"$user удалил файл '".$f["name"]."'"]; } break; } }
+            foreach ($files_data as $k => $f) { if ((string)$f["id"] === (string)$id) { if (can("files.manage") || $f["uploader"] === $user) { @unlink($f["path"]); unset($files_data[$k]); $logs[] = ["time"=>date("Y-m-d H:i:s"),"type"=>"file_del","msg"=>"$user удалил файл '".$f["name"]."'"]; } break; } }
             save_json("files.json", array_values($files_data)); save_json("logs.json", $logs); header("Location: admin.php?tab=files"); exit;
         }
     }
@@ -855,7 +1082,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
                 if (count($opts) > 1) { $votes = []; foreach ($opts as $o) $votes[$o] = []; $poll = ["question" => $poll_q, "votes" => $votes]; }
             }
             if ($text !== "" || $photo_path !== null || $poll !== null) {
-                $chat_data["messages"][] = ["id" => time() . rand(100, 999), "user" => $user, "role" => $role, "time" => date("Y-m-d H:i:s"), "text" => $text, "photo" => $photo_path, "poll" => $poll];
+                $chat_data["messages"][] = ["id" => time() . rand(100, 999), "user" => $user, "role" => rt_role_label($role, $my_direction), "time" => date("Y-m-d H:i:s"), "text" => $text, "photo" => $photo_path, "poll" => $poll];
                 save_json("chat.json", $chat_data);
             }
             header("Location: admin.php?tab=chat"); exit;
@@ -872,7 +1099,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
             } unset($m); save_json("chat.json", $chat_data); header("Location: admin.php?tab=chat"); exit;
         }
         if ($_POST["action"] === "del_chat_msg") {
-            $msg_id = $_POST["id"]; $chat_data["messages"] = array_filter($chat_data["messages"], fn($m) => (string)$m["id"] !== (string)$msg_id);
+            $msg_id = $_POST["id"];
+            // своё сообщение может удалить каждый, чужое — только с правом модерации чата
+            $may_delete = can("chat.moderate");
+            foreach ($chat_data["messages"] as $m) if ((string)$m["id"] === (string)$msg_id && $m["user"] === $user) $may_delete = true;
+            if (!$may_delete) { flash("Удалять чужие сообщения может только модератор чата.", "error"); header("Location: admin.php?tab=chat"); exit; }
+            $chat_data["messages"] = array_filter($chat_data["messages"], fn($m) => (string)$m["id"] !== (string)$msg_id);
             if ($chat_data["pinned_id"] === $msg_id) $chat_data["pinned_id"] = null;
             $chat_data["messages"] = array_values($chat_data["messages"]); save_json("chat.json", $chat_data); header("Location: admin.php?tab=chat"); exit;
         }
@@ -880,25 +1112,26 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
 
     /* --- ЦЕЛИ И ШТРАФЫ --- */
     if ($_POST["action"] === "add_goal") {
-        if (!$is_leader) die("Нет прав");
+        if (!can("goals.manage")) die("Нет прав");
         $title = trim($_POST["title"] ?? ""); $desc = trim($_POST["description"] ?? ""); $date = trim($_POST["deadline_date"] ?? ""); $time = trim($_POST["deadline_time"] ?? ""); $assigned_to = trim($_POST["assigned_to"] ?? "all");
         if ($title !== "" && $date !== "" && $time !== "") { $goals[] = ["id" => time(), "title" => $title, "description" => $desc, "deadline" => $date . " " . $time . ":00", "assigned_to" => $assigned_to, "created_by" => $user, "created_at" => date("Y-m-d H:i:s")]; save_json("goals.json", $goals); }
         header("Location: admin.php?tab=goals"); exit;
     }
-    if ($_POST["action"] === "del_goal") { if (!$is_leader) die("Нет прав"); $goals = array_filter($goals, fn($g) => (string)$g["id"] !== (string)$_POST["id"]); save_json("goals.json", array_values($goals)); header("Location: admin.php?tab=goals"); exit; }
+    if ($_POST["action"] === "del_goal") { if (!can("goals.manage")) die("Нет прав"); $goals = array_filter($goals, fn($g) => (string)$g["id"] !== (string)$_POST["id"]); save_json("goals.json", array_values($goals)); header("Location: admin.php?tab=goals"); exit; }
     
     if ($_POST["action"] === "add_fine") {
-        if (!$is_leader) die("Нет прав");
+        if (!can("fines.manage")) die("Нет прав");
         $fine_user = trim($_POST["user"] ?? ""); $amount = (int)($_POST["amount"] ?? 0); $reason = trim($_POST["reason"] ?? "");
+        if (!isset($users[$fine_user]) || !rt_can_edit_user($user, $role, $fine_user, $users[$fine_user]["role"] ?? "")) { flash("Штраф можно выписать только тому, кто младше вас по должности.", "error"); header("Location: admin.php?tab=fines"); exit; }
         if ($fine_user !== "" && $amount >= 10 && $reason !== "") { $fines[] = ["id" => time(), "user" => $fine_user, "amount" => $amount, "reason" => $reason, "issue_date" => date("Y-m-d H:i:s"), "issued_by" => $user, "paid" => false]; save_json("fines.json", $fines); }
         header("Location: admin.php?tab=fines"); exit;
     }
     if ($_POST["action"] === "pay_fine_manual") {
-        if (!$is_leader) die("Нет прав");
+        if (!can("fines.manage")) die("Нет прав");
         foreach ($fines as &$f) { if ((string)$f["id"] === (string)$_POST["id"]) { $f["paid"] = true; $f["paid_date"] = date("Y-m-d H:i:s"); break; } } unset($f);
         save_json("fines.json", $fines); header("Location: admin.php?tab=fines"); exit;
     }
-    if ($_POST["action"] === "del_fine") { if (!$is_leader) die("Нет прав"); $fines = array_filter($fines, fn($f) => (string)$f["id"] !== (string)$_POST["id"]); save_json("fines.json", array_values($fines)); header("Location: admin.php?tab=fines"); exit; }
+    if ($_POST["action"] === "del_fine") { if (!can("fines.manage")) die("Нет прав"); $fines = array_filter($fines, fn($f) => (string)$f["id"] !== (string)$_POST["id"]); save_json("fines.json", array_values($fines)); header("Location: admin.php?tab=fines"); exit; }
 
     /* --- СООБЩЕНИЯ И ТИКЕТЫ (САЙТ) --- */
     if ($tab === "messages" && $_POST["action"] === "reply_msg") {
@@ -1087,10 +1320,105 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
     if ($_POST["action"] === "edit_post") { foreach ($blog as &$p) if ((string)$p["id"] === (string)$_POST["id"]) { $p["title"] = $_POST["title"]; $p["content"] = $_POST["content"]; break; } unset($p); save_json("blog.json", $blog); header("Location: admin.php?tab=blog"); exit; }
     if ($_POST["action"] === "toggle_post") { foreach ($blog as &$p) if ((string)$p["id"] === (string)$_POST["id"]) $p["hidden"] = !$p["hidden"]; unset($p); save_json("blog.json", $blog); header("Location: admin.php?tab=blog"); exit; }
     if ($_POST["action"] === "del_post") { $blog = array_filter($blog, fn($p) => (string)$p["id"] !== (string)$_POST["id"]); save_json("blog.json", array_values($blog)); header("Location: admin.php?tab=blog"); exit; }
-    if ($_POST["action"] === "add_user" && !isset($users[$_POST["login"]])) { $users[$_POST["login"]] = ["password"=>$_POST["password"],"role"=>$_POST["role"]]; save_json("users.json", $users); header("Location: admin.php?tab=users"); exit; }
-    if ($_POST["action"] === "set_role" && isset($users[$_POST["login"]])) { $users[$_POST["login"]]["role"] = $_POST["role"]; save_json("users.json", $users); header("Location: admin.php?tab=users"); exit; }
-    if ($_POST["action"] === "set_pass" && isset($users[$_POST["login"]])) { $users[$_POST["login"]]["password"] = $_POST["password"]; save_json("users.json", $users); header("Location: admin.php?tab=users"); exit; }
-    if ($_POST["action"] === "del_user" && isset($users[$_POST["login"]]) && !in_array($_POST["login"], ["Roma_07b", "Petryha"])) { unset($users[$_POST["login"]]); save_json("users.json", $users); header("Location: admin.php?tab=users"); exit; }
+    /* --- ЛЮДИ И РОЛИ ---
+       Кто кому что может менять, решает _roles.php: роли выдаёт тот, у кого
+       есть право «roles.manage», и только тем, кто младше его по уровню
+       (руководитель — кому угодно). Себе роль поменять нельзя, владельцев
+       сайта трогают только владельцы. */
+    $act = $_POST["action"] ?? "";
+    $back_tab = in_array($_POST["back"] ?? "", ["team", "users"], true) ? $_POST["back"] : ($tab === "users" ? "users" : "team");
+
+    if ($act === "add_user") {
+        $login = trim($_POST["login"] ?? ""); $pass = (string)($_POST["password"] ?? ""); $newRole = $_POST["role"] ?? "Пользователь";
+        if ($login === "" || $pass === "") flash("Укажите логин и пароль.", "error");
+        elseif (isset($users[$login])) flash("Пользователь «{$login}» уже есть.", "error");
+        else {
+            if (!rt_can_assign_role($user, $role, $newRole) && $newRole !== "Пользователь") { flash("Роль «{$newRole}» вы выдать не можете — аккаунт создан как «Пользователь».", "error"); $newRole = "Пользователь"; }
+            $users[$login] = ["password" => store_password($pass, $users), "role" => $newRole];
+            if ($newRole === RT_TRAINEE_ROLE) $users[$login]["direction"] = isset(rt_directions()[$_POST["direction"] ?? ""]) ? $_POST["direction"] : "Кодер";
+            if ($newRole !== "Пользователь") { $users[$login]["role_by"] = $user; $users[$login]["role_at"] = date("Y-m-d H:i:s"); }
+            save_json("users.json", $users);
+            $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "users", "msg" => "$user создал аккаунт {$login} с ролью «" . rt_role_label($newRole, $users[$login]["direction"] ?? "") . "»."];
+            save_json("logs.json", $logs);
+            flash("Аккаунт «{$login}» создан.", "success");
+        }
+        header("Location: admin.php?tab=users"); exit;
+    }
+
+    if (in_array($act, ["set_role", "add_to_team", "change_team_role", "remove_from_team"], true)) {
+        $login = $_POST["login"] ?? "";
+        $newRole = $act === "remove_from_team" ? "Пользователь" : ($_POST["role"] ?? "");
+        $direction = trim($_POST["direction"] ?? "");
+        if (!isset($users[$login])) { flash("Пользователь не найден.", "error"); header("Location: admin.php?tab=$back_tab"); exit; }
+        $oldRole = $users[$login]["role"] ?? "Пользователь";
+        $oldDir  = $users[$login]["direction"] ?? "";
+        if (!rt_can_edit_user($user, $role, $login, $oldRole)) {
+            flash($login === $user ? "Свою роль поменять нельзя — попросите старшего." : "Нельзя менять роль «{$login}»: этот человек не младше вас по должности.", "error");
+        } elseif (!rt_can_assign_role($user, $role, $newRole)) {
+            flash("Роль «{$newRole}» вы выдать не можете.", "error");
+        } else {
+            $users[$login]["role"] = $newRole;
+            if ($newRole === RT_TRAINEE_ROLE) {
+                $users[$login]["direction"] = isset(rt_directions()[$direction]) ? $direction : ($oldDir !== "" ? $oldDir : "Кодер");
+            } else {
+                unset($users[$login]["direction"]);
+            }
+            $users[$login]["role_by"] = $user;
+            $users[$login]["role_at"] = date("Y-m-d H:i:s");
+            save_json("users.json", $users);
+            $was = rt_role_label($oldRole, $oldDir); $now = rt_role_label($newRole, $users[$login]["direction"] ?? "");
+            $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "roles", "msg" => "$user сменил роль {$login}: «{$was}» → «{$now}»."];
+            save_json("logs.json", $logs);
+            flash($newRole === "Пользователь" ? "«{$login}» больше не в команде." : "{$login}: теперь «{$now}».", "success");
+        }
+        header("Location: admin.php?tab=$back_tab"); exit;
+    }
+
+    if ($act === "set_pass") {
+        $login = $_POST["login"] ?? ""; $pass = (string)($_POST["password"] ?? "");
+        if (!isset($users[$login]) || $pass === "") flash("Укажите новый пароль.", "error");
+        elseif (!rt_can_edit_user($user, $role, $login, $users[$login]["role"] ?? "Пользователь")) flash("Нельзя менять пароль «{$login}»: этот человек не младше вас по должности.", "error");
+        else {
+            $users[$login]["password"] = store_password($pass, $users);
+            save_json("users.json", $users);
+            $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "users", "msg" => "$user сменил пароль пользователю {$login}."];
+            save_json("logs.json", $logs);
+            flash("Пароль для «{$login}» изменён.", "success");
+        }
+        header("Location: admin.php?tab=users"); exit;
+    }
+
+    if ($act === "del_user") {
+        $login = $_POST["login"] ?? "";
+        if (!isset($users[$login])) flash("Пользователь не найден.", "error");
+        elseif (rt_is_owner($login)) flash("Аккаунт владельца сайта удалить нельзя.", "error");
+        elseif (!rt_can_edit_user($user, $role, $login, $users[$login]["role"] ?? "Пользователь")) flash("Нельзя удалить «{$login}»: этот человек не младше вас по должности.", "error");
+        else {
+            unset($users[$login]);
+            save_json("users.json", $users);
+            $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "users", "msg" => "$user удалил аккаунт {$login}."];
+            save_json("logs.json", $logs);
+            flash("Аккаунт «{$login}» удалён.", "success");
+        }
+        header("Location: admin.php?tab=users"); exit;
+    }
+
+    /* --- ПРАВА РОЛЕЙ (только руководитель / владельцы) --- */
+    if ($act === "save_perms") {
+        rt_save_role_perms($_POST["perm"] ?? []);
+        $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "roles", "msg" => "$user изменил права ролей."];
+        save_json("logs.json", $logs);
+        flash("Права ролей сохранены.", "success");
+        header("Location: admin.php?tab=perms"); exit;
+    }
+    if ($act === "reset_perms") {
+        rt_reset_role_perms();
+        $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "roles", "msg" => "$user сбросил права ролей к стандартным."];
+        save_json("logs.json", $logs);
+        flash("Права ролей сброшены к стандартным.", "success");
+        header("Location: admin.php?tab=perms"); exit;
+    }
+
     if ($_POST["action"] === "save_settings") { $settings["site_name"] = trim($_POST["site_name"]); $settings["accent"] = trim($_POST["accent"]); $settings["neon"] = isset($_POST["neon"]); $settings["animations"] = isset($_POST["animations"]); save_json("settings.json", $settings); header("Location: admin.php?tab=settings"); exit; }
     if ($_POST["action"] === "save_theme") {
         $cat = rteam_theme_catalog();
@@ -1117,9 +1445,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
         }
         header("Location: admin.php?tab=themes"); exit;
     }
-    if ($_POST["action"] === "add_to_team" && isset($users[$_POST["login"]])) { $users[$_POST["login"]]["role"] = $_POST["role"]; save_json("users.json", $users); header("Location: admin.php?tab=team"); exit; }
-    if ($_POST["action"] === "change_team_role" && isset($users[$_POST["login"]])) { $users[$_POST["login"]]["role"] = $_POST["role"]; save_json("users.json", $users); header("Location: admin.php?tab=team"); exit; }
-    if ($_POST["action"] === "remove_from_team" && isset($users[$_POST["login"]])) { $users[$_POST["login"]]["role"] = "Пользователь"; save_json("users.json", $users); header("Location: admin.php?tab=team"); exit; }
 
     /* --- ЗОЛОТОЙ БИЛЕТ RTEAM --- */
     if ($_POST["action"] === "grant_golden") {
@@ -1195,10 +1520,36 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
 
 $stats = [ "apps_total" => count($applications), "users_total" => count($users), "chat_total" => count($chat_data["messages"]), "files_total" => count($files_data), "goals_total" => count($goals), "fines_total" => count($fines), "bans_total" => count($bans), "msgs_total" => count($messages), "blog_total" => count($blog), "projects_total" => count($projects_data), "logs_total" => count($logs) ];
 
-function render_chat_message($m, $is_pinned, $user, $is_leader) {
+/* СЧЁТЧИКИ ДЛЯ МЕНЮ И ГЛАВНОЙ */
+$count = [
+    "apps"      => count(array_filter(load_json("applications.json", []), fn($a) => ($a["status"] ?? "new") === "new")),
+    "directors" => count(array_filter($director_requests, fn($r) => ($r["status"] ?? "pending") === "pending")),
+    "support"   => count(array_filter($tickets, fn($t) => ($t["status"] ?? "") === "Открыт")),
+    "messages"  => count(array_filter($messages, fn($m) => empty($m["reply"]))),
+    "bot"       => count(array_filter((array)load_json("bot_tickets.json", []), fn($t) => ($t["status"] ?? "") === "new")),
+];
+$staff_list = [];
+foreach ($users as $l => $u) if (is_array($u) && rt_is_staff($u["role"] ?? "Пользователь", $l)) $staff_list[$l] = $u;
+$active_bans = count(array_filter($bans, fn($b) => (int)($b["expires"] ?? 0) === 0 || (int)$b["expires"] > time()));
+
+// Мои цели: поставленные всей команде, моему отделу или лично мне
+$goal_classes = ["dev" => "class:coder", "tester" => "class:tester", "admin" => "class:admin"];
+$my_goal_class = $goal_classes[$my_dept ?? ""] ?? null;
+$my_goals = array_values(array_filter($goals, function($g) use ($user, $my_goal_class) {
+    $a = $g["assigned_to"] ?? "all";
+    return $a === "all" || $a === "user:" . $user || ($my_goal_class !== null && $a === $my_goal_class);
+}));
+usort($my_goals, fn($a, $b) => strcmp($a["deadline"] ?? "", $b["deadline"] ?? ""));
+$my_unpaid_fines = array_values(array_filter($fines, fn($f) => ($f["user"] ?? "") === $user && empty($f["paid"])));
+
+$accent_css = preg_match('/^#[0-9a-fA-F]{3,8}$/', $settings["accent"] ?? "") ? $settings["accent"] : "#ff2a2a";
+$my_role_info = rt_role_info($role) ?? ["icon" => "❔", "color" => "#718096", "desc" => ""];
+
+function render_chat_message($m, $is_pinned, $user) {
     global $chat_data;
-    $html = '<div id="msg-' . $m["id"] . '" class="chat-msg ' . ($is_pinned ? 'highlight-pinned' : '') . '">';
-    $html .= '<div class="chat-header"><div><span class="chat-author">' . htmlspecialchars($m["user"]) . '</span> <span class="chat-role">' . htmlspecialchars($m["role"]) . '</span></div><span class="chat-time">' . htmlspecialchars($m["time"]) . '</span></div>';
+    $mid = htmlspecialchars($m["id"]);
+    $html = '<div id="msg-' . $mid . '" class="chat-msg' . ($m["user"] === $user ? ' mine' : '') . ($is_pinned ? ' highlight-pinned' : '') . '">';
+    $html .= '<div class="chat-header"><div><span class="chat-avatar">' . htmlspecialchars(mb_strtoupper(mb_substr($m["user"], 0, 1))) . '</span><span class="chat-author">' . htmlspecialchars($m["user"]) . '</span> <span class="chat-role">' . htmlspecialchars($m["role"]) . '</span></div><span class="chat-time">' . htmlspecialchars($m["time"]) . '</span></div>';
     if (!empty($m["text"])) $html .= '<div class="chat-text">' . nl2br(htmlspecialchars($m["text"])) . '</div>';
     if (!empty($m["photo"])) $html .= '<div class="chat-photo"><img src="' . htmlspecialchars($m["photo"]) . '" alt="photo"></div>';
     if (!empty($m["poll"])) {
@@ -1207,106 +1558,288 @@ function render_chat_message($m, $is_pinned, $user, $is_leader) {
         foreach ($m["poll"]["votes"] as $opt => $voters) {
             $count = count($voters); $percent = $total_votes > 0 ? round(($count / $total_votes) * 100) : 0; $has_voted = in_array($user, $voters);
             $html .= '<div class="poll-option"><div>' . htmlspecialchars($opt) . ' <span style="font-size:11px;color:#777;">(' . $count . ' голосов, ' . $percent . '%)</span></div>';
-            $html .= '<form method="POST" style="margin:0;"><input type="hidden" name="action" value="vote_poll"><input type="hidden" name="msg_id" value="' . $m["id"] . '"><input type="hidden" name="option" value="' . htmlspecialchars($opt) . '"><button class="btn ' . ($has_voted ? 'ok' : 'gray') . '" type="submit" style="padding:2px 8px;margin-top:0;">Голосовать</button></form></div>';
+            $html .= '<form method="POST" style="margin:0;"><input type="hidden" name="action" value="vote_poll"><input type="hidden" name="msg_id" value="' . $mid . '"><input type="hidden" name="option" value="' . htmlspecialchars($opt) . '"><button class="btn sm ' . ($has_voted ? 'ok' : 'gray') . '" type="submit" style="margin-top:0;">' . ($has_voted ? '✓ Ваш голос' : 'Голосовать') . '</button></form></div>';
             $html .= '<div class="poll-bar-container"><div class="poll-bar" style="width:' . $percent . '%"></div></div>';
         } $html .= '</div>';
     }
-    $html .= '<div class="chat-actions" style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">';
-    if ($chat_data["pinned_id"] === $m["id"]) $html .= '<form method="POST" style="margin:0;"><input type="hidden" name="action" value="unpin_msg"><button class="btn gray" type="submit" style="padding:4px 8px;">Открепить</button></form>';
-    else $html .= '<form method="POST" style="margin:0;"><input type="hidden" name="action" value="pin_msg"><input type="hidden" name="id" value="' . $m["id"] . '"><button class="btn blue" type="submit" style="padding:4px 8px;">Закрепить</button></form>';
-    if ($m["user"] === $user || $is_leader || $_SESSION["role"] === "Главный разработчик") $html .= '<form method="POST" style="margin:0;"><input type="hidden" name="action" value="del_chat_msg"><input type="hidden" name="id" value="' . $m["id"] . '"><button class="btn no" type="submit" style="padding:4px 8px;">Удалить</button></form>';
-    $html .= '</div></div>'; return $html;
+    $actions = '';
+    if (can("chat.pin")) {
+        if ($chat_data["pinned_id"] === $m["id"]) $actions .= '<form method="POST" style="margin:0;"><input type="hidden" name="action" value="unpin_msg"><button class="btn sm gray" type="submit">Открепить</button></form>';
+        else $actions .= '<form method="POST" style="margin:0;"><input type="hidden" name="action" value="pin_msg"><input type="hidden" name="id" value="' . $mid . '"><button class="btn sm ghost" type="submit">📌 Закрепить</button></form>';
+    }
+    if ($m["user"] === $user || can("chat.moderate")) $actions .= '<form method="POST" style="margin:0;" onsubmit="return confirm(\'Удалить сообщение?\');"><input type="hidden" name="action" value="del_chat_msg"><input type="hidden" name="id" value="' . $mid . '"><button class="btn sm ghost danger" type="submit">Удалить</button></form>';
+    if ($actions !== '') $html .= '<div class="chat-actions">' . $actions . '</div>';
+    $html .= '</div>'; return $html;
 }
 ?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="Favicon.Jpeg" type="image/jpeg">
-<title>Админ — Rteam</title>
+<title><?=htmlspecialchars($TABS[$tab][0] ?? "Админ")?> — Админ‑панель Rteam</title>
 <style>
-body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #050509; color: #eee; }
-.wrap { max-width: 1100px; margin: 30px auto; padding: 0 16px 40px; }
-h1 { color: #ff2a2a; text-shadow: 0 0 12px #ff000066; margin-bottom: 10px; }
-a { color:#ff7777; text-decoration:none; }
-.tabs { display: flex; gap: 10px; margin: 10px 0 20px; flex-wrap: wrap; }
-.tab { padding: 8px 14px; border-radius: 8px; background: #101018; border: 1px solid #2a0000; font-size: 14px; transition: background 0.3s; }
-.tab:hover { background: #1a0a0a; }
-.tab.active { background: #ff2a2a; color: #fff; box-shadow: 0 0 14px #ff000066; }
-.card { background: #101018; border: 1px solid #2a0000; padding: 14px; border-radius: 10px; margin-top: 10px; }
-.card h3 { margin: 0 0 6px; color: #ff2a2a; }
-.meta { font-size: 13px; color: #aaa; margin-bottom: 6px; }
-textarea, input[type="text"], input[type="password"], input[type="number"], input[type="date"], input[type="time"], select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #333; background: #050509; color: #fff; resize: none; font-size: 13px; margin-top: 6px; box-sizing: border-box; }
-textarea { height: 80px; }
-.btn { display: inline-block; margin-top: 8px; padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight:bold; }
-.ok { background:#1f9d55; color:#fff; }
-.no { background:#c53030; color:#fff; }
-.gray { background:#2d3748; color:#fff; }
-.blue { background:#2b6cb0; color:#fff; }
-.orange { background:#e67e22; color:#fff; }
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(120px,1fr)); gap: 10px; margin-top: 10px; }
-.stat { background:#101018; border:1px solid #2a0000; border-radius:10px; padding:10px; text-align:center; font-size:13px; }
-.stat b { font-size:18px; color:#ff2a2a; }
-.badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; margin-left:6px; }
-.badge-new { background:#2b6cb0; color:#fff; }
-.badge-viewed { background:#b7791f; color:#fff; }
-.badge-acc { background:#2f855a; color:#fff; }
-.badge-dec { background:#c53030; color:#fff; }
-.badge-warn { background:#dd6b20; color:#fff; }
-.badge-gold { background:linear-gradient(135deg,#ffe066,#d4a017); color:#3a2a00; font-weight:bold; box-shadow:0 0 8px rgba(255,215,0,.5); }
-.gold-card { background:linear-gradient(160deg,#1a1506,#101018 60%); border:1px solid #7a5c00; box-shadow: 0 0 14px rgba(212,160,23,.15) inset; }
-.gold-card h3 { color:#ffd76a; }
-.search-bar { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 16px; }
-.search-bar input, .search-bar select { width:auto; }
+:root {
+    --accent: <?=$accent_css?>;
+    --bg: #07070b; --panel: #101017; --panel-2: #15151e; --panel-3: #1b1b26;
+    --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12);
+    --text: #ececf2; --soft: #b4b4c3; --muted: #747487;
+    --ok: #22c55e; --warn: #f59e0b; --info: #3b82f6; --danger: #ef4444;
+    --radius: 14px; --sidebar: 268px;
+    --shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; font-family: Inter, "Segoe UI", system-ui, -apple-system, Arial, sans-serif; color: var(--text); font-size: 14px; line-height: 1.5;
+    background: var(--bg);
+    background: radial-gradient(1200px 600px at 110% -10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+                radial-gradient(900px 500px at -20% 110%, rgba(80,90,255,.06), transparent 60%), var(--bg);
+    background-attachment: fixed; min-height: 100vh; }
+a { color: color-mix(in srgb, var(--accent) 70%, #fff); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3, h4 { line-height: 1.25; }
+h3 { font-size: 16px; font-weight: 650; margin: 22px 0 10px; color: #fff; }
+h4 { color: var(--soft); }
+code { background: rgba(255,255,255,.06); padding: 1px 6px; border-radius: 6px; font-size: 12px; }
+::selection { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #262633; border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
 
-/* Чат команды */
-.chat-container { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; max-height: 600px; overflow-y: auto; padding-right: 8px; scroll-behavior: smooth; }
-.chat-msg { background: #101018; border: 1px solid #2a0000; padding: 12px; border-radius: 10px; }
-.chat-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 6px; margin-bottom: 8px; }
-.chat-author { color: #ff2a2a; font-weight: bold; font-size: 15px; }
-.chat-role { font-size: 11px; background: #333; padding: 3px 6px; border-radius: 4px; color: #ccc; margin-left: 8px; vertical-align: middle; }
-.chat-time { font-size: 11px; color: #777; }
-.chat-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
-.chat-photo img { max-width: 100%; max-height: 350px; border-radius: 8px; margin-top: 10px; border: 1px solid #333; }
-.chat-poll { margin-top: 12px; background: #050509; padding: 12px; border-radius: 8px; border: 1px solid #222; }
-.poll-option { display: flex; align-items: center; justify-content: space-between; background: #1a1a24; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; }
-.poll-bar-container { width: 100%; background: #050509; height: 6px; border-radius: 3px; margin-top: 4px; overflow: hidden; margin-bottom: 8px; }
-.poll-bar { height: 100%; background: #ff2a2a; transition: width 0.3s; }
-.pinned-mini-bar { display: flex; align-items: center; background: #1a0a0a; border: 1px solid #ff2a2a; padding: 8px 12px; border-radius: 8px; color: #eee; position: sticky; top: 0; z-index: 10; margin-bottom: 5px; box-shadow: 0 4px 10px rgba(255,0,0,0.2); }
+/* ===== КАРКАС: боковое меню + контент ===== */
+.layout { display: flex; min-height: 100vh; }
+.sidebar { position: fixed; inset: 0 auto 0 0; width: var(--sidebar); background: linear-gradient(180deg, #0d0d14, #09090e); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; z-index: 60; transition: transform .25s ease; }
+.sb-brand { display: flex; align-items: center; gap: 12px; padding: 20px 20px 14px; }
+.sb-logo { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; font-weight: 800; font-size: 18px; color: #fff;
+    background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 50%, #6b0000)); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 40%, transparent); }
+.sb-title { font-weight: 800; letter-spacing: .08em; font-size: 15px; }
+.sb-title small { display: block; font-weight: 500; letter-spacing: 0; color: var(--muted); font-size: 12px; }
+.sb-user { margin: 4px 14px 10px; padding: 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
+.avatar { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; flex: none;
+    background: var(--rc, var(--accent)); background: color-mix(in srgb, var(--rc, var(--accent)) 75%, #000); box-shadow: 0 0 0 2px color-mix(in srgb, var(--rc, var(--accent)) 35%, transparent); }
+.avatar.sm { width: 30px; height: 30px; font-size: 13px; }
+.sb-user-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-user .role-badge { margin-top: 3px; white-space: normal; max-width: 100%; }
+.sb-nav { flex: 1; overflow-y: auto; padding: 6px 10px 16px; }
+.sb-group { margin-top: 12px; }
+.sb-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); padding: 6px 12px; }
+.sb-link { display: flex; align-items: center; gap: 11px; padding: 8px 12px; border-radius: 10px; color: var(--soft); font-weight: 500; position: relative; transition: background .15s, color .15s; }
+.sb-link:hover { background: rgba(255,255,255,.04); color: #fff; text-decoration: none; }
+.sb-link .ico { width: 22px; text-align: center; font-size: 16px; }
+.sb-link.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: #fff; }
+.sb-link.active::before { content: ""; position: absolute; left: -10px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.sb-count { margin-left: auto; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
+.sb-foot { padding: 12px 14px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; }
+.sb-foot a { flex: 1; text-align: center; }
+.sb-backdrop { display: none; }
+
+.main { flex: 1; margin-left: var(--sidebar); min-width: 0; }
+.topbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 12px; padding: 14px 28px; background: rgba(7,7,11,.72);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+.topbar h1 { margin: 0; font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.topbar .tb-ico { font-size: 20px; }
+.topbar .tb-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.burger { display: none; background: var(--panel); border: 1px solid var(--line-2); color: #fff; width: 40px; height: 40px; border-radius: 10px; font-size: 18px; cursor: pointer; }
+.content { padding: 24px 28px 60px; max-width: 1240px; }
+
+/* ===== КАРТОЧКИ, ФОРМЫ, КНОПКИ ===== */
+.card { background: linear-gradient(180deg, var(--panel), #0e0e15); border: 1px solid var(--line); padding: 18px; border-radius: var(--radius); margin-top: 14px; box-shadow: 0 1px 0 rgba(255,255,255,.02) inset; }
+.card h3 { margin: 0 0 10px; color: #fff; }
+.card > h3:first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.meta { font-size: 13px; color: var(--soft); margin-bottom: 6px; }
+.muted { color: var(--muted); }
+label { color: var(--soft); font-size: 13px; }
+textarea, input[type="text"], input[type="password"], input[type="number"], input[type="date"], input[type="time"], input[type="email"], input[type="url"], input[type="search"], select {
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: #0a0a10; color: #fff; resize: vertical;
+    font-size: 13.5px; font-family: inherit; margin-top: 6px; transition: border-color .15s, box-shadow .15s; }
+textarea:focus, input:focus, select:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+select { cursor: pointer; }
+textarea { height: 90px; }
+input[type="file"] { font-size: 13px; color: var(--soft); margin-top: 6px; max-width: 100%; }
+input[type="file"]::file-selector-button { background: var(--panel-3); color: #fff; border: 1px solid var(--line-2); padding: 7px 12px; border-radius: 8px; margin-right: 10px; cursor: pointer; }
+input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; vertical-align: -3px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; padding: 9px 16px; border-radius: 10px; border: 1px solid transparent;
+    cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; color: #fff; background: var(--panel-3); line-height: 1.2;
+    transition: transform .12s, filter .15s, background .15s, box-shadow .15s; text-decoration: none !important; white-space: nowrap; }
+.btn:hover { filter: brightness(1.12); transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 8px; margin-top: 0; }
+.ok { background: linear-gradient(180deg, #22a65a, #1b8a4a); color: #fff; }
+.no { background: linear-gradient(180deg, #e0383a, #b9262a); color: #fff; }
+.gray { background: #23232f; border-color: var(--line-2); color: #fff; }
+.blue { background: linear-gradient(180deg, #3b7de0, #2b62b8); color: #fff; }
+.orange { background: linear-gradient(180deg, #ef8a2c, #d26d14); color: #fff; }
+.btn.primary { background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 75%, #000)); box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 25%, transparent); }
+.btn.ghost { background: transparent; border-color: var(--line-2); color: var(--soft); }
+.btn.ghost:hover { color: #fff; background: rgba(255,255,255,.04); }
+.btn.ghost.danger { color: #ff8a8a; border-color: rgba(239,68,68,.35); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; transform: none; }
+
+.stat-grid, .kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 16px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; font-size: 13px; }
+.stat b { font-size: 18px; color: var(--accent); }
+.kpi { display: block; background: linear-gradient(160deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; color: var(--text); transition: border-color .15s, transform .15s; }
+.kpi:hover { text-decoration: none; border-color: color-mix(in srgb, var(--accent) 40%, transparent); transform: translateY(-2px); }
+.kpi .k-ico { font-size: 20px; }
+.kpi .k-num { font-size: 28px; font-weight: 750; margin-top: 6px; letter-spacing: -.02em; }
+.kpi .k-lbl { color: var(--soft); font-size: 13px; }
+.kpi.hot .k-num { color: var(--accent); }
+
+.badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: middle; }
+.badge-new { background: rgba(59,130,246,.18); color: #8bb8ff; border: 1px solid rgba(59,130,246,.35); }
+.badge-viewed { background: rgba(245,158,11,.15); color: #fcc56b; border: 1px solid rgba(245,158,11,.35); }
+.badge-acc { background: rgba(34,197,94,.15); color: #6ee7a0; border: 1px solid rgba(34,197,94,.35); }
+.badge-dec { background: rgba(239,68,68,.15); color: #ff9b9b; border: 1px solid rgba(239,68,68,.35); }
+.badge-warn { background: rgba(249,115,22,.15); color: #ffb07a; border: 1px solid rgba(249,115,22,.35); }
+.badge-gold { background: linear-gradient(135deg,#ffe066,#d4a017); color: #3a2a00; font-weight: bold; box-shadow: 0 0 8px rgba(255,215,0,.4); }
+.role-badge { --rc: #718096; display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
+    color: var(--rc); color: color-mix(in srgb, var(--rc) 80%, #fff); background: rgba(255,255,255,.05); background: color-mix(in srgb, var(--rc) 14%, transparent);
+    border: 1px solid rgba(255,255,255,.12); border-color: color-mix(in srgb, var(--rc) 38%, transparent); }
+.owner-badge { --rc: #f6c445; }
+.gold-card { background: linear-gradient(160deg,#1a1506,#101017 60%); border: 1px solid #6b5208; box-shadow: 0 0 14px rgba(212,160,23,.12) inset; }
+.gold-card h3 { color: #ffd76a; }
+.search-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin: 4px 0 16px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.search-bar > div { flex: 1 1 180px; }
+.search-bar input, .search-bar select { width: 100%; }
+.callout { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(59,130,246,.3); background: rgba(59,130,246,.08); color: #cfe0ff; margin-top: 14px; }
+.callout.warn { border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); color: #ffe2b0; }
+.callout.danger { border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.08); color: #ffd0d0; }
+.callout .c-ico { font-size: 20px; line-height: 1; }
+.empty { text-align: center; color: var(--muted); padding: 34px 10px; border: 1px dashed var(--line-2); border-radius: var(--radius); margin-top: 14px; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row > .grow { flex: 1 1 200px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-block; padding: 4px 10px; border-radius: 999px; background: var(--panel-3); border: 1px solid var(--line); font-size: 12px; color: var(--soft); }
+.chip.on { color: #d6ffe4; border-color: rgba(34,197,94,.3); background: rgba(34,197,94,.08); }
+
+/* ===== ГЛАВНАЯ ===== */
+.hero { position: relative; overflow: hidden; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 22px; border-radius: 18px; border: 1px solid var(--line);
+    background: radial-gradient(600px 220px at 100% 0%, color-mix(in srgb, var(--rc, var(--accent)) 22%, transparent), transparent 70%), linear-gradient(160deg, var(--panel-2), var(--panel)); }
+.hero .avatar { width: 64px; height: 64px; font-size: 26px; }
+.hero h2 { margin: 0 0 6px; font-size: 22px; }
+.hero p { margin: 8px 0 0; color: var(--soft); max-width: 640px; }
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.list li:last-child { border-bottom: 0; }
+.qa { display: grid; grid-template-columns: minmax(140px, 240px) 1fr; gap: 1px; margin-top: 10px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.qa .q, .qa .a { background: #0c0c12; padding: 8px 12px; font-size: 13px; }
+.qa .q { color: var(--muted); font-weight: 600; }
+@media (max-width: 600px) { .qa { grid-template-columns: 1fr; } .qa .q { padding-bottom: 0; } }
+
+/* ===== ТАБЛИЦЫ (команда, пользователи, права) ===== */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); margin-top: 14px; background: var(--panel); }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.tbl th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding: 11px 14px; border-bottom: 1px solid var(--line); background: #0d0d14; position: sticky; top: 0; }
+.tbl td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl tbody tr:hover td { background: rgba(255,255,255,.02); }
+.tbl .who { display: flex; align-items: center; gap: 10px; }
+.tbl .who b { display: block; }
+.tbl select, .tbl input { margin-top: 0; padding: 7px 10px; font-size: 13px; width: auto; min-width: 140px; }
+.tbl form { margin: 0; }
+.inline-form { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tbl .who span.muted { display: block; white-space: nowrap; }
+.tbl .who b { white-space: nowrap; }
+.tbl select[data-role-select] { width: 190px; min-width: 0; }
+.tbl select[data-dir] { width: 130px; min-width: 0 !important; }
+details.act { position: relative; }
+details.act > summary { list-style: none; }
+details.act > summary::-webkit-details-marker { display: none; }
+.act-panel { margin-top: 8px; width: max-content; max-width: 440px; display: flex; flex-direction: column; gap: 10px; padding: 12px; background: #13131c; border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow); }
+details.act[open] > summary { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: #fff; }
+details.card > summary { list-style: none; }
+details.card > summary::-webkit-details-marker { display: none; }
+.perm-table { width: max-content; min-width: 100%; }
+.perm-table th:first-child, .perm-table td:first-child { position: sticky; left: 0; z-index: 2; background: #101017; min-width: 280px; max-width: 340px; }
+.perm-table thead th:first-child { z-index: 3; background: #0d0d14; }
+.perm-table tr.group td:first-child { background: #0c0c12; }
+.perm-table th.role-col { text-align: center; text-transform: none; letter-spacing: 0; font-size: 11.5px; color: var(--soft); width: 92px; min-width: 92px; white-space: normal; line-height: 1.25; }
+.perm-table th.role-col span { display: block; font-size: 18px; }
+.perm-table td.c { text-align: center; }
+.perm-table tr.group td { background: #0c0c12; color: var(--accent); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.perm-yes { color: #4ade80; font-weight: 700; }
+.perm-no { color: #3b3b4a; }
+.perm-table .me-col { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.role-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; }
+.role-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--rc); border-radius: 12px; padding: 14px; }
+.role-card p { margin: 8px 0 0; color: var(--soft); font-size: 13px; }
+.role-card .rc-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.role-card .lvl { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+/* ===== ЧАТ КОМАНДЫ ===== */
+.chat-container { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; max-height: 620px; overflow-y: auto; padding: 4px 8px 4px 0; }
+.chat-msg { background: var(--panel); border: 1px solid var(--line); padding: 12px 14px; border-radius: 14px; max-width: 860px; }
+.chat-msg.mine { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, var(--panel)), var(--panel)); margin-left: auto; }
+.chat-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-bottom: 6px; margin-bottom: 6px; }
+.chat-avatar { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #2a2a38; font-size: 12px; font-weight: 700; margin-right: 8px; vertical-align: middle; }
+.chat-author { color: #fff; font-weight: 650; font-size: 14px; }
+.chat-role { font-size: 11px; background: rgba(255,255,255,.06); padding: 2px 8px; border-radius: 999px; color: var(--soft); margin-left: 6px; vertical-align: middle; }
+.chat-time { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.chat-text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
+.chat-photo img { max-width: 100%; max-height: 350px; border-radius: 10px; margin-top: 10px; border: 1px solid var(--line); }
+.chat-poll { margin-top: 12px; background: #0a0a10; padding: 12px; border-radius: 10px; border: 1px solid var(--line); }
+.chat-poll h4 { margin: 0 0 10px; color: #fff; }
+.poll-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--panel-2); padding: 8px 12px; border-radius: 8px; margin-bottom: 4px; }
+.poll-bar-container { width: 100%; background: #0a0a10; height: 6px; border-radius: 3px; margin-top: 2px; overflow: hidden; margin-bottom: 8px; }
+.poll-bar { height: 100%; background: var(--accent); transition: width 0.3s; }
+.chat-actions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.pinned-mini-bar { display: flex; align-items: center; background: color-mix(in srgb, var(--accent) 10%, #0d0d14); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); padding: 8px 12px; border-radius: 10px; color: #eee; position: sticky; top: 0; z-index: 10; margin-bottom: 5px; text-decoration: none !important; }
 .pinned-icon { font-size: 18px; margin-right: 12px; }
 .pinned-content { flex: 1; overflow: hidden; }
-.highlight-pinned { border-color: #ff2a2a; box-shadow: 0 0 10px rgba(255,42,42,0.15); }
+.pinned-author { font-weight: 650; font-size: 12px; color: #fff; }
+.pinned-text-snippet { font-size: 12px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.highlight-pinned { border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent); }
 
-#toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
-.toast { background: #101018; border-left: 4px solid #3182ce; color: #fff; padding: 15px 20px; border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.6); font-size: 14px; animation: slideIn 0.4s ease-out forwards; pointer-events: auto; }
-.toast.info { border-left-color: #3182ce; }
-.toast.error { border-left-color: #c53030; font-weight: bold; }
+#toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; max-width: min(420px, calc(100vw - 40px)); }
+.toast { background: #14141d; border: 1px solid var(--line-2); border-left: 4px solid var(--info); color: #fff; padding: 13px 18px; border-radius: 10px; box-shadow: var(--shadow); font-size: 14px; animation: slideIn 0.35s ease-out forwards; pointer-events: auto; transition: opacity .4s; }
+.toast.info { border-left-color: var(--info); }
+.toast.success { border-left-color: var(--ok); }
+.toast.error { border-left-color: var(--danger); font-weight: 600; }
 @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
-.file-row { display: flex; justify-content: space-between; align-items: center; background: #1a1a24; padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #333; }
-.file-name { font-size: 15px; font-weight: bold; color: #ff7777; margin-bottom: 4px; }
-.file-meta { font-size: 12px; color: #aaa; }
-.reply-block { margin-top: 15px; padding: 12px; background: #0a0a0f; border-left: 3px solid #ff2a2a; }
+.file-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--panel); padding: 12px 14px; border-radius: 12px; margin-bottom: 8px; border: 1px solid var(--line); }
+.file-name { font-size: 15px; font-weight: 650; color: #fff; margin-bottom: 4px; }
+.file-meta { font-size: 12px; color: var(--soft); }
+.file-desc { font-size: 13px; color: var(--soft); margin-top: 4px; }
+.reply-block { margin-top: 15px; padding: 12px; background: #0a0a10; border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0; }
+.reply-sig { margin-top: 8px; font-size: 12px; color: var(--muted); }
 
-/* Дизайн Мессенджера тикетов */
-.support-layout { display: flex; height: 70vh; min-height: 500px; background: #0a0a0f; border: 1px solid #2a0000; border-radius: 10px; overflow: hidden; margin-top: 15px; }
-.sup-sidebar { width: 300px; border-right: 1px solid #2a0000; overflow-y: auto; background: #050509; display: flex; flex-direction: column; }
+/* Мессенджер тикетов */
+.support-layout { display: flex; height: 70vh; min-height: 500px; background: #0a0a10; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-top: 15px; }
+.sup-sidebar { width: 300px; border-right: 1px solid var(--line); overflow-y: auto; background: #08080d; display: flex; flex-direction: column; }
 #ticketSidebarList { flex: 1; overflow-y: auto; }
-.sup-ticket { padding: 15px; border-bottom: 1px solid #222; text-decoration: none; color: #ccc; display: block; transition: 0.2s; }
-.sup-ticket:hover { background: #101018; }
-.sup-ticket.active { background: #1a0a0a; border-left: 4px solid #ff2a2a; color: #fff; }
-.sup-chat { flex: 1; display: flex; flex-direction: column; background: #101018; position: relative; }
-.sup-header { padding: 15px; border-bottom: 1px solid #2a0000; background: #0a0a0f; display: flex; justify-content: space-between; align-items: center; }
+.sup-ticket { padding: 14px 15px; border-bottom: 1px solid var(--line); text-decoration: none !important; color: #ccc; display: block; transition: 0.2s; }
+.sup-ticket:hover { background: var(--panel); }
+.sup-ticket.active { background: color-mix(in srgb, var(--accent) 10%, transparent); border-left: 3px solid var(--accent); color: #fff; }
+.sup-chat { flex: 1; display: flex; flex-direction: column; background: var(--panel); position: relative; min-width: 0; }
+.sup-header { padding: 15px; border-bottom: 1px solid var(--line); background: #0d0d14; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .sup-history { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
-.sup-controls { padding: 15px; border-top: 1px solid #2a0000; background: #0a0a0f; display: flex; gap: 10px; align-items: center; }
-
+.sup-controls { padding: 12px; border-top: 1px solid var(--line); background: #0d0d14; display: flex; gap: 10px; align-items: center; }
 #repliesContainer { display: flex; flex-direction: column; gap: 15px; }
-.bubble { max-width: 75%; padding: 12px 16px; border-radius: 12px; font-size: 14px; line-height: 1.4; }
-.bubble.admin { background: #2a0a0a; border: 1px solid #ff2a2a; align-self: flex-end; border-bottom-right-radius: 2px; }
-.bubble.client { background: #1a1a24; border: 1px solid #333; align-self: flex-start; border-bottom-left-radius: 2px; }
-.b-meta { font-size: 11px; font-weight: bold; margin-bottom: 5px; color: #ff7777; }
-.file-upload-btn { background: #2d3748; padding: 10px; border-radius: 8px; cursor: pointer; font-size: 16px; border: 1px solid #333; display: flex; align-items: center; justify-content: center; }
-.file-upload-btn:hover { background: #3a475e; }
+.bubble { max-width: 75%; padding: 12px 16px; border-radius: 14px; font-size: 14px; line-height: 1.45; }
+.bubble.admin { background: color-mix(in srgb, var(--accent) 14%, #120a0a); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); align-self: flex-end; border-bottom-right-radius: 4px; }
+.bubble.client { background: var(--panel-2); border: 1px solid var(--line-2); align-self: flex-start; border-bottom-left-radius: 4px; }
+.b-meta { font-size: 11px; font-weight: 700; margin-bottom: 5px; color: color-mix(in srgb, var(--accent) 60%, #fff); }
+.file-upload-btn { background: var(--panel-3); padding: 9px 11px; border-radius: 10px; cursor: pointer; font-size: 16px; border: 1px solid var(--line-2); display: flex; align-items: center; justify-content: center; }
+.file-upload-btn:hover { background: #2a2a38; }
+
+/* ===== ТЕЛЕФОН ===== */
+@media (max-width: 960px) {
+    .sidebar { transform: translateX(-100%); box-shadow: var(--shadow); }
+    body.nav-open .sidebar { transform: none; }
+    body.nav-open .sb-backdrop { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 50; }
+    .main { margin-left: 0; }
+    .burger { display: inline-grid; place-items: center; }
+    .topbar { padding: 12px 16px; }
+    .topbar h1 { font-size: 17px; }
+    .topbar .tb-right .hide-sm { display: none; }
+    .content { padding: 18px 16px 50px; }
+    .support-layout { flex-direction: column; height: auto; }
+    .sup-sidebar { width: 100%; max-height: 220px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .sup-chat { min-height: 60vh; }
+}
 </style>
 <script>
 function updateFormType(prefix = '') {
@@ -1322,14 +1855,14 @@ function updateFormType(prefix = '') {
     } else {
         admLink.style.display = 'none'; admFile.style.display = 'block';
         if (prefix === '' && fileInput) fileInput.setAttribute('required', 'true');
-        if (type === 'site' && fileLabel) { fileLabel.innerText = 'Выберите ZIP-архив с сайтом (авто-распаковка на сервере)'; if(fileInput) fileInput.setAttribute('accept', '.zip'); } 
-        else if (type === 'zip_view' && fileLabel) { fileLabel.innerText = 'Выберите ZIP-архив для просмотра содержимого онлайн'; if(fileInput) fileInput.setAttribute('accept', '.zip'); } 
+        if (type === 'site' && fileLabel) { fileLabel.innerText = 'Выберите ZIP-архив с сайтом (авто-распаковка на сервере)'; if(fileInput) fileInput.setAttribute('accept', '.zip'); }
+        else if (type === 'zip_view' && fileLabel) { fileLabel.innerText = 'Выберите ZIP-архив для просмотра содержимого онлайн'; if(fileInput) fileInput.setAttribute('accept', '.zip'); }
         else if(fileLabel) { fileLabel.innerText = 'Выберите любой файл (Если это .EXE, пользователь сможет его скачать)'; if(fileInput) fileInput.removeAttribute('accept'); }
     }
 }
 window.addEventListener('DOMContentLoaded', function() {
-    if(document.getElementById('project_type')) updateFormType(''); 
-    if(document.getElementById('edit_project_type')) updateFormType('edit_'); 
+    if(document.getElementById('project_type')) updateFormType('');
+    if(document.getElementById('edit_project_type')) updateFormType('edit_');
 });
 </script>
 </head>
@@ -1337,49 +1870,126 @@ window.addEventListener('DOMContentLoaded', function() {
 
 <div id="toast-container"></div>
 
-<div class="wrap">
-    <h1>Админ‑панель Rteam</h1>
-    <p>Вы вошли как <b><?=htmlspecialchars($user)?></b> (<?=htmlspecialchars($role)?>) — <a href="index.php">← На сайт</a></p>
+<div class="layout">
+    <aside class="sidebar" id="sidebar">
+        <div class="sb-brand">
+            <div class="sb-logo">R</div>
+            <div class="sb-title">RTEAM<small>Админ‑панель</small></div>
+        </div>
+        <div class="sb-user">
+            <div class="avatar" style="--rc:<?=htmlspecialchars($my_role_info["color"])?>"><?=htmlspecialchars(mb_strtoupper(mb_substr($user, 0, 1)))?></div>
+            <div style="min-width:0;">
+                <div class="sb-user-name"><?=htmlspecialchars($user)?></div>
+                <?=rt_role_badge($role, $my_direction)?>
+            </div>
+        </div>
+        <nav class="sb-nav">
+            <?php
+            $nav_groups = [];
+            foreach ($TABS as $key => $t) if (tab_allowed($key)) $nav_groups[$t[3]][$key] = $t;
+            foreach ($nav_groups as $group => $items): ?>
+                <div class="sb-group">
+                    <div class="sb-group-title"><?=htmlspecialchars($group)?></div>
+                    <?php foreach ($items as $key => $t): $cnt = $count[$key] ?? 0; ?>
+                        <a class="sb-link<?=$tab === $key ? ' active' : ''?>" href="?tab=<?=$key?>"><span class="ico"><?=$t[1]?></span><span><?=htmlspecialchars($t[0])?></span><?php if ($cnt > 0): ?><span class="sb-count"><?=$cnt?></span><?php endif; ?></a>
+                    <?php endforeach; ?>
+                </div>
+            <?php endforeach; ?>
+        </nav>
+        <div class="sb-foot">
+            <a class="btn ghost sm" href="index.php">← На сайт</a>
+            <a class="btn ghost sm" href="index.php?logout=1">Выйти</a>
+        </div>
+    </aside>
+    <div class="sb-backdrop" onclick="document.body.classList.remove('nav-open')"></div>
 
-    <div class="stat-grid">
-        <div class="stat">Заявок<br><b><?=$stats["apps_total"]?></b></div>
-        <div class="stat">Чат<br><b><?=$stats["chat_total"]?></b></div>
-        <div class="stat">Проекты<br><b><?=$stats["projects_total"]?></b></div>
-        <div class="stat">Файлы<br><b><?=$stats["files_total"]?></b></div>
-        <div class="stat">Цели<br><b><?=$stats["goals_total"]?></b></div>
-        <div class="stat">Штрафы<br><b><?=$stats["fines_total"]?></b></div>
-        <div class="stat">Тикетов<br><b><?=count($tickets)?></b></div>
-        <div class="stat">Баны<br><b><?=$stats["bans_total"]?></b></div>
-        <div class="stat">Пользователи<br><b><?=$stats["users_total"]?></b></div>
-        <div class="stat">Логи<br><b><?=$stats["logs_total"]?></b></div>
-    </div>
+    <main class="main">
+        <header class="topbar">
+            <button class="burger" type="button" aria-label="Меню" onclick="document.body.classList.toggle('nav-open')">☰</button>
+            <h1><span class="tb-ico"><?=$TABS[$tab][1] ?? "🛠"?></span><?=htmlspecialchars($TABS[$tab][0] ?? "Админ‑панель")?></h1>
+            <div class="tb-right">
+                <span class="hide-sm"><?=rt_role_badge($role, $my_direction, $user)?></span>
+            </div>
+        </header>
+        <div class="content">
 
-    <div class="tabs">
-        <a class="tab <?=$tab==='chat'?'active':''?>" href="?tab=chat">Чат</a>
-        <a class="tab <?=$tab==='projects'?'active':''?>" href="?tab=projects">Проекты</a>
-        <a class="tab <?=$tab==='files'?'active':''?>" href="?tab=files">Файлы</a>
-        <a class="tab <?=$tab==='goals'?'active':''?>" href="?tab=goals">Цели</a>
-        <a class="tab <?=$tab==='fines'?'active':''?>" href="?tab=fines">Штрафы</a>
-        <a class="tab <?=$tab==='apps'?'active':''?>" href="?tab=apps">Заявки</a>
-        <a class="tab <?=$tab==='directors'?'active':''?>" href="?tab=directors">Директора<?php $pendingDirCount = count(array_filter($director_requests, fn($r) => ($r["status"] ?? "pending") === "pending")); if ($pendingDirCount > 0): ?> <span class="badge badge-new" style="padding:2px 6px; font-size:10px;"><?=$pendingDirCount?></span><?php endif; ?></a>
-        <a class="tab <?=$tab==='messages'?'active':''?>" href="?tab=messages">Сообщения</a>
-        <a class="tab <?=$tab==='support'?'active':''?>" href="?tab=support">Тикеты</a>
-        <a class="tab <?=$tab==='bans'?'active':''?>" href="?tab=bans">Баны</a>
-        <a class="tab <?=$tab==='blacklist'?'active':''?>" href="?tab=blacklist">⚫ Чёрный список</a>
-        <a class="tab <?=$tab==='team'?'active':''?>" href="?tab=team">Команда</a>
-        <a class="tab <?=$tab==='leaks'?'active':''?>" href="?tab=leaks">Сливы</a>
-        <a class="tab <?=$tab==='blog'?'active':''?>" href="?tab=blog">Блог</a>
-        <a class="tab <?=$tab==='users'?'active':''?>" href="?tab=users">Пользователи</a>
-        <a class="tab <?=$tab==='recruit'?'active':''?>" href="?tab=recruit">Набор</a>
-        <a class="tab <?=$tab==='themes'?'active':''?>" href="?tab=themes">🎭 Темы сайта</a>
-        <a class="tab <?=$tab==='settings'?'active':''?>" href="?tab=settings">Настройки</a>
-        <a class="tab <?=$tab==='logs'?'active':''?>" href="?tab=logs">Логи</a>
-        <a class="tab <?=$tab==='bot'?'active':''?>" href="?tab=bot">Бот</a>
-        <a class="tab <?=$tab==='gold'?'active':''?>" href="?tab=gold" style="color:#ffd76a;">🎫 Золотой билет</a>
-    </div>
+    <!-- === ГЛАВНАЯ === -->
+    <?php if ($tab === "home"): ?>
+        <section class="hero" style="--rc:<?=htmlspecialchars($my_role_info["color"])?>">
+            <div class="avatar" style="--rc:<?=htmlspecialchars($my_role_info["color"])?>"><?=htmlspecialchars(mb_strtoupper(mb_substr($user, 0, 1)))?></div>
+            <div style="flex:1; min-width:240px;">
+                <h2>Привет, <?=htmlspecialchars($user)?>!</h2>
+                <div class="row"><?=rt_role_badge($role, $my_direction, $user)?><?php if ($my_dept): ?><span class="chip"><?=htmlspecialchars(rt_departments()[$my_dept] ?? $my_dept)?></span><?php endif; ?></div>
+                <p><?=htmlspecialchars($my_role_info["desc"] ?? "")?></p>
+            </div>
+        </section>
+
+        <?php if ($role === RT_TRAINEE_ROLE): ?>
+            <div class="callout"><span class="c-ico">🌱</span><div><b>Вы стажёр<?= $my_direction !== "" ? " направления «" . htmlspecialchars($my_direction) . "»" : "" ?>.</b> Сейчас доступны чат команды, файлы и цели вашего отдела. Покажите себя — руководитель или главный администратор повысит вас до полноценной роли<?= $my_direction !== "" ? " «" . htmlspecialchars($my_direction) . "»" : "" ?>.</div></div>
+        <?php endif; ?>
+        <?php if ($my_unpaid_fines): ?>
+            <div class="callout danger"><span class="c-ico">💸</span><div>У вас <?=count($my_unpaid_fines)?> неоплаченн<?=count($my_unpaid_fines) === 1 ? "ый штраф" : "ых штрафа"?>. Если штраф не оплатить за 30 дней, роль будет снята автоматически. <a href="?tab=fines">Открыть штрафы →</a></div></div>
+        <?php endif; ?>
+
+        <div class="kpi-grid">
+            <?php
+            $kpis = [];
+            if (can("apps.view"))        $kpis[] = ["apps", "📝", $count["apps"], "новых заявок", $count["apps"] > 0];
+            if (can("support.view"))     $kpis[] = ["support", "🎧", $count["support"], "открытых тикетов", $count["support"] > 0];
+            if (can("mail.view"))        $kpis[] = ["messages", "✉️", $count["messages"], "писем без ответа", $count["messages"] > 0];
+            if (can("bot.tickets"))      $kpis[] = ["bot", "🤖", $count["bot"], "заявок в боте", $count["bot"] > 0];
+            if (can("directors.manage")) $kpis[] = ["directors", "🏫", $count["directors"], "школ ждут одобрения", $count["directors"] > 0];
+            if (can("chat.view"))        $kpis[] = ["chat", "💬", count($chat_data["messages"]), "сообщений в чате", false];
+            if (can("team.view"))        $kpis[] = ["team", "👥", count($staff_list), "человек в команде", false];
+            if (can("goals.view"))       $kpis[] = ["goals", "🎯", count($my_goals), "целей для вас", false];
+            if (can("bans.manage"))      $kpis[] = ["bans", "⛔", $active_bans, "активных банов", false];
+            if (can("projects.manage"))  $kpis[] = ["projects", "🧩", count($projects_data), "проектов", false];
+            foreach ($kpis as [$k, $ico, $num, $lbl, $hot]): ?>
+                <a class="kpi<?=$hot ? ' hot' : ''?>" href="?tab=<?=$k?>"><div class="k-ico"><?=$ico?></div><div class="k-num"><?=$num?></div><div class="k-lbl"><?=$lbl?></div></a>
+            <?php endforeach; ?>
+        </div>
+
+        <div class="grid-2" style="margin-top:14px;">
+            <div class="card" style="margin-top:0;">
+                <h3>🎯 Мои цели</h3>
+                <?php if (!$my_goals): ?><div class="muted">Целей для вас пока нет.</div><?php else: ?>
+                    <ul class="list">
+                        <?php foreach (array_slice($my_goals, 0, 6) as $g): $expired = strtotime($g["deadline"]) < time(); ?>
+                            <li><span><b><?=htmlspecialchars($g["title"])?></b><br><span class="muted" style="font-size:12px;">до <?=htmlspecialchars($g["deadline"])?></span></span><span class="badge <?=$expired ? 'badge-dec' : 'badge-new'?>"><?=$expired ? 'просрочено' : 'в работе'?></span></li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+            <div class="card" style="margin-top:0;">
+                <h3>🔐 Что вам доступно</h3>
+                <?php $my_perm_count = count(array_filter(rt_all_perm_keys(), 'can')); ?>
+                <?php if ($my_perm_count === count(rt_all_perm_keys())): ?>
+                    <div class="chips"><span class="chip on">✓ Полный доступ — все <?=$my_perm_count?> прав</span></div>
+                    <p class="muted" style="margin:10px 0 0;">Вы можете всё: назначать любые роли, банить, настраивать права ролей.</p>
+                <?php else: ?>
+                <div class="chips">
+                    <?php foreach (rt_permissions() as $group => $perms) foreach ($perms as $pk => $plabel) if (can($pk)): ?>
+                        <span class="chip on">✓ <?=htmlspecialchars($plabel)?></span>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+                <a class="btn ghost sm" style="margin-top:12px;" href="?tab=perms">Права всех ролей →</a>
+            </div>
+        </div>
+
+        <?php if (can("logs.view") && $logs): ?>
+            <div class="card">
+                <h3>📜 Последние события</h3>
+                <ul class="list">
+                    <?php foreach (array_slice(array_reverse($logs), 0, 6) as $log): ?>
+                        <li><span><?=htmlspecialchars($log["msg"] ?? "")?></span><span class="muted" style="font-size:12px; white-space:nowrap;"><?=htmlspecialchars($log["time"] ?? "")?></span></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        <?php endif; ?>
 
     <!-- === ВКЛАДКА: ПРОЕКТЫ === -->
-    <?php if ($tab === "projects"): ?>
+    <?php elseif ($tab === "projects"): ?>
         <?php 
         $edit_project = null;
         if (isset($_GET['edit_id'])) { foreach ($projects_data as $p) { if ((string)$p['id'] === (string)$_GET['edit_id']) { $edit_project = $p; break; } } }
@@ -1471,8 +2081,9 @@ window.addEventListener('DOMContentLoaded', function() {
 
     <!-- === ФАЙЛЫ === -->
     <?php elseif ($tab === "files"): ?>
+        <?php if (can("files.upload")): ?>
         <div class="card">
-            <h3>Поделиться файлом с отделом</h3>
+            <h3>📤 Поделиться файлом с отделом</h3>
             <form method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="upload_file">
                 <input type="file" name="team_file" required style="background: #1a1a24; padding: 10px; margin-bottom: 8px;">
@@ -1482,31 +2093,32 @@ window.addEventListener('DOMContentLoaded', function() {
                 <button class="btn ok" type="submit">Загрузить файл</button>
             </form>
         </div>
+        <?php else: ?>
+            <div class="callout"><span class="c-ico">ℹ️</span><div>Загружать файлы может сотрудник с правом «Файлы: загружать». Вам доступны файлы вашего отдела и всей команды.</div></div>
+        <?php endif; ?>
         <h3 style="margin-top: 20px;">Доступные вам файлы</h3>
         <?php
-        $my_dept = [];
-        if ($role === "Руководитель") $my_dept[] = "leader";
-        if (in_array($role, ["Тестер", "Главный Тестер"])) $my_dept[] = "tester";
-        if (in_array($role, ["Администратор", "Главный Администратор"])) $my_dept[] = "admin";
-        if (in_array($role, ["Кодер", "Главный Кодер", "Главный разработчик", "Разработчик"])) $my_dept[] = "dev";
-        $visible_files = array_filter($files_data, function($f) use ($my_dept, $user, $is_leader) {
-            if ($is_leader || $f["uploader"] === $user || $f["department"] === "all") return true;
-            if (in_array($f["department"], $my_dept)) return true; return false;
+        // отдел берётся из роли (у стажёра — из его направления)
+        $file_depts = $my_dept ? [$my_dept] : [];
+        $see_all_files = can("files.manage");
+        $visible_files = array_filter($files_data, function($f) use ($file_depts, $user, $see_all_files) {
+            if ($see_all_files || $f["uploader"] === $user || $f["department"] === "all") return true;
+            if (in_array($f["department"], $file_depts)) return true; return false;
         });
         if (empty($visible_files)): ?>
-            <p>Нет доступных файлов для вашего отдела.</p>
+            <div class="empty">Нет доступных файлов для вашего отдела.</div>
         <?php else: ?>
             <?php foreach (array_reverse($visible_files) as $f): ?>
                 <?php $dept_label = "Всей команде"; if ($f["department"] === "leader") $dept_label = "Руководителям"; if ($f["department"] === "tester") $dept_label = "Тестерам"; if ($f["department"] === "admin") $dept_label = "Администраторам"; if ($f["department"] === "dev") $dept_label = "Разработчикам/Кодерам"; ?>
                 <div class="file-row">
                     <div class="file-info">
-                        <div class="file-name"><?=htmlspecialchars($f["name"])?> <span class="badge badge-new" style="background:#444;"><?=formatBytes($f["size"])?></span></div>
-                        <div class="file-meta">Загрузил: <b><?=htmlspecialchars($f["uploader"])?></b> | Дата: <?=htmlspecialchars($f["time"])?> | Доступ: <b style="color:#ff2a2a;"><?=$dept_label?></b></div>
+                        <div class="file-name">📄 <?=htmlspecialchars($f["name"])?> <span class="chip"><?=formatBytes($f["size"])?></span></div>
+                        <div class="file-meta">Загрузил: <b><?=htmlspecialchars($f["uploader"])?></b> | Дата: <?=htmlspecialchars($f["time"])?> | Доступ: <b style="color:var(--accent);"><?=$dept_label?></b></div>
                         <?php if(!empty($f["desc"])): ?><div class="file-desc"><?=htmlspecialchars($f["desc"])?></div><?php endif; ?>
                     </div>
                     <div style="display: flex; gap: 8px;">
                         <a href="<?=htmlspecialchars($f["path"])?>" download class="btn blue" style="text-decoration:none;">Скачать</a>
-                        <?php if ($is_leader || $f["uploader"] === $user): ?><form method="POST" style="margin:0;"><input type="hidden" name="action" value="del_file"><input type="hidden" name="id" value="<?=htmlspecialchars($f["id"])?>"><button class="btn no" type="submit">Удалить</button></form><?php endif; ?>
+                        <?php if ($see_all_files || $f["uploader"] === $user): ?><form method="POST" style="margin:0;" onsubmit="return confirm('Удалить файл?');"><input type="hidden" name="action" value="del_file"><input type="hidden" name="id" value="<?=htmlspecialchars($f["id"])?>"><button class="btn no" type="submit">Удалить</button></form><?php endif; ?>
                     </div>
                 </div>
             <?php endforeach; ?>
@@ -1514,7 +2126,6 @@ window.addEventListener('DOMContentLoaded', function() {
 
     <!-- === ЧАТ === -->
     <?php elseif ($tab === "chat"): ?>
-        <h3 style="color:#ff2a2a; margin:bottom:15px;">Командный чат</h3>
         <div class="chat-container" id="chatbox">
             <?php
             if (!empty($chat_data["pinned_id"])) {
@@ -1523,39 +2134,39 @@ window.addEventListener('DOMContentLoaded', function() {
                         $snippet = mb_strimwidth($m["text"], 0, 55, "...");
                         if (empty($snippet) && !empty($m["photo"])) $snippet = "[Фотография]";
                         if (empty($snippet) && !empty($m["poll"])) $snippet = "[Опрос]";
-                        echo '<a href="#msg-' . $m["id"] . '" class="pinned-mini-bar"><div class="pinned-icon">📌</div><div class="pinned-content"><div class="pinned-author">' . htmlspecialchars($m["user"]) . '</div><div class="pinned-text-snippet">' . htmlspecialchars($snippet) . '</div></div><form method="POST" style="margin:0; margin-left:10px; z-index:11; position:relative;"><input type="hidden" name="action" value="unpin_msg"><button class="btn gray" type="submit" style="padding:4px 8px; margin-top:0;">Открепить</button></form></a>';
+                        echo '<a href="#msg-' . htmlspecialchars($m["id"]) . '" class="pinned-mini-bar"><div class="pinned-icon">📌</div><div class="pinned-content"><div class="pinned-author">' . htmlspecialchars($m["user"]) . '</div><div class="pinned-text-snippet">' . htmlspecialchars($snippet) . '</div></div>' . (can("chat.pin") ? '<form method="POST" style="margin:0; margin-left:10px; z-index:11; position:relative;"><input type="hidden" name="action" value="unpin_msg"><button class="btn sm gray" type="submit">Открепить</button></form>' : '') . '</a>';
                         break;
                     }
                 }
             }
-            if (empty($chat_data["messages"])) echo "<p>В чате пока нет сообщений.</p>";
-            else foreach ($chat_data["messages"] as $m) echo render_chat_message($m, ((string)$m["id"] === (string)$chat_data["pinned_id"]), $user, $is_leader);
+            if (empty($chat_data["messages"])) echo '<div class="empty">В чате пока нет сообщений — напишите первым 👋</div>';
+            else foreach ($chat_data["messages"] as $m) echo render_chat_message($m, ((string)$m["id"] === (string)$chat_data["pinned_id"]), $user);
             ?>
         </div>
         <script>const chatbox = document.getElementById('chatbox'); if(chatbox && !window.location.hash) chatbox.scrollTop = chatbox.scrollHeight;</script>
 
         <div class="card">
-            <h3>Написать сообщение</h3>
-            <form method="POST" enctype="multipart/form-data">
+            <form method="POST" enctype="multipart/form-data" id="chatForm">
                 <input type="hidden" name="action" value="send_chat_msg">
-                <textarea name="text" placeholder="Введите сообщение..."></textarea>
-                <div style="display:flex; gap:10px; margin-top:8px;">
-                    <div style="flex:1;"><label style="font-size:12px; color:#aaa;">Прикрепить фото:</label><input type="file" name="photo" accept="image/*" style="margin-top:5px;"></div>
+                <textarea name="text" placeholder="Сообщение команде… (Ctrl+Enter — отправить)" style="margin-top:0;"></textarea>
+                <div class="row" style="margin-top:10px;">
+                    <div class="grow"><label>📎 Фото: <input type="file" name="photo" accept="image/*"></label></div>
+                    <button class="btn primary" type="submit" style="margin-top:0;">Отправить ➤</button>
                 </div>
-                <div style="margin-top:10px; padding:10px; background:#050509; border-radius:8px; border:1px solid #333;">
-                    <h4 style="margin:0 0 6px 0; font-size:13px; color:#aaa;">Прикрепить опрос (необязательно)</h4>
+                <details style="margin-top:10px;">
+                    <summary class="muted" style="cursor:pointer;">📊 Добавить опрос</summary>
                     <input type="text" name="poll_q" placeholder="Вопрос опроса">
                     <input type="text" name="poll_opt" placeholder="Варианты ответа через запятую">
-                </div>
-                <button class="btn ok" type="submit" style="margin-top:12px; width:100%; padding:10px; font-size:14px;">Отправить</button>
+                </details>
             </form>
+            <script>document.querySelector('#chatForm textarea').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.target.form.submit(); });</script>
         </div>
 
     <!-- === ЦЕЛИ === -->
     <?php elseif ($tab === "goals"): ?>
-        <?php if ($is_leader): ?>
+        <?php if (can("goals.manage")): ?>
             <div class="card">
-                <h3>Поставить новую цель</h3>
+                <h3>🎯 Поставить новую цель</h3>
                 <form method="POST">
                     <input type="hidden" name="action" value="add_goal">
                     <input type="text" name="title" placeholder="Название работы / Цель" required>
@@ -1569,7 +2180,7 @@ window.addEventListener('DOMContentLoaded', function() {
                         <option value="all">Всей команде</option>
                         <optgroup label="Отделам (Классам)"><option value="class:admin">Администрации</option><option value="class:coder">Кодерам</option><option value="class:tester">Тестерам</option></optgroup>
                         <optgroup label="Конкретным сотрудникам">
-                            <?php foreach ($users as $login => $u): ?><?php if (($u["role"] ?? "Пользователь") !== "Пользователь"): ?><option value="user:<?=htmlspecialchars($login)?>"><?=htmlspecialchars($login)?> (<?=htmlspecialchars($u["role"])?>)</option><?php endif; ?><?php endforeach; ?>
+                            <?php foreach ($staff_list as $login => $u): ?><option value="user:<?=htmlspecialchars($login)?>"><?=htmlspecialchars($login)?> (<?=htmlspecialchars(rt_role_label($u["role"] ?? "", $u["direction"] ?? ""))?>)</option><?php endforeach; ?>
                         </optgroup>
                     </select>
                     <button class="btn ok" type="submit">Поставить цель</button>
@@ -1577,7 +2188,7 @@ window.addEventListener('DOMContentLoaded', function() {
             </div>
         <?php endif; ?>
         <h3 style="margin-top: 20px;">Текущие цели команды</h3>
-        <?php if (!$goals): ?><p>Активных целей пока нет.</p><?php else: ?>
+        <?php if (!$goals): ?><div class="empty">Активных целей пока нет.</div><?php else: ?>
             <?php foreach (array_reverse($goals) as $g): ?>
                 <?php
                 $now = new DateTime(); $target = new DateTime($g["deadline"]); $is_expired = $now > $target;
@@ -1586,25 +2197,26 @@ window.addEventListener('DOMContentLoaded', function() {
                 $assigned = $g["assigned_to"] ?? "all"; $assigned_text = "Всей команде";
                 if ($assigned === "class:admin") $assigned_text = "Отделу Администрации"; elseif ($assigned === "class:coder") $assigned_text = "Разработчикам и Кодерам"; elseif ($assigned === "class:tester") $assigned_text = "Отделу Тестирования"; elseif (strpos($assigned, "user:") === 0) $assigned_text = "Сотруднику: " . htmlspecialchars(substr($assigned, 5));
                 ?>
-                <div class="card">
-                    <h3><?=htmlspecialchars($g["title"])?> <span class="badge <?=$badge_class?>"><?=$time_left_str?></span></h3>
-                    <div class="meta" style="border-left: 2px solid #ff2a2a; padding-left: 8px; margin-bottom: 8px;">Назначено: <b style="color:#fff;"><?=$assigned_text?></b></div>
+                <?php $is_mine = in_array($g, $my_goals, true); ?>
+                <div class="card"<?=$is_mine ? ' style="border-color: color-mix(in srgb, var(--accent) 35%, transparent);"' : ''?>>
+                    <h3><?=htmlspecialchars($g["title"])?> <span class="badge <?=$badge_class?>"><?=$time_left_str?></span><?php if ($is_mine): ?><span class="badge badge-acc">для вас</span><?php endif; ?></h3>
+                    <div class="meta" style="border-left: 2px solid var(--accent); padding-left: 8px; margin-bottom: 8px;">Назначено: <b style="color:#fff;"><?=$assigned_text?></b></div>
                     <div class="meta">Поставил: <?=htmlspecialchars($g["created_by"])?> | Точный дедлайн: <?=htmlspecialchars($g["deadline"])?></div>
                     <?php if (!empty($g["description"])): ?><div style="margin-top: 8px; font-size: 14px; background: #050509; padding: 10px; border-radius: 6px; border: 1px solid #333;"><?=nl2br(htmlspecialchars($g["description"]))?></div><?php endif; ?>
-                    <?php if ($is_leader): ?><form method="POST" style="margin-top:10px;"><input type="hidden" name="action" value="del_goal"><input type="hidden" name="id" value="<?=htmlspecialchars($g["id"])?>"><button class="btn no" type="submit">Удалить цель</button></form><?php endif; ?>
+                    <?php if (can("goals.manage")): ?><form method="POST" style="margin-top:10px;" onsubmit="return confirm('Удалить цель?');"><input type="hidden" name="action" value="del_goal"><input type="hidden" name="id" value="<?=htmlspecialchars($g["id"])?>"><button class="btn no" type="submit">Удалить цель</button></form><?php endif; ?>
                 </div>
             <?php endforeach; ?>
         <?php endif; ?>
 
     <!-- === ШТРАФЫ === -->
     <?php elseif ($tab === "fines"): ?>
-        <?php if ($is_leader): ?>
+        <?php if (can("fines.manage")): ?>
             <div class="card">
-                <h3>Выписать штраф сотруднику</h3>
+                <h3>💸 Выписать штраф сотруднику</h3>
                 <form method="POST">
                     <input type="hidden" name="action" value="add_fine">
                     <label style="font-size: 13px; color: #aaa;">Выберите сотрудника:</label>
-                    <select name="user" required><option value="">-- Выбрать из команды --</option><?php foreach ($users as $login => $u) if (($u["role"] ?? "Пользователь") !== "Пользователь") echo '<option value="'.htmlspecialchars($login).'">'.htmlspecialchars($login).' ('.htmlspecialchars($u["role"]).')</option>'; ?></select>
+                    <select name="user" required><option value="">-- Выбрать из команды --</option><?php foreach ($staff_list as $login => $u) if (rt_can_edit_user($user, $role, $login, $u["role"] ?? "")) echo '<option value="'.htmlspecialchars($login).'">'.htmlspecialchars($login).' ('.htmlspecialchars(rt_role_label($u["role"] ?? "", $u["direction"] ?? "")).')</option>'; ?></select>
                     <label style="font-size: 13px; color: #aaa; margin-top: 8px; display: block;">Сумма штрафа (от 10 руб.):</label>
                     <input type="number" name="amount" min="10" placeholder="Например: 500" required>
                     <label style="font-size: 13px; color: #aaa; margin-top: 8px; display: block;">Причина штрафа:</label>
@@ -1614,9 +2226,10 @@ window.addEventListener('DOMContentLoaded', function() {
                 </form>
             </div>
         <?php endif; ?>
-        <h3 style="margin-top: 20px;">Список штрафов</h3>
-        <?php if (!$fines): ?><p>Штрафов пока нет.</p><?php else: ?>
-            <?php foreach (array_reverse($fines) as $f): ?>
+        <?php $shown_fines = can("fines.view_all") ? $fines : array_values(array_filter($fines, fn($f) => ($f["user"] ?? "") === $user)); ?>
+        <h3 style="margin-top: 20px;"><?=can("fines.view_all") ? "Штрафы команды" : "Мои штрафы"?></h3>
+        <?php if (!$shown_fines): ?><div class="empty"><?=can("fines.view_all") ? "Штрафов пока нет." : "У вас нет штрафов 👍"?></div><?php else: ?>
+            <?php foreach (array_reverse($shown_fines) as $f): ?>
                 <?php
                 $is_paid = !empty($f["paid"]);
                 if ($is_paid) { $status_text = "Оплачен (" . htmlspecialchars($f["paid_date"]) . ")"; $badge = "badge-acc"; } 
@@ -1625,13 +2238,13 @@ window.addEventListener('DOMContentLoaded', function() {
                 <div class="card">
                     <h3>Сотрудник: <?=htmlspecialchars($f["user"])?> — <?=htmlspecialchars($f["amount"])?> ₽ <span class="badge <?=$badge?>"><?=$status_text?></span></h3>
                     <div class="meta">Выписан: <?=htmlspecialchars($f["issue_date"])?> | Выписал: <?=htmlspecialchars($f["issued_by"])?></div>
-                    <div style="margin-top: 8px; font-size: 14px; border-left: 2px solid #c53030; padding-left: 10px;"><b>Причина:</b> <?=nl2br(htmlspecialchars($f["reason"]))?></div>
+                    <div style="margin-top: 8px; font-size: 14px; border-left: 2px solid var(--danger); padding-left: 10px;"><b>Причина:</b> <?=nl2br(htmlspecialchars($f["reason"]))?></div>
                     <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
                         <?php if (!$is_paid): ?>
                             <?php if ($f["user"] === $user): ?><form method="POST"><input type="hidden" name="action" value="pay_fine_online"><input type="hidden" name="id" value="<?=htmlspecialchars($f["id"])?>"><button class="btn blue" type="submit">Оплатить онлайн (Platega)</button></form><?php endif; ?>
-                            <?php if ($is_leader): ?><form method="POST"><input type="hidden" name="action" value="pay_fine_manual"><input type="hidden" name="id" value="<?=htmlspecialchars($f["id"])?>"><button class="btn ok" type="submit">Подтвердить получение (вручную)</button></form><?php endif; ?>
+                            <?php if (can("fines.manage")): ?><form method="POST"><input type="hidden" name="action" value="pay_fine_manual"><input type="hidden" name="id" value="<?=htmlspecialchars($f["id"])?>"><button class="btn ok" type="submit">Подтвердить получение (вручную)</button></form><?php endif; ?>
                         <?php endif; ?>
-                        <?php if ($is_leader): ?><form method="POST"><input type="hidden" name="action" value="del_fine"><input type="hidden" name="id" value="<?=htmlspecialchars($f["id"])?>"><button class="btn gray" type="submit">Удалить запись</button></form><?php endif; ?>
+                        <?php if (can("fines.manage")): ?><form method="POST" onsubmit="return confirm('Удалить запись о штрафе?');"><input type="hidden" name="action" value="del_fine"><input type="hidden" name="id" value="<?=htmlspecialchars($f["id"])?>"><button class="btn gray" type="submit">Удалить запись</button></form><?php endif; ?>
                     </div>
                 </div>
             <?php endforeach; ?>
@@ -1645,22 +2258,69 @@ window.addEventListener('DOMContentLoaded', function() {
             <div><label>Сортировка</label><br><select name="sort"><option value="newest" <?=$sort==="newest"?"selected":""?>>Сначала новые</option><option value="oldest" <?=$sort==="oldest"?"selected":""?>>Сначала старые</option><option value="status" <?=$sort==="status"?"selected":""?>>По статусу</option></select></div>
             <div style="align-self:flex-end;"><button class="btn gray" type="submit" style="margin-top:0;">Применить</button></div>
         </form>
-        <?php if (!$applications): ?><p>Заявок пока нет.</p><?php else: ?>
+        <?php if (can("apps.decide")): ?>
+            <div class="callout"><span class="c-ico">🌱</span><div>Кнопка <b>«Принять»</b> сразу выдаёт человеку роль <b>«Стажёр»</b> и направление, на которое человек подавал (его можно поправить перед принятием), и отправляет письмо с решением на email из заявки.</div></div>
+        <?php endif; ?>
+        <?php if (!$applications): ?><div class="empty">Заявок пока нет.</div><?php else: ?>
+            <?php if (can("apps.decide") && count($users) <= 5000): ?>
+                <datalist id="userLogins"><?php foreach ($users as $l => $_): ?><option value="<?=htmlspecialchars($l)?>"><?php endforeach; ?></datalist>
+            <?php endif; ?>
             <?php foreach ($applications as $app): ?>
                 <?php
-                $status = $app["status"] ?? "new"; $badgeText = "Новая"; $badgeClass = "badge-new";
-                if ($status === "viewed") { $badgeText = "Просмотрена"; $badgeClass = "badge-viewed"; } 
-                elseif ($status === "resolved_accept") { $badgeText = "Решена (принята)"; $badgeClass = "badge-acc"; } 
-                elseif ($status === "resolved_decline") { $badgeText = "Решена (отказ)"; $badgeClass = "badge-dec"; }
-                $email = ""; $nick  = "";
-                foreach ($app["answers"] as $row) { if (mb_stripos($row["q"], "email") !== false) $email = $row["a"]; if (mb_stripos($row["q"], "Ник") !== false) $nick  = $row["a"]; }
+                $status = $app["status"] ?? "new"; $badgeText = "Новая"; $badgeClass = "badge-new"; $edge = "#3b82f6";
+                if ($status === "viewed") { $badgeText = "Просмотрена"; $badgeClass = "badge-viewed"; $edge = "#f59e0b"; }
+                elseif ($status === "resolved_accept") { $badgeText = "Принята"; $badgeClass = "badge-acc"; $edge = "#22c55e"; }
+                elseif ($status === "resolved_decline") { $badgeText = "Отказ"; $badgeClass = "badge-dec"; $edge = "#ef4444"; }
+                $resolved = in_array($status, ["resolved_accept", "resolved_decline"], true);
+                $nick  = rt_app_answer($app, "Ник");
+                $email = rt_app_answer($app, "email");
+                $app_dir = $app["direction"] ?? rt_app_direction($app);
+                $acc = $app["account"] ?? rt_app_account($app, $users);
+                if ($acc !== null && !isset($users[$acc])) $acc = null;
                 ?>
-                <div class="card">
-                    <div class="meta">ID: <?=htmlspecialchars($app["id"])?> | <?=htmlspecialchars($app["type"])?> | <?=htmlspecialchars($app["time"])?> <span class="badge <?=$badgeClass?>"><?=$badgeText?></span></div>
-                    <div class="meta">Ник: <?=htmlspecialchars($nick)?> | Email: <?=htmlspecialchars($email)?></div>
-                    <?php foreach ($app["answers"] as $row): ?><div class="meta"><b><?=htmlspecialchars($row["q"])?></b><br><?=nl2br(htmlspecialchars($row["a"]))?></div><?php endforeach; ?>
-                    <form action="decision.php" method="POST" style="margin-top:8px;"><input type="hidden" name="id" value="<?=htmlspecialchars($app["id"])?>"><textarea name="comment" placeholder="Комментарий кандидату (необязательно)"></textarea><div style="margin-top:6px;"><button class="btn ok" name="decision" value="accept">Принять</button><button class="btn no" name="decision" value="decline">Отказать</button></div></form>
-                    <?php if ($status === "new"): ?><form method="POST" style="margin-top:6px;"><input type="hidden" name="action" value="mark_viewed"><input type="hidden" name="id" value="<?=htmlspecialchars($app["id"])?>"><button class="btn gray" type="submit">Отметить как просмотренную</button></form><?php endif; ?>
+                <div class="card" style="border-left: 3px solid <?=$edge?>;">
+                    <div class="row" style="justify-content:space-between; align-items:flex-start;">
+                        <div>
+                            <h3 style="margin:0;">👤 <?=htmlspecialchars($nick !== "" ? $nick : "Без ника")?> <span class="badge <?=$badgeClass?>"><?=$badgeText?></span></h3>
+                            <div class="meta" style="margin-top:4px;">#<?=htmlspecialchars($app["id"])?> · <?=htmlspecialchars($app["type"] ?? "")?> · <?=htmlspecialchars($app["time"] ?? "")?><?php if ($email !== ""): ?> · <?=htmlspecialchars($email)?><?php endif; ?></div>
+                        </div>
+                        <span class="chip">Направление: <b style="color:#fff;"><?=htmlspecialchars($app_dir)?></b></span>
+                    </div>
+
+                    <details style="margin-top:10px;"<?=$resolved ? '' : ' open'?>>
+                        <summary class="muted" style="cursor:pointer;">Ответы на вопросы (<?=count($app["answers"] ?? [])?>)</summary>
+                        <div class="qa">
+                            <?php foreach (($app["answers"] ?? []) as $row): ?><div class="q"><?=htmlspecialchars($row["q"])?></div><div class="a"><?=nl2br(htmlspecialchars($row["a"]))?></div><?php endforeach; ?>
+                        </div>
+                    </details>
+
+                    <div class="meta" style="margin-top:10px;">
+                        Аккаунт на сайте:
+                        <?php if ($acc): ?><b style="color:#fff;"><?=htmlspecialchars($acc)?></b> <?=rt_role_badge($users[$acc]["role"] ?? "Пользователь", $users[$acc]["direction"] ?? "")?>
+                        <?php else: ?><span style="color:#fcc56b;">⚠ не найден по нику и email — впишите логин вручную</span><?php endif; ?>
+                    </div>
+                    <?php if ($resolved && !empty($app["decided_by"])): ?>
+                        <div class="meta">Решение: <b><?=htmlspecialchars($app["decided_by"])?></b> · <?=htmlspecialchars($app["decided_at"] ?? "")?><?php if (!empty($app["comment"])): ?> · «<?=htmlspecialchars($app["comment"])?>»<?php endif; ?></div>
+                    <?php endif; ?>
+
+                    <?php if (can("apps.decide")): ?>
+                        <?php if ($resolved): ?><details style="margin-top:8px;"><summary class="muted" style="cursor:pointer;">Изменить решение</summary><?php endif; ?>
+                        <form method="POST" action="?tab=apps&search=<?=urlencode($search)?>&sort=<?=urlencode($sort)?>" style="margin-top:10px;">
+                            <input type="hidden" name="action" value="app_decide">
+                            <input type="hidden" name="id" value="<?=htmlspecialchars($app["id"])?>">
+                            <div class="row">
+                                <div class="grow"><label>Логин аккаунта</label><input type="text" name="login" list="userLogins" value="<?=htmlspecialchars($acc ?? $nick)?>" placeholder="Логин на сайте"></div>
+                                <div class="grow"><label>Направление стажёра</label><select name="direction"><?php foreach (rt_directions() as $dk => $dl): ?><option value="<?=htmlspecialchars($dk)?>" <?=$dk === $app_dir ? "selected" : ""?>><?=htmlspecialchars($dl)?></option><?php endforeach; ?></select></div>
+                            </div>
+                            <textarea name="comment" placeholder="Комментарий кандидату (необязательно, уйдёт в письмо)" style="height:60px;"></textarea>
+                            <div class="row" style="margin-top:4px;">
+                                <button class="btn ok" name="decision" value="accept" onclick="return confirm('Принять заявку и выдать роль «Стажёр»?');">✓ Принять — выдать «Стажёр»</button>
+                                <button class="btn no" name="decision" value="decline" onclick="return confirm('Отклонить заявку?');">✕ Отказать</button>
+                            </div>
+                        </form>
+                        <?php if ($resolved): ?></details><?php endif; ?>
+                    <?php endif; ?>
+                    <?php if ($status === "new"): ?><form method="POST" style="margin-top:6px;"><input type="hidden" name="action" value="mark_viewed"><input type="hidden" name="id" value="<?=htmlspecialchars($app["id"])?>"><button class="btn ghost sm" type="submit" style="margin-top:6px;">Отметить как просмотренную</button></form><?php endif; ?>
                 </div>
             <?php endforeach; ?>
         <?php endif; ?>
@@ -1803,11 +2463,11 @@ window.addEventListener('DOMContentLoaded', function() {
         <?php endif; ?>
 
     <?php elseif ($tab === "messages"): ?>
-        <h3 style="color:#ff2a2a; margin-bottom:15px;">Сообщения от пользователей</h3>
+        <div class="callout"><span class="c-ico">✉️</span><div>Письма с формы «Написать нам» на сайте. Ответ уходит человеку на email.</div></div>
         <?php if (!$messages): ?><p>Сообщений пока нет.</p><?php else: ?>
             <?php foreach (array_reverse($messages) as $m): ?>
                 <div class="card">
-                    <h3>От: <?=htmlspecialchars($m["name"])?> (<?=$m["email"]?>)</h3>
+                    <h3>От: <?=htmlspecialchars($m["name"])?> (<?=htmlspecialchars($m["email"])?>)</h3>
                     <div class="meta"><?=htmlspecialchars($m["time"] ?? "")?></div>
                     <?php if(!empty($m["ip"])): ?><div class="meta" style="color:#e67e22;">IP: <b><?=htmlspecialchars($m["ip"])?></b></div><?php endif; ?>
                     <div style="margin-top:10px; background:#050509; padding:10px; border-radius:6px; border:1px solid #333;"><?=nl2br(htmlspecialchars($m["text"]))?></div>
@@ -1823,12 +2483,11 @@ window.addEventListener('DOMContentLoaded', function() {
 
     <!-- === ТИКЕТЫ ПОДДЕРЖКИ САЙТА === -->
     <?php elseif ($tab === "support"): ?>
-        <h3 style="color:#ff2a2a; margin:0;">Центр поддержки (Тикеты)</h3>
         <div class="support-layout">
             <div class="sup-sidebar"><div id="ticketSidebarList">
                 <?php $active_id = $_GET['ticket_id'] ?? null; if (!$tickets): ?><div style="padding: 20px; color: #777; text-align: center; font-size: 13px;">Тикетов пока нет.</div><?php else: ?>
                     <?php foreach (array_reverse($tickets) as $t): $statusColor = $t['status'] === 'Открыт' ? '#1f9d55' : ($t['status'] === 'Закрыт' ? '#777' : '#d97706'); ?>
-                        <a href="?tab=support&ticket_id=<?=$t['id']?>" class="sup-ticket <?= ($active_id == $t['id']) ? 'active' : '' ?>"><div style="font-weight: bold; margin-bottom: 5px; color: #ff7777;"><?=$t['topic']?></div><div style="font-size: 11px; color: #777; display: flex; justify-content: space-between;"><span>#<?=$t['id']?> | <?=$t['client']?></span><span id="sidebar_status_<?=$t['id']?>" style="background: <?=$statusColor?>; padding: 2px 6px; border-radius: 4px; color: #fff;"><?=$t['status']?></span></div></a>
+                        <a href="?tab=support&ticket_id=<?=urlencode($t['id'])?>" class="sup-ticket <?= ($active_id == $t['id']) ? 'active' : '' ?>"><div style="font-weight: bold; margin-bottom: 5px; color: #ff7777;"><?=htmlspecialchars($t['topic'])?></div><div style="font-size: 11px; color: #777; display: flex; justify-content: space-between;"><span>#<?=htmlspecialchars($t['id'])?> | <?=htmlspecialchars($t['client'])?></span><span id="sidebar_status_<?=htmlspecialchars($t['id'])?>" style="background: <?=$statusColor?>; padding: 2px 6px; border-radius: 4px; color: #fff;"><?=htmlspecialchars($t['status'])?></span></div></a>
                     <?php endforeach; ?>
                 <?php endif; ?>
             </div></div>
@@ -1836,13 +2495,13 @@ window.addEventListener('DOMContentLoaded', function() {
                 <?php if ($active_id): ?>
                     <?php $curr_ticket = null; foreach ($tickets as $t) if ((string)$t["id"] === (string)$active_id) $curr_ticket = $t; if ($curr_ticket): ?>
                         <div class="sup-header">
-                            <div><h3 style="margin:0; color:#fff;"><?=$curr_ticket['topic']?></h3><div style="font-size: 12px; color: #aaa;">Клиент: <b><?=$curr_ticket['client']?></b> | Статус: <span id="header_status"><?=$curr_ticket['status']?></span></div></div>
+                            <div><h3 style="margin:0; color:#fff;"><?=htmlspecialchars($curr_ticket['topic'])?></h3><div style="font-size: 12px; color: #aaa;">Клиент: <b><?=htmlspecialchars($curr_ticket['client'])?></b> | Статус: <span id="header_status"><?=htmlspecialchars($curr_ticket['status'])?></span></div></div>
                             <?php if ($curr_ticket['status'] !== 'Закрыт'): ?><form method="POST" style="margin:0;" id="closeForm"><input type="hidden" name="action" value="close_ticket"><input type="hidden" name="id" value="<?=$curr_ticket['id']?>"><button class="btn no" type="submit" style="margin:0; padding:6px 12px;">Закрыть тикет</button></form><?php endif; ?>
                         </div>
                         <div class="sup-history" id="adminChatHistory">
                             <div class="bubble client">
-                                <div class="b-meta">Клиент: <?=$curr_ticket['client']?> <span style="color:#777; font-weight:normal; font-size:10px;">(<?=$curr_ticket['date']?>)</span></div><?=nl2br(htmlspecialchars($curr_ticket['description']))?>
-                                <?php if (!empty($curr_ticket["photo"])): ?><div style="margin-top: 10px; border-top: 1px dashed #333; padding-top: 10px;"><img src="<?=$curr_ticket["photo"]?>" style="max-height: 200px; border-radius: 4px; display:block; margin-bottom:10px;"><form method="POST" style="margin:0;"><input type="hidden" name="action" value="pin_photo"><input type="hidden" name="id" value="<?=$curr_ticket["id"]?>"><button class="btn <?=empty($curr_ticket['pinned_photo']) ? 'blue' : 'gray'?>" type="submit" style="padding:4px 8px; font-size:12px; margin:0;"><?=empty($curr_ticket['pinned_photo']) ? '📌 Закрепить фото' : 'Открепить фото'?></button></form></div><?php endif; ?>
+                                <div class="b-meta">Клиент: <?=htmlspecialchars($curr_ticket['client'])?> <span style="color:#777; font-weight:normal; font-size:10px;">(<?=htmlspecialchars($curr_ticket['date'])?>)</span></div><?=nl2br(htmlspecialchars($curr_ticket['description']))?>
+                                <?php if (!empty($curr_ticket["photo"])): ?><div style="margin-top: 10px; border-top: 1px dashed #333; padding-top: 10px;"><img src="<?=htmlspecialchars($curr_ticket["photo"])?>" style="max-height: 200px; border-radius: 4px; display:block; margin-bottom:10px;"><form method="POST" style="margin:0;"><input type="hidden" name="action" value="pin_photo"><input type="hidden" name="id" value="<?=$curr_ticket["id"]?>"><button class="btn <?=empty($curr_ticket['pinned_photo']) ? 'blue' : 'gray'?>" type="submit" style="padding:4px 8px; font-size:12px; margin:0;"><?=empty($curr_ticket['pinned_photo']) ? '📌 Закрепить фото' : 'Открепить фото'?></button></form></div><?php endif; ?>
                             </div>
                             <div id="repliesContainer">
                                 <?php foreach ($curr_ticket["replies"] as $reply): $is_admin = $reply["is_admin"] ?? true; ?>
@@ -1852,7 +2511,7 @@ window.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <form class="sup-controls" id="replyForm" method="POST" enctype="multipart/form-data" style="<?= $curr_ticket['status'] === 'Закрыт' ? 'display:none;' : '' ?>"><input type="hidden" name="action" value="reply_ticket"><input type="hidden" name="id" value="<?=$curr_ticket['id']?>"><input type="hidden" name="is_ajax" value="1"><label class="file-upload-btn" title="Прикрепить фото">📷 <input type="file" name="reply_photo" accept="image/*" style="display: none;"></label><input type="text" name="reply_text" placeholder="Ответить клиенту..." required style="margin:0; flex:1;"><button class="btn ok" type="submit" style="margin:0; width: auto;">Отправить</button></form>
                         <script>
-                            const adminHist = document.getElementById("adminChatHistory"); const replyForm = document.getElementById("replyForm"); let lastHtml = document.getElementById("repliesContainer").innerHTML; const ticketId = "<?=$curr_ticket['id']?>";
+                            const adminHist = document.getElementById("adminChatHistory"); const replyForm = document.getElementById("replyForm"); let lastHtml = document.getElementById("repliesContainer").innerHTML; const ticketId = <?=json_encode((string)$curr_ticket['id'])?>;
                             if(adminHist) adminHist.scrollTop = adminHist.scrollHeight;
                             if (replyForm) { replyForm.addEventListener('submit', function(e) { e.preventDefault(); fetch('', { method: 'POST', body: new FormData(this) }).then(() => { this.reset(); loadMessages(); }); }); }
                             function loadMessages() { fetch('?ajax_html_ticket=' + ticketId).then(r => r.json()).then(data => { if (data.html !== lastHtml) { document.getElementById('repliesContainer').innerHTML = data.html; lastHtml = data.html; adminHist.scrollTop = adminHist.scrollHeight; } if (data.status === 'Закрыт') { if (replyForm) replyForm.style.display = 'none'; if (document.getElementById('closeForm')) document.getElementById('closeForm').style.display = 'none'; document.getElementById('header_status').innerText = 'Закрыт'; } }); }
@@ -1862,11 +2521,10 @@ window.addEventListener('DOMContentLoaded', function() {
                 <?php else: ?><div style="display:flex; flex:1; align-items:center; justify-content:center; color:#777;">Выберите тикет в меню слева.</div><?php endif; ?>
             </div>
         </div>
-        <script> function loadTicketList() { const activeId = "<?= $_GET['ticket_id'] ?? '' ?>"; fetch('?ajax_ticket_list=1&active_id=' + activeId).then(r => r.json()).then(data => { let sidebarList = document.getElementById('ticketSidebarList'); if (sidebarList && data.html !== sidebarList.innerHTML) { sidebarList.innerHTML = data.html; } }); } setInterval(loadTicketList, 3000); </script>
+        <script> function loadTicketList() { const activeId = <?=json_encode((string)($_GET['ticket_id'] ?? ''))?>; fetch('?ajax_ticket_list=1&active_id=' + activeId).then(r => r.json()).then(data => { let sidebarList = document.getElementById('ticketSidebarList'); if (sidebarList && data.html !== sidebarList.innerHTML) { sidebarList.innerHTML = data.html; } }); } setInterval(loadTicketList, 3000); </script>
 
     <!-- === БАНЫ === -->
     <?php elseif ($tab === "bans"): ?>
-        <h3 style="color:#ff2a2a; margin-bottom:15px;">Управление блокировками</h3>
 
         <div class="card" id="geoBlockCard">
             <h3>🌍 Гео-блокировка по странам</h3>
@@ -1926,14 +2584,13 @@ window.addEventListener('DOMContentLoaded', function() {
             <script> function quickBanSetup(ip, reason) { const ipInput = document.querySelector('input[name="ip"]'); const reasonInput = document.querySelector('input[name="reason"]'); if(ipInput && reasonInput) { ipInput.value = ip; reasonInput.value = reason; ipInput.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); } } </script>
             <div style="max-height: 400px; overflow-y: auto; padding-right: 10px;">
             <?php foreach (array_reverse(array_slice($messages, -20)) as $m): ?>
-                <div class="card" style="border-color: #333; margin-top: 5px;"><div class="meta" style="margin-bottom: 2px;">От: <b><?=htmlspecialchars($m["name"])?></b> (<?=$m["email"]?>) | Дата: <?=htmlspecialchars($m["time"] ?? "")?></div><?php if(!empty($m["ip"])): ?><div class="meta" style="color:#e67e22;">IP: <b><?=htmlspecialchars($m["ip"])?></b></div><?php endif; ?><div style="font-size: 13px; margin-top: 4px; color: #ccc;"><?=mb_strimwidth(htmlspecialchars($m["text"]), 0, 100, "...")?></div><?php if(!empty($m["ip"])): ?><?php $safe_ip = htmlspecialchars($m["ip"]); $safe_reason = htmlspecialchars(addslashes("Спам: " . str_replace(["\r","\n"], " ", mb_strimwidth($m["text"], 0, 40, "...")))); ?><button class="btn gray" style="margin-top:8px; font-size:11px; padding:4px 8px;" onclick="quickBanSetup('<?=$safe_ip?>', '<?=$safe_reason?>')">🎯 Выбрать для бана</button><?php else: ?><div style="margin-top: 8px; font-size: 11px; color: #777;">IP-адрес неизвестен</div><?php endif; ?></div>
+                <div class="card" style="border-color: #333; margin-top: 5px;"><div class="meta" style="margin-bottom: 2px;">От: <b><?=htmlspecialchars($m["name"])?></b> (<?=htmlspecialchars($m["email"])?>) | Дата: <?=htmlspecialchars($m["time"] ?? "")?></div><?php if(!empty($m["ip"])): ?><div class="meta" style="color:#e67e22;">IP: <b><?=htmlspecialchars($m["ip"])?></b></div><?php endif; ?><div style="font-size: 13px; margin-top: 4px; color: #ccc;"><?=mb_strimwidth(htmlspecialchars($m["text"]), 0, 100, "...")?></div><?php if(!empty($m["ip"])): ?><?php $safe_ip = htmlspecialchars($m["ip"]); $safe_reason = htmlspecialchars(addslashes("Спам: " . str_replace(["\r","\n"], " ", mb_strimwidth($m["text"], 0, 40, "...")))); ?><button class="btn gray" style="margin-top:8px; font-size:11px; padding:4px 8px;" onclick="quickBanSetup('<?=$safe_ip?>', '<?=$safe_reason?>')">🎯 Выбрать для бана</button><?php else: ?><div style="margin-top: 8px; font-size: 11px; color: #777;">IP-адрес неизвестен</div><?php endif; ?></div>
             <?php endforeach; ?>
             </div>
         <?php endif; ?>
 
     <!-- === ЧЁРНЫЙ СПИСОК === -->
     <?php elseif ($tab === "blacklist"): ?>
-        <h3 style="color:#ff2a2a; margin-bottom:15px;">⚫ Чёрный список</h3>
 
         <div class="card" id="blacklistFormCard">
             <h3>Внести в чёрный список</h3>
@@ -2022,8 +2679,9 @@ window.addEventListener('DOMContentLoaded', function() {
         <?php $bot_token = $settings["bot_token"] ?? ""; ?>
         
         <!-- НАСТРОЙКИ БОТА И РАССЫЛКА -->
-        <h3 style="color:#ff2a2a; margin-bottom:15px;">Telegram Бот (Управление)</h3>
-        <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+        <?php if (can("settings.manage") || can("bot.manage")): ?>
+        <div style="display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 20px;">
+            <?php if (can("settings.manage")): ?>
             <div class="card" style="flex: 1; min-width: 300px; margin-top: 0;">
                 <h3>Настройки бота</h3>
                 <form class="ajax-bot-form" method="POST" onsubmit="event.preventDefault(); const fd = new FormData(this); fd.append('is_ajax', '1'); fetch('admin.php?tab=bot', {method: 'POST', body: fd}).then(() => { showToast('Токен сохранен!', 'info'); });">
@@ -2033,6 +2691,8 @@ window.addEventListener('DOMContentLoaded', function() {
                     <button class="btn ok" type="submit" style="margin-top:10px;">Сохранить токен</button>
                 </form>
             </div>
+            <?php endif; ?>
+            <?php if (can("bot.manage")): ?>
             <div class="card" style="flex: 1; min-width: 300px; margin-top: 0; border-color: #805ad5;">
                 <h3 style="color: #805ad5;">Массовая рассылка</h3>
                 <form class="ajax-bot-form" method="POST" onsubmit="event.preventDefault(); const t = this.broadcast_text.value; if(!t) return; const fd = new FormData(this); fd.append('is_ajax', '1'); fetch('admin.php?tab=bot', {method: 'POST', body: fd}).then(r => r.text()).then(res => { if(res.trim()=='error') showToast('Ошибка токена!', 'error'); else { this.reset(); showToast('Рассылка выполнена!', 'info'); } });">
@@ -2041,11 +2701,14 @@ window.addEventListener('DOMContentLoaded', function() {
                     <button class="btn" type="submit" style="background:#805ad5; color:#fff; width: 100%;">Отправить всем пользователям</button>
                 </form>
             </div>
+            <?php endif; ?>
         </div>
+        <?php endif; ?>
 
         <!-- УПРАВЛЕНИЕ РОЗЫГРЫШАМИ (НОВОЕ) -->
-        <h3 style="color:#e67e22; margin-top:30px;">Управление Розыгрышами</h3>
-        <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+        <h3 style="margin-top:24px;">🎁 Розыгрыши</h3>
+        <div style="display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 20px;">
+            <?php if (can("bot.manage")): ?>
             <div class="card" style="flex: 1; min-width: 300px; margin-top: 0; border-color: #e67e22;">
                 <h3>Создать розыгрыш</h3>
                 <form method="POST" onsubmit="event.preventDefault(); const fd = new FormData(this); fd.append('is_ajax', '1'); fetch('admin.php?tab=bot', {method: 'POST', body: fd}).then(() => { this.reset(); showToast('Розыгрыш создан!', 'info'); loadBotData(); });">
@@ -2057,22 +2720,25 @@ window.addEventListener('DOMContentLoaded', function() {
                     <button class="btn orange" type="submit" style="margin-top:10px; width:100%;">Запустить розыгрыш</button>
                 </form>
             </div>
+            <?php endif; ?>
             
             <div style="flex: 2; min-width: 300px;" id="botGiveawaysFeed" data-lasthtml="">
-                <?= render_bot_giveaways_list(load_json("bot_giveaways.json", [])) ?>
+                <?= render_bot_giveaways_list(load_json("bot_giveaways.json", []), can("bot.manage")) ?>
             </div>
         </div>
 
         <!-- ВХОДЯЩИЕ ЗАЯВКИ ИЗ ТЕЛЕГРАМА -->
-        <h3 style="margin-top:30px;">Входящие заявки из Telegram</h3>
+        <?php if (can("bot.tickets")): ?>
+        <h3 style="margin-top:24px;">📨 Входящие заявки из Telegram</h3>
         <div id="botTicketsFeed" data-lasthtml="">
             <?php
             $tg_tickets = load_json("bot_tickets.json", []);
             $banned_users = load_json("bot_banned.json", []);
             if (!is_array($banned_users)) $banned_users = [];
-            echo render_bot_tickets($tg_tickets, $banned_users);
+            echo render_bot_tickets($tg_tickets, $banned_users, true, can("bans.manage"));
             ?>
         </div>
+        <?php endif; ?>
 
     <!-- === ПРОЧИЕ ВКЛАДКИ === -->
     <?php elseif ($tab === "leaks"): ?>
@@ -2110,53 +2776,261 @@ window.addEventListener('DOMContentLoaded', function() {
         <?php else: ?><p>Постов пока нет.</p><?php endif; ?>
 
     <?php elseif ($tab === "users"): ?>
-        <div class="card">
-            <h3>Добавить пользователя</h3>
-            <form method="POST"><input type="hidden" name="action" value="add_user"><input type="text" name="login" placeholder="Логин" required><input type="password" name="password" placeholder="Пароль" required><select name="role"><option value="Пользователь">Пользователь</option><option value="Администратор">Администратор</option><option value="Главный разработчик">Главный разработчик</option></select><button class="btn gray" type="submit">Создать</button></form>
-        </div>
-        <?php if (!$users): ?><p>Пользователей пока нет.</p><?php else: ?>
-            <?php foreach ($users as $login => $u): ?>
-                <div class="card">
-                    <h3><?=htmlspecialchars($login)?></h3>
-                    <div class="meta">Роль: <?=htmlspecialchars($u["role"] ?? "Пользователь")?></div>
-                    <?php if (!empty($u["ip"])): ?>
-                        <div class="meta" style="color:#e67e22;">IP: <b><?=htmlspecialchars($u["ip"])?></b><?php if (!empty($u["last_seen"])): ?> · последний вход: <?=htmlspecialchars($u["last_seen"])?><?php endif; ?></div>
-                        <a class="btn gray" style="margin-top:4px; font-size:11px; padding:4px 8px; display:inline-block; text-decoration:none; text-align:center;" href="?tab=bans&quickban_ip=<?=urlencode($u["ip"])?>&quickban_reason=<?=urlencode("Блокировка по IP пользователя " . $login)?>">🎯 Забанить IP этого пользователя</a>
-                    <?php else: ?>
-                        <div class="meta" style="color:#777;">IP: неизвестен</div>
-                    <?php endif; ?>
-                    <form method="POST" style="margin-top:6px;"><input type="hidden" name="action" value="set_role"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><select name="role"><option value="Пользователь" <?=($u["role"]??"")==="Пользователь"?"selected":""?>>Пользователь</option><option value="Администратор" <?=($u["role"]??"")==="Администратор"?"selected":""?>>Администратор</option><option value="Главный разработчик" <?=($u["role"]??"")==="Главный разработчик"?"selected":""?>>Главный разработчик</option></select><button class="btn gray" type="submit">Сохранить роль</button></form>
-                    <form method="POST" style="margin-top:6px;"><input type="hidden" name="action" value="set_pass"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><input type="password" name="password" placeholder="Новый пароль"><button class="btn gray" type="submit">Сменить пароль</button></form>
-                    <?php if ($login !== "Roma_07b" && $login !== "Petryha"): ?><form method="POST" style="margin-top:6px;"><input type="hidden" name="action" value="del_user"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn no" type="submit">Удалить пользователя</button></form><?php endif; ?>
+        <?php
+        $can_roles = can("roles.manage"); $can_users = can("users.manage"); $can_bans = can("bans.manage");
+        $assignable = rt_assignable_roles($user, $role);
+        $uq = trim($_GET["q"] ?? ""); $urole = $_GET["urole"] ?? "";
+        $ulist = [];
+        foreach ($users as $login => $u) {
+            if (!is_array($u)) continue;
+            $r = $u["role"] ?? "Пользователь";
+            if ($urole === "staff" && !rt_is_staff($r, $login)) continue;
+            if ($urole !== "" && $urole !== "staff" && $r !== $urole) continue;
+            if ($uq !== "" && mb_stripos($login . " " . ($u["email"] ?? "") . " " . ($u["ip"] ?? ""), $uq) === false) continue;
+            $ulist[$login] = $u;
+        }
+        $uper = 40; $utotal = count($ulist); $upages = max(1, (int)ceil($utotal / $uper)); $upage = min($upages, max(1, (int)($_GET["p"] ?? 1)));
+        $ulist = array_slice($ulist, ($upage - 1) * $uper, $uper, true);
+        $ulink = fn($pg) => "?tab=users&q=" . urlencode($uq) . "&urole=" . urlencode($urole) . "&p=" . $pg;
+        ?>
+        <?php if ($can_users): ?>
+        <details class="card">
+            <summary style="cursor:pointer; font-weight:650; color:#fff;">➕ Создать аккаунт</summary>
+            <form method="POST" action="?tab=users" style="margin-top:10px;">
+                <input type="hidden" name="action" value="add_user">
+                <div class="row">
+                    <div class="grow"><label>Логин</label><input type="text" name="login" required></div>
+                    <div class="grow"><label>Пароль</label><input type="password" name="password" required autocomplete="new-password"></div>
+                    <div class="grow"><label>Роль</label><select name="role" data-role-select><option value="Пользователь">👤 Пользователь</option><?php foreach ($assignable as $r): if ($r === "Пользователь") continue; ?><option value="<?=htmlspecialchars($r)?>"><?=rt_role_info($r)["icon"]?> <?=htmlspecialchars($r)?></option><?php endforeach; ?></select></div>
+                    <div class="grow" data-dir><label>Направление стажёра</label><select name="direction"><?php foreach (rt_directions() as $dk => $dl): ?><option value="<?=htmlspecialchars($dk)?>"><?=htmlspecialchars($dl)?></option><?php endforeach; ?></select></div>
                 </div>
-            <?php endforeach; ?>
+                <button class="btn primary" type="submit">Создать</button>
+            </form>
+        </details>
+        <?php endif; ?>
+
+        <form class="search-bar" method="GET">
+            <input type="hidden" name="tab" value="users">
+            <div style="flex:2 1 240px;"><label>Поиск: логин, email или IP</label><input type="search" name="q" value="<?=htmlspecialchars($uq)?>" placeholder="Например: Roma или 192.168"></div>
+            <div><label>Роль</label><select name="urole"><option value="">Все</option><option value="staff" <?=$urole === "staff" ? "selected" : ""?>>Только команда</option><?php foreach (rt_roles() as $r => $ri): ?><option value="<?=htmlspecialchars($r)?>" <?=$urole === $r ? "selected" : ""?>><?=$ri["icon"]?> <?=htmlspecialchars($r)?></option><?php endforeach; ?></select></div>
+            <div style="flex:0 0 auto;"><button class="btn gray" type="submit" style="margin-top:0;">Найти</button></div>
+        </form>
+        <div class="meta">Найдено: <b><?=$utotal?></b><?php if ($uq !== "" || $urole !== ""): ?> · <a href="?tab=users">сбросить</a><?php endif; ?></div>
+
+        <?php if (!$ulist): ?><div class="empty">Никого не нашлось.</div><?php else: ?>
+        <div class="tbl-wrap">
+            <table class="tbl">
+                <thead><tr><th>Пользователь</th><th>Роль</th><th>IP · последний вход</th><th style="width:1%;">Действия</th></tr></thead>
+                <tbody>
+                <?php foreach ($ulist as $login => $u):
+                    $ur = $u["role"] ?? "Пользователь"; $ud = $u["direction"] ?? "";
+                    $editable = rt_can_edit_user($user, $role, $login, $ur);
+                    $ri = rt_role_info($ur) ?? ["color" => "#718096"]; ?>
+                    <tr>
+                        <td><div class="who"><div class="avatar sm" style="--rc:<?=htmlspecialchars($ri["color"])?>"><?=htmlspecialchars(mb_strtoupper(mb_substr($login, 0, 1)))?></div><div><b><?=htmlspecialchars($login)?></b><?php if (!empty($u["email"])): ?><span class="muted" style="font-size:12px;"><?=htmlspecialchars($u["email"])?></span><?php endif; ?></div></div></td>
+                        <td><?=rt_role_badge($ur, $ud, $login)?><?php if (!empty($u["golden"])): ?> <span class="badge badge-gold" style="margin:0;">🎫</span><?php endif; ?></td>
+                        <td><?php if (!empty($u["ip"])): ?><code><?=htmlspecialchars($u["ip"])?></code><?php else: ?><span class="muted">—</span><?php endif; ?><?php if (!empty($u["last_seen"])): ?><div class="muted" style="font-size:12px;"><?=htmlspecialchars($u["last_seen"])?></div><?php endif; ?></td>
+                        <td>
+                            <?php if ($editable && ($can_roles || $can_users) || ($can_bans && !empty($u["ip"]))): ?>
+                            <details class="act">
+                                <summary class="btn ghost sm">Управлять ▾</summary>
+                                <div class="act-panel">
+                                    <?php if ($can_roles && $editable): ?>
+                                        <form method="POST" action="?tab=users" class="inline-form">
+                                            <input type="hidden" name="action" value="set_role"><input type="hidden" name="back" value="users"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>">
+                                            <select name="role" data-role-select><?php foreach ($assignable as $r): ?><option value="<?=htmlspecialchars($r)?>" <?=$r === $ur ? "selected" : ""?>><?=rt_role_info($r)["icon"]?> <?=htmlspecialchars($r)?></option><?php endforeach; ?></select>
+                                            <select name="direction" data-dir><?php foreach (rt_directions() as $dk => $dl): ?><option value="<?=htmlspecialchars($dk)?>" <?=$dk === $ud ? "selected" : ""?>><?=htmlspecialchars($dl)?></option><?php endforeach; ?></select>
+                                            <button class="btn sm blue" type="submit">Сохранить роль</button>
+                                        </form>
+                                    <?php endif; ?>
+                                    <?php if ($can_users && $editable): ?>
+                                        <form method="POST" action="?tab=users" class="inline-form">
+                                            <input type="hidden" name="action" value="set_pass"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>">
+                                            <input type="password" name="password" placeholder="Новый пароль" required autocomplete="new-password">
+                                            <button class="btn sm gray" type="submit">Сменить пароль</button>
+                                        </form>
+                                    <?php endif; ?>
+                                    <div class="inline-form">
+                                        <?php if ($can_bans && !empty($u["ip"])): ?><a class="btn sm ghost" href="?tab=bans&quickban_ip=<?=urlencode($u["ip"])?>&quickban_reason=<?=urlencode("Блокировка по IP пользователя " . $login)?>">🎯 Забанить IP</a><?php endif; ?>
+                                        <?php if ($can_users && $editable && !rt_is_owner($login)): ?>
+                                            <form method="POST" action="?tab=users" onsubmit="return confirm('Удалить аккаунт «<?=htmlspecialchars(addslashes($login))?>» навсегда?');"><input type="hidden" name="action" value="del_user"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn sm ghost danger" type="submit">🗑 Удалить аккаунт</button></form>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </details>
+                            <?php else: ?><span class="muted" title="<?=$login === $user ? 'Это вы' : 'Старше вас по должности или нет прав'?>">🔒</span><?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php if ($upages > 1): ?>
+            <div class="row" style="margin-top:12px;">
+                <?php if ($upage > 1): ?><a class="btn gray sm" href="<?=$ulink($upage - 1)?>">← Назад</a><?php endif; ?>
+                <span class="muted">Страница <?=$upage?> из <?=$upages?></span>
+                <?php if ($upage < $upages): ?><a class="btn gray sm" href="<?=$ulink($upage + 1)?>">Вперёд →</a><?php endif; ?>
+            </div>
+        <?php endif; ?>
         <?php endif; ?>
 
     <?php elseif ($tab === "team"): ?>
-        <div class="card">
-            <h3>Добавить пользователя в команду</h3>
-            <form method="POST">
-                <input type="hidden" name="action" value="add_to_team">
-                <select name="login" required><option value="">Выберите пользователя</option><?php foreach ($users as $login => $u): ?><?php if (($u["role"] ?? "Пользователь") === "Пользователь"): ?><option value="<?=$login?>"><?=$login?></option><?php endif; ?><?php endforeach; ?></select>
-                <select name="role" required><option value="Администратор">Администратор</option><option value="Главный разработчик">Главный разработчик</option></select>
-                <button class="btn gray" type="submit">Добавить в команду</button>
-            </form>
-        </div>
-        <h3 style="margin-top:20px;">Состав команды</h3>
         <?php
-        $team = []; foreach ($users as $login => $u) if (($u["role"] ?? "Пользователь") !== "Пользователь") $team[] = [$login, $u["role"]];
-        if (!$team): ?><p>Команда пока пуста.</p><?php else: ?>
-            <?php foreach ($team as $member): ?>
-                <div class="card">
-                    <h3><?=$member[0]?></h3>
-                    <div class="meta">Роль: <?=$member[1]?></div>
-                    <form method="POST" style="margin-top:6px;"><input type="hidden" name="action" value="change_team_role"><input type="hidden" name="login" value="<?=$member[0]?>"><select name="role"><option value="Администратор" <?=$member[1]==="Администратор"?"selected":""?>>Администратор</option><option value="Главный разработчик" <?=$member[1]==="Главный разработчик"?"selected":""?>>Главный разработчик</option></select><button class="btn gray" type="submit">Сохранить</button></form>
-                    <?php if ($member[0] !== "Roma_07b" && $member[0] !== "Petryha"): ?><form method="POST" style="margin-top:6px;"><input type="hidden" name="action" value="remove_from_team"><input type="hidden" name="login" value="<?=$member[0]?>"><button class="btn no" type="submit">Удалить из команды</button></form><?php endif; ?>
-                </div>
+        $can_roles = can("roles.manage");
+        $assignable = rt_assignable_roles($user, $role);
+        $team = $staff_list;
+        uksort($team, function($a, $b) use ($team) {
+            $la = rt_user_level($a, $team[$a]["role"] ?? ""); $lb = rt_user_level($b, $team[$b]["role"] ?? "");
+            return $lb <=> $la ?: strcasecmp($a, $b);
+        });
+        $by_role = [];
+        foreach ($team as $login => $u) $by_role[$u["role"] ?? ""] = ($by_role[$u["role"] ?? ""] ?? 0) + 1;
+        $trainees = array_filter($team, fn($u) => ($u["role"] ?? "") === RT_TRAINEE_ROLE);
+        ?>
+        <div class="chips" style="margin-bottom:6px;">
+            <span class="chip">Всего в команде: <b style="color:#fff;"><?=count($team)?></b></span>
+            <?php foreach (array_reverse(rt_roles()) as $r => $ri): if (empty($by_role[$r])) continue; ?>
+                <span class="role-badge" style="--rc:<?=htmlspecialchars($ri["color"])?>"><?=$ri["icon"]?> <?=htmlspecialchars($r)?> · <?=$by_role[$r]?></span>
             <?php endforeach; ?>
+        </div>
+
+        <?php if ($can_roles): ?>
+            <div class="card">
+                <h3>➕ Добавить в команду или назначить роль</h3>
+                <form method="POST" action="?tab=team">
+                    <input type="hidden" name="action" value="add_to_team"><input type="hidden" name="back" value="team">
+                    <div class="row">
+                        <div class="grow"><label>Логин пользователя</label><input type="text" name="login" list="nonStaffLogins" placeholder="Начните вводить логин" required></div>
+                        <div class="grow"><label>Роль</label><select name="role" data-role-select><?php foreach ($assignable as $r): if ($r === "Пользователь") continue; ?><option value="<?=htmlspecialchars($r)?>" <?=$r === RT_TRAINEE_ROLE ? "selected" : ""?>><?=rt_role_info($r)["icon"]?> <?=htmlspecialchars($r)?></option><?php endforeach; ?></select></div>
+                        <div class="grow" data-dir><label>Направление стажёра</label><select name="direction"><?php foreach (rt_directions() as $dk => $dl): ?><option value="<?=htmlspecialchars($dk)?>"><?=htmlspecialchars($dl)?></option><?php endforeach; ?></select></div>
+                    </div>
+                    <button class="btn primary" type="submit">Назначить</button>
+                    <span class="muted" style="margin-left:8px; font-size:12px;">Вы можете выдавать роли: <?=htmlspecialchars(implode(", ", array_diff($assignable, ["Пользователь"])))?></span>
+                </form>
+                <?php if (count($users) <= 5000): ?><datalist id="nonStaffLogins"><?php foreach ($users as $l => $u): if (is_array($u) && !isset($team[$l])): ?><option value="<?=htmlspecialchars($l)?>"><?php endif; endforeach; ?></datalist><?php endif; ?>
+            </div>
+        <?php else: ?>
+            <div class="callout"><span class="c-ico">🔒</span><div>Назначать и менять роли могут руководитель и главный администратор. Здесь вы видите состав команды.</div></div>
         <?php endif; ?>
 
+        <?php if ($trainees && $can_roles): ?>
+            <h3>🌱 Стажёры (<?=count($trainees)?>)</h3>
+            <div class="role-cards" style="margin-top:0;">
+                <?php foreach ($trainees as $login => $u): $td = $u["direction"] ?? ""; $promote_to = isset(rt_roles()[$td]) ? $td : null; ?>
+                    <div class="role-card" style="--rc:#2fb9a8;">
+                        <div class="who row"><div class="avatar sm" style="--rc:#2fb9a8"><?=htmlspecialchars(mb_strtoupper(mb_substr($login, 0, 1)))?></div><b><?=htmlspecialchars($login)?></b></div>
+                        <p>Направление: <b style="color:#fff;"><?=htmlspecialchars($td ?: "не указано")?></b><?php if (!empty($u["role_at"])): ?><br><span class="muted">стажёр с <?=htmlspecialchars(substr($u["role_at"], 0, 10))?><?=!empty($u["role_by"]) ? " · назначил " . htmlspecialchars($u["role_by"]) : ""?></span><?php endif; ?></p>
+                        <?php if ($promote_to && rt_can_edit_user($user, $role, $login, RT_TRAINEE_ROLE) && rt_can_assign_role($user, $role, $promote_to)): ?>
+                            <form method="POST" action="?tab=team" style="margin-top:10px;" onsubmit="return confirm('Повысить <?=htmlspecialchars(addslashes($login))?> до «<?=htmlspecialchars($promote_to)?>»?');">
+                                <input type="hidden" name="action" value="change_team_role"><input type="hidden" name="back" value="team">
+                                <input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><input type="hidden" name="role" value="<?=htmlspecialchars($promote_to)?>">
+                                <button class="btn ok sm" type="submit">⬆ Повысить до «<?=htmlspecialchars($promote_to)?>»</button>
+                            </form>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="search-bar" style="margin-top:18px;">
+            <div style="flex:2 1 240px;"><label>Фильтр</label><input type="search" id="teamFilter" placeholder="Логин или роль…" oninput="filterRows('teamTable', this.value)"></div>
+        </div>
+        <?php if (!$team): ?><div class="empty">Команда пока пуста.</div><?php else: ?>
+        <div class="tbl-wrap" style="margin-top:0;">
+            <table class="tbl" id="teamTable">
+                <thead><tr><th>Сотрудник</th><th>Роль</th><th>Отдел</th><th>Назначил</th><th style="width:1%;">Управление</th></tr></thead>
+                <tbody>
+                <?php foreach ($team as $login => $u):
+                    $ur = $u["role"] ?? "Пользователь"; $ud = $u["direction"] ?? "";
+                    $ri = rt_role_info($ur) ?? ["color" => "#718096"];
+                    $dept = rt_user_dept($ur, $ud);
+                    $editable = $can_roles && rt_can_edit_user($user, $role, $login, $ur); ?>
+                    <tr>
+                        <td><div class="who"><div class="avatar sm" style="--rc:<?=htmlspecialchars($ri["color"])?>"><?=htmlspecialchars(mb_strtoupper(mb_substr($login, 0, 1)))?></div><div><b><?=htmlspecialchars($login)?><?=$login === $user ? ' <span class="muted" style="font-weight:400;">(вы)</span>' : ''?></b><?php if (!empty($u["last_seen"])): ?><span class="muted" style="font-size:12px;">был(а) <?=htmlspecialchars(date("d.m.Y H:i", strtotime($u["last_seen"])))?></span><?php endif; ?></div></div></td>
+                        <td><?=rt_role_badge($ur, $ud, $login)?></td>
+                        <td><?=htmlspecialchars($dept ? (rt_departments()[$dept] ?? $dept) : "—")?></td>
+                        <td class="muted" style="font-size:12px;"><?=!empty($u["role_by"]) ? htmlspecialchars($u["role_by"]) . "<br>" . htmlspecialchars(substr($u["role_at"] ?? "", 0, 10)) : "—"?></td>
+                        <td>
+                            <?php if ($editable): ?>
+                                <div class="inline-form" style="flex-wrap:nowrap;">
+                                    <form method="POST" action="?tab=team" class="inline-form" style="flex-wrap:nowrap;">
+                                        <input type="hidden" name="action" value="change_team_role"><input type="hidden" name="back" value="team"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>">
+                                        <select name="role" data-role-select><?php foreach ($assignable as $r): if ($r === "Пользователь") continue; ?><option value="<?=htmlspecialchars($r)?>" <?=$r === $ur ? "selected" : ""?>><?=rt_role_info($r)["icon"]?> <?=htmlspecialchars($r)?></option><?php endforeach; ?></select>
+                                        <select name="direction" data-dir style="min-width:120px;"><?php foreach (rt_directions() as $dk => $dl): ?><option value="<?=htmlspecialchars($dk)?>" <?=$dk === $ud ? "selected" : ""?>><?=htmlspecialchars($dl)?></option><?php endforeach; ?></select>
+                                        <button class="btn sm blue" type="submit">✓</button>
+                                    </form>
+                                    <form method="POST" action="?tab=team" onsubmit="return confirm('Исключить <?=htmlspecialchars(addslashes($login))?> из команды? Роль станет «Пользователь».');"><input type="hidden" name="action" value="remove_from_team"><input type="hidden" name="back" value="team"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn sm ghost danger" type="submit" title="Исключить из команды">✕</button></form>
+                                </div>
+                            <?php else: ?><span class="muted" title="<?=$login === $user ? 'Свою роль менять нельзя' : ($can_roles ? 'Старше или равен вам по должности' : 'Нет права менять роли')?>">🔒</span><?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+
+    <?php elseif ($tab === "perms"): ?>
+        <?php
+        $matrix = rt_role_perms_matrix();
+        $edit_perms = can("perms.manage");
+        $role_cols = array_filter(rt_roles(), fn($ri, $r) => $r !== "Пользователь", ARRAY_FILTER_USE_BOTH);
+        $role_counts = [];
+        foreach ($users as $l => $u) if (is_array($u)) $role_counts[$u["role"] ?? "Пользователь"] = ($role_counts[$u["role"] ?? "Пользователь"] ?? 0) + 1;
+        ?>
+        <div class="callout"><span class="c-ico">🔐</span><div>
+            Чем выше уровень роли, тем больше она может. <b>Стажёр</b> — только чат, файлы и цели. <b>Главные</b> (тестер, кодер, разработчик) — всё, кроме банов, ролей и штрафов, включая почту.
+            <b>Банят</b> только главный администратор и руководитель. <b>Роли</b> назначают руководитель и главный администратор — и только тем, кто младше их.
+            <?php if ($edit_perms): ?>Отметьте галочки и нажмите «Сохранить» — права обновятся у всех сразу.<?php endif; ?>
+            Владельцы сайта (<?=htmlspecialchars(implode(", ", rt_owners()))?>) всегда имеют все права.
+        </div></div>
+
+        <div class="role-cards">
+            <?php foreach (array_reverse(rt_roles()) as $r => $ri): ?>
+                <div class="role-card" style="--rc:<?=htmlspecialchars($ri["color"])?>">
+                    <div class="rc-head"><span class="role-badge" style="--rc:<?=htmlspecialchars($ri["color"])?>"><?=$ri["icon"]?> <?=htmlspecialchars($r)?></span><span class="lvl">ур. <?=$ri["level"]?> · <?=($role_counts[$r] ?? 0)?> чел.</span></div>
+                    <p><?=htmlspecialchars($ri["desc"])?></p>
+                </div>
+            <?php endforeach; ?>
+        </div>
+
+        <form method="POST" action="?tab=perms">
+            <input type="hidden" name="action" value="save_perms">
+            <div class="tbl-wrap" style="max-height:75vh;">
+                <table class="tbl perm-table">
+                    <thead><tr><th>Право</th><?php foreach ($role_cols as $r => $ri): ?><th class="role-col<?=$r === $role ? ' me-col' : ''?>" title="<?=htmlspecialchars($r)?>"><span><?=$ri["icon"]?></span><?=htmlspecialchars($r)?></th><?php endforeach; ?></tr></thead>
+                    <tbody>
+                    <?php foreach (rt_permissions() as $group => $perms): ?>
+                        <tr class="group"><td colspan="<?=count($role_cols) + 1?>"><?=htmlspecialchars($group)?></td></tr>
+                        <?php foreach ($perms as $pk => $plabel): ?>
+                            <tr>
+                                <td><?=htmlspecialchars($plabel)?></td>
+                                <?php foreach ($role_cols as $r => $ri): $has = in_array($pk, $matrix[$r] ?? [], true); ?>
+                                    <td class="c<?=$r === $role ? ' me-col' : ''?>">
+                                        <?php if ($edit_perms && $r !== RT_TOP_ROLE): ?>
+                                            <input type="checkbox" name="perm[<?=htmlspecialchars($r)?>][]" value="<?=htmlspecialchars($pk)?>" <?=$has ? "checked" : ""?> aria-label="<?=htmlspecialchars($r . ": " . $plabel)?>">
+                                        <?php else: ?>
+                                            <span class="<?=$has ? 'perm-yes' : 'perm-no'?>"><?=$has ? '✓' : '—'?></span>
+                                        <?php endif; ?>
+                                    </td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php if ($edit_perms): ?>
+                <div class="row" style="margin-top:12px;">
+                    <button class="btn primary" type="submit">💾 Сохранить права</button>
+                    <button class="btn ghost" type="submit" form="resetPermsForm">Сбросить к стандартным</button>
+                </div>
+            <?php endif; ?>
+        </form>
+        <?php if ($edit_perms): ?><form id="resetPermsForm" method="POST" action="?tab=perms" onsubmit="return confirm('Вернуть стандартные права всем ролям?');"><input type="hidden" name="action" value="reset_perms"></form><?php endif; ?>
+
     <?php elseif ($tab === "gold"): ?>
+        <?php if (can("gold.manage")): ?>
         <div class="card gold-card">
             <h3>💳 Платные услуги для держателей золотого билета</h3>
             <p style="color:#aaa; font-size:13px;">Список услуг (можно добавить сколько угодно — хоть 1000 штук), которые видят у себя в профиле <b>все</b> обладатели золотого билета. Каждую можно отредактировать или удалить.</p>
@@ -2226,6 +3100,7 @@ window.addEventListener('DOMContentLoaded', function() {
             </form>
         </div>
 
+        <?php endif; ?>
         <h3 style="margin-top:24px;">Владельцы золотого билета</h3>
         <?php
         $golden_users = [];
@@ -2239,7 +3114,7 @@ window.addEventListener('DOMContentLoaded', function() {
                     <div class="meta">Закреплённый сотрудник: <b><?=htmlspecialchars($u["golden_staff"] ?: "не назначен")?></b></div>
                     <div class="meta">Сообщений в чате: <?=count($gold_chats[$login]["messages"] ?? [])?></div>
                     <a href="?tab=gold&thread=<?=urlencode($login)?>" class="btn blue" style="text-decoration:none;">Открыть чат</a>
-                    <form method="POST" style="margin-top:6px; display:inline-block;"><input type="hidden" name="action" value="revoke_golden"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn no" type="submit" onclick="return confirm('Забрать золотой билет?')">Отозвать билет</button></form>
+                    <?php if (can("gold.manage")): ?><form method="POST" style="margin-top:6px; display:inline-block;"><input type="hidden" name="action" value="revoke_golden"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn no" type="submit" onclick="return confirm('Забрать золотой билет?')">Отозвать билет</button></form><?php endif; ?>
                 </div>
             <?php endforeach; ?>
         <?php endif; ?>
@@ -2261,12 +3136,14 @@ window.addEventListener('DOMContentLoaded', function() {
                         </div>
                     <?php endforeach; ?>
                 </div>
+                <?php if (can("gold.chat")): ?>
                 <form method="POST">
                     <input type="hidden" name="action" value="gold_reply">
                     <input type="hidden" name="login" value="<?=htmlspecialchars($thread)?>">
                     <textarea name="reply_text" placeholder="Написать владельцу золотого билета..." required style="height:60px;"></textarea>
                     <button class="btn gray" type="submit" style="margin-top:8px;">Отправить</button>
                 </form>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
 
@@ -2276,8 +3153,10 @@ window.addEventListener('DOMContentLoaded', function() {
             <form method="POST">
                 <input type="hidden" name="action" value="save_recruit">
                 <label><input type="checkbox" name="recruit_open" <?=!empty($settings["recruit_open"])?"checked":""?>> Набор открыт</label>
-                <h4 style="margin-top:12px;">Вопросы для заявки «Команда» (по одному на строку)</h4><textarea name="team_questions"><?=htmlspecialchars(implode("\n", $questions["team"] ?? []))?></textarea>
-                <h4 style="margin-top:12px;">Вопросы для заявки «Администратор» (по одному на строку)</h4><textarea name="admin_questions"><?=htmlspecialchars(implode("\n", $questions["admin"] ?? []))?></textarea>
+                <h4 style="margin-top:12px;">Вопросы для заявки «Команда» (по одному на строку)</h4>
+                <div class="meta">Вопрос со словом <b>«Направление»</b> на сайте показывается списком (Кодер / Разработчик / Тестер). При одобрении заявки это направление само записывается стажёру. Заявка «Администратор» всегда даёт направление «Администратор».</div>
+                <textarea name="team_questions" style="height:170px;"><?=htmlspecialchars(implode("\n", $questions["team"] ?? []))?></textarea>
+                <h4 style="margin-top:12px;">Вопросы для заявки «Администратор» (по одному на строку)</h4><textarea name="admin_questions" style="height:170px;"><?=htmlspecialchars(implode("\n", $questions["admin"] ?? []))?></textarea>
                 <button class="btn gray" type="submit" style="margin-top:10px;">Сохранить</button>
             </form>
         </div>
@@ -2411,6 +3290,8 @@ window.addEventListener('DOMContentLoaded', function() {
             <?php foreach (array_reverse($logs) as $log): ?><div class="card"><div class="meta"><?=htmlspecialchars($log["time"] ?? "")?> — <?=htmlspecialchars($log["type"] ?? "")?></div><div><?=nl2br(htmlspecialchars($log["msg"] ?? ""))?></div></div><?php endforeach; ?>
         <?php endif; ?>
     <?php endif; ?>
+        </div>
+    </main>
 </div>
 
 <script>
@@ -2421,6 +3302,34 @@ window.addEventListener('DOMContentLoaded', function() {
         const toast = document.createElement('div'); toast.className = 'toast ' + type; toast.innerText = text;
         container.appendChild(toast); setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); }, 5000);
     }
+    // Сообщения о результате последнего действия
+    <?php foreach ($_SESSION["flash"] ?? [] as $fl): ?>showToast(<?=json_encode($fl["text"], JSON_UNESCAPED_UNICODE)?>, <?=json_encode($fl["type"])?>);
+    <?php endforeach; unset($_SESSION["flash"]); ?>
+
+    // Поле «Направление» показываем только когда выбрана роль «Стажёр»
+    document.querySelectorAll('select[data-role-select]').forEach(sel => {
+        const dir = sel.form && sel.form.querySelector('[data-dir]');
+        if (!dir) return;
+        const upd = () => { dir.style.display = sel.value === <?=json_encode(RT_TRAINEE_ROLE, JSON_UNESCAPED_UNICODE)?> ? '' : 'none'; };
+        sel.addEventListener('change', upd); upd();
+    });
+
+    // Быстрый фильтр строк таблицы
+    function filterRows(tableId, q) {
+        q = q.trim().toLowerCase();
+        document.querySelectorAll('#' + tableId + ' tbody tr').forEach(tr => { tr.style.display = !q || tr.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+    }
+
+    // Кнопки розыгрышей (итоги / удалить) — без перезагрузки страницы
+    document.addEventListener('submit', e => {
+        const f = e.target;
+        if (!f.classList.contains('ajax-bot-form') || !f.closest('#botGiveawaysFeed') || e.defaultPrevented) return;
+        e.preventDefault();
+        fetch('admin.php?tab=bot', { method: 'POST', body: new FormData(f) }).then(r => r.text()).then(res => {
+            if (res.trim() === 'forbidden') showToast('Недостаточно прав для этого действия.', 'error');
+            else { showToast('Готово!', 'success'); loadBotData(); }
+        }).catch(() => showToast('Ошибка сети', 'error'));
+    });
     setInterval(() => {
         fetch('?ajax_check=1&last_time=' + lastCheckTime).then(r => r.json()).then(data => {
             if (data.status === 'ok') {
@@ -2444,7 +3353,8 @@ window.addEventListener('DOMContentLoaded', function() {
         .then(r => r.text())
         .then(res => {
             if(res.trim() === 'error') showToast('Ошибка! Проверьте токен бота в настройках.', 'error');
-            else { showToast('Действие выполнено!', 'info'); if (typeof loadBotData === 'function') loadBotData(); }
+            else if(res.trim() === 'forbidden') showToast('Недостаточно прав для этого действия.', 'error');
+            else { showToast('Действие выполнено!', 'success'); if (typeof loadBotData === 'function') loadBotData(); }
         }).catch(() => showToast('Ошибка сети', 'error'));
     }
 
