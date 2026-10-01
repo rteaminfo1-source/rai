@@ -10,6 +10,27 @@ function save_json($file, $data) {
     file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 }
 
+require_once __DIR__ . '/_roles.php'; // IP и баны (общий файл с admin.php)
+
+/* IP посетителя: сохраняется в тикете и каждом ответе клиента — в админ-панели
+   рядом с сообщением видно, откуда оно пришло, и этот IP можно забанить.
+   Забаненный IP (вкладка «Баны» в админ-панели) писать в поддержку не может. */
+$client_ip = rt_client_ip();
+$ip_ban = rt_active_ban($client_ip);
+if ($ip_ban) {
+    http_response_code(403);
+    if (isset($_GET['ajax_html_ticket']) || isset($_GET['ajax_client_ticket_list']) || isset($_POST['is_ajax'])) {
+        header('Content-Type: application/json');
+        echo json_encode(["html" => "", "status" => "Закрыт", "error" => "banned"]);
+        exit;
+    }
+    $ban_until = (int)($ip_ban["expires"] ?? 0) === 0 ? "навсегда" : "до " . date("d.m.Y H:i", (int)$ip_ban["expires"]);
+    ?><!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Доступ ограничен — Rteam</title>
+    <style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#050509;color:#eee;font-family:"Segoe UI",Arial,sans-serif;padding:20px;box-sizing:border-box}.box{max-width:460px;padding:28px;border:1px solid rgba(255,42,42,.35);border-radius:14px;background:#101018;text-align:center}h1{color:#ff2a2a;font-size:22px;margin:0 0 12px}p{color:#aaa;line-height:1.5}</style></head>
+    <body><div class="box"><h1>🚫 Поддержка недоступна</h1><p>Ваш IP-адрес заблокирован администрацией <?=htmlspecialchars($ban_until)?>.</p><p><b>Причина:</b> <?=htmlspecialchars($ip_ban["reason"] ?? "Нарушение правил")?></p></div></body></html><?php
+    exit;
+}
+
 // --- AJAX API: Получение сообщений без перезагрузки ---
 if (isset($_GET['ajax_html_ticket'])) {
     header('Content-Type: application/json');
@@ -57,7 +78,7 @@ if (isset($_GET['ajax_client_ticket_list'])) {
             $activeClass = ($active_id == $t['id']) ? 'active' : '';
             $html .= '<a href="?ticket_id='.$t['id'].'" class="ticket-item '.$activeClass.'">';
             $html .= '<div class="t-title">'.htmlspecialchars($t['topic']).'</div>';
-            $html .= '<div class="t-meta"><span>#'.$t['id'].'</span><span class="t-status" id="sidebar_status_'.$t['id'].'" style="background: '.$statusColor.'">'.$t['status'].'</span></div></a>';
+            $html .= '<div class="t-meta"><span>#'.htmlspecialchars($t['id']).'</span><span class="t-status" id="sidebar_status_'.htmlspecialchars($t['id']).'" style="background: '.$statusColor.'">'.htmlspecialchars($t['status']).'</span></div></a>';
         }
     }
     echo json_encode(["html" => $html]);
@@ -76,6 +97,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["auth_action"])) {
     if ($_POST["auth_action"] === "register") {
         if ($login !== "" && $pass !== "" && !isset($users[$login])) {
             $users[$login] = ["password" => $pass, "role" => "Пользователь"];
+            rt_track_ip($users[$login], $client_ip);
             save_json("users.json", $users);
             $_SESSION["client_user"] = $login;
         } else {
@@ -84,6 +106,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["auth_action"])) {
     } elseif ($_POST["auth_action"] === "login") {
         if (isset($users[$login]) && $users[$login]["password"] === $pass) {
             $_SESSION["client_user"] = $login;
+            rt_track_ip($users[$login], $client_ip);
+            save_json("users.json", $users);
         } else {
             $error = "Неверный логин или пароль!";
         }
@@ -110,7 +134,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["create_ticket"])) {
     $tickets[] = [
         "id" => $new_id, "client" => $_SESSION["client_user"], "topic" => $topic,
         "description" => $desc, "photo" => $photo_path, "status" => "Открыт",
-        "date" => date("Y-m-d H:i:s"), "replies" => [], "pinned_photo" => false
+        "date" => date("Y-m-d H:i:s"), "replies" => [], "pinned_photo" => false,
+        "ip" => $client_ip
     ];
     save_json("tickets.json", $tickets);
     header("Location: support.php?ticket_id=" . $new_id); exit;
@@ -138,8 +163,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["reply_ticket"])) {
                 "photo" => $reply_photo_path,
                 "author" => $_SESSION["client_user"], 
                 "date" => date("Y-m-d H:i:s"), 
-                "is_admin" => false
+                "is_admin" => false,
+                "ip" => $client_ip
             ];
+            $t["last_ip"] = $client_ip;
             $t["status"] = "Открыт";
             break;
         }
@@ -216,7 +243,7 @@ $is_new_ticket = isset($_GET["new_ticket"]);
 <div class="header">
     <h1>Rteam Support</h1>
     <?php if ($client): ?>
-        <div><?=$client?> | <a href="?logout=1" style="color:#ff7777; text-decoration:none;">Выйти</a></div>
+        <div><?=htmlspecialchars($client)?> | <a href="?logout=1" style="color:#ff7777; text-decoration:none;">Выйти</a></div>
     <?php endif; ?>
 </div>
 
@@ -249,10 +276,10 @@ $is_new_ticket = isset($_GET["new_ticket"]);
                     <?php foreach (array_reverse($my_tickets) as $t): ?>
                         <?php $statusColor = $t['status'] === 'Открыт' ? '#1f9d55' : ($t['status'] === 'Закрыт' ? '#777' : '#d97706'); ?>
                         <a href="?ticket_id=<?=$t['id']?>" class="ticket-item <?= ($active_ticket_id == $t['id']) ? 'active' : '' ?>">
-                            <div class="t-title"><?=$t['topic']?></div>
+                            <div class="t-title"><?=htmlspecialchars($t['topic'])?></div>
                             <div class="t-meta">
                                 <span>#<?=$t['id']?></span>
-                                <span class="t-status" id="sidebar_status_<?=$t['id']?>" style="background: <?=$statusColor?>"><?=$t['status']?></span>
+                                <span class="t-status" id="sidebar_status_<?=htmlspecialchars($t['id'])?>" style="background: <?=$statusColor?>"><?=htmlspecialchars($t['status'])?></span>
                             </div>
                         </a>
                     <?php endforeach; ?>
@@ -292,7 +319,7 @@ $is_new_ticket = isset($_GET["new_ticket"]);
                 
                 if ($current_ticket): ?>
                     <div class="chat-header">
-                        <h3 style="margin:0; color:#fff;"><?=$current_ticket['topic']?></h3>
+                        <h3 style="margin:0; color:#fff;"><?=htmlspecialchars($current_ticket['topic'])?></h3>
                         <div style="font-size: 12px; color: #aaa; margin-top: 4px;">Тикет #<?=$current_ticket['id']?> | Статус: <span id="header_status"><?=$current_ticket['status']?></span></div>
                     </div>
                     
@@ -306,7 +333,7 @@ $is_new_ticket = isset($_GET["new_ticket"]);
                                     <?php if (!empty($current_ticket["pinned_photo"])): ?>
                                         <span style="background:#ff2a2a; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">📌 Закреплено</span><br>
                                     <?php endif; ?>
-                                    <img src="<?=$current_ticket["photo"]?>" style="max-width:250px; border-radius:8px; margin-top:5px; border:1px solid #333;">
+                                    <img src="<?=htmlspecialchars($current_ticket["photo"])?>" style="max-width:250px; border-radius:8px; margin-top:5px; border:1px solid #333;">
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -346,7 +373,7 @@ $is_new_ticket = isset($_GET["new_ticket"]);
                         const replyForm = document.getElementById("replyForm");
                         let lastHtml = document.getElementById("repliesContainer").innerHTML;
                         let lastSidebarHtml = document.getElementById("ticketSidebarList").innerHTML;
-                        const ticketId = "<?=$current_ticket['id']?>";
+                        const ticketId = <?=json_encode((string)$current_ticket['id'])?>;
 
                         if(chatHist) chatHist.scrollTop = chatHist.scrollHeight;
 

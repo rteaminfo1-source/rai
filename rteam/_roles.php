@@ -399,3 +399,11 @@ function rt_track_login_ip($login) {
     rt_track_ip($users[$login], rt_client_ip());
     rt_json_save("users.json", $users);
 }
+
+/* Действующий бан для IP из bans.json (вкладка «Баны» в админ-панели) или null */
+function rt_active_ban($ip) {
+    foreach ((array)rt_json_load("bans.json", []) as $b) {
+        if (($b["ip"] ?? "") === $ip && ((int)($b["expires"] ?? 0) === 0 || (int)$b["expires"] > time())) return $b;
+    }
+    return null;
+}

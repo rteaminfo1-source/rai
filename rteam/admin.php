@@ -323,6 +323,7 @@ function author_ip($stored, $login = null, $email = null) {
 }
 function ip_is_banned($ip) {
     global $bans;
+    if (!isset($bans)) $bans = load_json("bans.json", []); // в AJAX-ответах список банов ещё не загружен
     foreach ((array)$bans as $b) {
         if (($b["ip"] ?? "") === $ip && ((int)($b["expires"] ?? 0) === 0 || (int)$b["expires"] > time())) return true;
     }
@@ -386,6 +387,19 @@ function default_webhook_url() {
     $host = $_SERVER["HTTP_HOST"] ?? "rteam.info";
     $dir  = rtrim(str_replace("\\", "/", dirname($_SERVER["SCRIPT_NAME"] ?? "/admin.php")), "/");
     return "https://" . $host . $dir . "/bot.php";
+}
+
+/* Сообщение в тикете поддержки. У сообщений клиента — IP, с которого оно
+   отправлено (support.php сохраняет его), и кнопка бана для тех, кто банит. */
+function render_ticket_reply($reply, $ticket) {
+    $is_admin = $reply["is_admin"] ?? true;
+    $author = $is_admin ? htmlspecialchars($reply["employee"] ?? "") . ' (Rteam)' : 'Клиент: ' . htmlspecialchars($ticket['client'] ?? "");
+    $html  = '<div class="bubble ' . ($is_admin ? 'admin' : 'client') . '">';
+    $html .= '<div class="b-meta">' . $author . ' <span style="color:#777; font-weight:normal; font-size:10px;">(' . htmlspecialchars($reply["date"] ?? "") . ')</span></div>';
+    $html .= nl2br(htmlspecialchars($reply["text"] ?? ""));
+    if (!empty($reply["photo"])) $html .= '<div style="margin-top:8px;"><img src="' . htmlspecialchars($reply["photo"]) . '" style="max-height:150px; border-radius:6px; border:1px solid #333;"></div>';
+    if (!$is_admin && can("bans.manage")) $html .= '<div class="b-ip">IP: ' . ip_tag(author_ip($reply["ip"] ?? null, $ticket["client"] ?? null), "Тикет #" . ($ticket["id"] ?? "") . ": " . mb_strimwidth(str_replace(["\r", "\n"], " ", $reply["text"] ?? ""), 0, 60, "…")) . '</div>';
+    return $html . '</div>';
 }
 
 /* Какое право нужно для каждого действия. Действие, которого нет
@@ -491,16 +505,7 @@ if (isset($_GET['ajax_html_ticket'])) {
     foreach ($tickets_data as $t) {
         if ((string)$t['id'] === (string)$id) {
             $status = $t['status'];
-            foreach ($t["replies"] as $reply) {
-                $is_admin_reply = $reply["is_admin"] ?? true;
-                $bubbleClass = $is_admin_reply ? 'admin' : 'client';
-                $author = $is_admin_reply ? htmlspecialchars($reply["employee"]) . ' (Rteam)' : 'Клиент: ' . htmlspecialchars($t['client']);
-                $html .= '<div class="bubble ' . $bubbleClass . '">';
-                $html .= '<div class="b-meta">' . $author . ' <span style="color:#777; font-weight:normal; font-size:10px;">('.$reply["date"].')</span></div>';
-                $html .= nl2br(htmlspecialchars($reply["text"]));
-                if (!empty($reply["photo"])) { $html .= '<div style="margin-top:8px;"><img src="'.htmlspecialchars($reply["photo"]).'" style="max-height:150px; border-radius:6px; border:1px solid #333;"></div>'; }
-                $html .= '</div>';
-            }
+            foreach ($t["replies"] as $reply) $html .= render_ticket_reply($reply, $t);
             break;
         }
     }
@@ -1900,6 +1905,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 .search-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin: 4px 0 16px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 .search-bar > div { flex: 1 1 180px; }
 .search-bar input, .search-bar select { width: 100%; }
+.b-ip { margin-top: 8px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,.12); font-size: 12px; color: var(--soft); }
 .ip-tag { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ip-count { display: inline-block; min-width: 22px; padding: 0 6px; border-radius: 999px; background: rgba(239,68,68,.15); color: #ff9b9b; font-size: 11px; font-weight: 700; text-align: center; }
 .callout { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(59,130,246,.3); background: rgba(59,130,246,.08); color: #cfe0ff; margin-top: 14px; }
@@ -2696,18 +2702,16 @@ window.addEventListener('DOMContentLoaded', function() {
                 <?php if ($active_id): ?>
                     <?php $curr_ticket = null; foreach ($tickets as $t) if ((string)$t["id"] === (string)$active_id) $curr_ticket = $t; if ($curr_ticket): ?>
                         <div class="sup-header">
-                            <div><h3 style="margin:0; color:#fff;"><?=htmlspecialchars($curr_ticket['topic'])?></h3><div style="font-size: 12px; color: #aaa;">Клиент: <b><?=htmlspecialchars($curr_ticket['client'])?></b> | Статус: <span id="header_status"><?=htmlspecialchars($curr_ticket['status'])?></span></div><?php if (can("bans.manage")): ?><div style="font-size: 12px; margin-top:4px;">IP: <?=ip_tag(author_ip($curr_ticket["ip"] ?? null, $curr_ticket["client"] ?? null), "Тикет #" . $curr_ticket["id"] . ": " . ($curr_ticket["topic"] ?? ""))?></div><?php endif; ?></div>
+                            <div><h3 style="margin:0; color:#fff;"><?=htmlspecialchars($curr_ticket['topic'])?></h3><div style="font-size: 12px; color: #aaa;">Клиент: <b><?=htmlspecialchars($curr_ticket['client'])?></b> | Статус: <span id="header_status"><?=htmlspecialchars($curr_ticket['status'])?></span></div><?php if (can("bans.manage")): ?><div style="font-size: 12px; margin-top:4px;">Последний IP клиента: <?=ip_tag(author_ip($curr_ticket["last_ip"] ?? ($curr_ticket["ip"] ?? null), $curr_ticket["client"] ?? null), "Тикет #" . $curr_ticket["id"] . ": " . ($curr_ticket["topic"] ?? ""))?></div><?php endif; ?></div>
                             <?php if ($curr_ticket['status'] !== 'Закрыт'): ?><form method="POST" style="margin:0;" id="closeForm"><input type="hidden" name="action" value="close_ticket"><input type="hidden" name="id" value="<?=$curr_ticket['id']?>"><button class="btn no" type="submit" style="margin:0; padding:6px 12px;">Закрыть тикет</button></form><?php endif; ?>
                         </div>
                         <div class="sup-history" id="adminChatHistory">
                             <div class="bubble client">
-                                <div class="b-meta">Клиент: <?=htmlspecialchars($curr_ticket['client'])?> <span style="color:#777; font-weight:normal; font-size:10px;">(<?=htmlspecialchars($curr_ticket['date'])?>)</span></div><?=nl2br(htmlspecialchars($curr_ticket['description']))?>
+                                <div class="b-meta">Клиент: <?=htmlspecialchars($curr_ticket['client'])?> <span style="color:#777; font-weight:normal; font-size:10px;">(<?=htmlspecialchars($curr_ticket['date'])?>)</span></div><?=nl2br(htmlspecialchars($curr_ticket['description']))?><?php if (can("bans.manage")): ?><div class="b-ip">IP: <?=ip_tag(author_ip($curr_ticket["ip"] ?? null, $curr_ticket["client"] ?? null), "Тикет #" . $curr_ticket["id"] . ": " . ($curr_ticket["topic"] ?? ""))?></div><?php endif; ?>
                                 <?php if (!empty($curr_ticket["photo"])): ?><div style="margin-top: 10px; border-top: 1px dashed #333; padding-top: 10px;"><img src="<?=htmlspecialchars($curr_ticket["photo"])?>" style="max-height: 200px; border-radius: 4px; display:block; margin-bottom:10px;"><form method="POST" style="margin:0;"><input type="hidden" name="action" value="pin_photo"><input type="hidden" name="id" value="<?=$curr_ticket["id"]?>"><button class="btn <?=empty($curr_ticket['pinned_photo']) ? 'blue' : 'gray'?>" type="submit" style="padding:4px 8px; font-size:12px; margin:0;"><?=empty($curr_ticket['pinned_photo']) ? '📌 Закрепить фото' : 'Открепить фото'?></button></form></div><?php endif; ?>
                             </div>
                             <div id="repliesContainer">
-                                <?php foreach ($curr_ticket["replies"] as $reply): $is_admin = $reply["is_admin"] ?? true; ?>
-                                    <div class="bubble <?= $is_admin ? 'admin' : 'client' ?>"><div class="b-meta"><?= $is_admin ? htmlspecialchars($reply["employee"]) . ' (Rteam)' : 'Клиент: ' . htmlspecialchars($curr_ticket['client']) ?> <span style="color:#777; font-weight:normal; font-size:10px;">(<?=$reply["date"]?>)</span></div><?=nl2br(htmlspecialchars($reply["text"]))?><?php if (!empty($reply["photo"])): ?><div style="margin-top: 8px;"><img src="<?=htmlspecialchars($reply["photo"])?>" style="max-height: 150px; border-radius: 6px; border: 1px solid #333;"></div><?php endif; ?></div>
-                                <?php endforeach; ?>
+                                <?php foreach ($curr_ticket["replies"] as $reply) echo render_ticket_reply($reply, $curr_ticket); ?>
                             </div>
                         </div>
                         <form class="sup-controls" id="replyForm" method="POST" enctype="multipart/form-data" style="<?= $curr_ticket['status'] === 'Закрыт' ? 'display:none;' : '' ?>"><input type="hidden" name="action" value="reply_ticket"><input type="hidden" name="id" value="<?=$curr_ticket['id']?>"><input type="hidden" name="is_ajax" value="1"><label class="file-upload-btn" title="Прикрепить фото">📷 <input type="file" name="reply_photo" accept="image/*" style="display: none;"></label><input type="text" name="reply_text" placeholder="Ответить клиенту..." required style="margin:0; flex:1;"><button class="btn ok" type="submit" style="margin:0; width: auto;">Отправить</button></form>
@@ -2798,7 +2802,13 @@ window.addEventListener('DOMContentLoaded', function() {
             $a_nick = rt_app_answer($a, "Ник");
             $feed[] = ["t" => $a["time"] ?? "", "kind" => "📝 Заявка", "who" => $a_nick !== "" ? $a_nick : "—", "text" => "Заявка «" . ($a["type"] ?? "") . "»", "ip" => author_ip($a["ip"] ?? null, $a["account"] ?? rt_app_account($a, $users), rt_app_answer($a, "email")), "link" => "?tab=apps"];
         }
-        foreach ($tickets as $t) $feed[] = ["t" => $t["date"] ?? "", "kind" => "🎧 Тикет", "who" => $t["client"] ?? "", "text" => ($t["topic"] ?? "") . ": " . ($t["description"] ?? ""), "ip" => author_ip($t["ip"] ?? null, $t["client"] ?? null), "link" => "?tab=support&ticket_id=" . urlencode($t["id"] ?? "")];
+        foreach ($tickets as $t) {
+            $feed[] = ["t" => $t["date"] ?? "", "kind" => "🎧 Тикет", "who" => $t["client"] ?? "", "text" => ($t["topic"] ?? "") . ": " . ($t["description"] ?? ""), "ip" => author_ip($t["ip"] ?? null, $t["client"] ?? null), "link" => "?tab=support&ticket_id=" . urlencode($t["id"] ?? "")];
+            foreach (($t["replies"] ?? []) as $r) {
+                if ($r["is_admin"] ?? true) continue; // ответы сотрудников не нужны
+                $feed[] = ["t" => $r["date"] ?? "", "kind" => "🎧 Ответ в тикете", "who" => $t["client"] ?? "", "text" => "#" . ($t["id"] ?? "") . ": " . ($r["text"] ?? ""), "ip" => author_ip($r["ip"] ?? null, $t["client"] ?? null), "link" => "?tab=support&ticket_id=" . urlencode($t["id"] ?? "")];
+            }
+        }
         foreach ($chat_data["messages"] as $c) $feed[] = ["t" => $c["time"] ?? "", "kind" => "💬 Чат", "who" => $c["user"] ?? "", "text" => $c["text"] ?? "", "ip" => author_ip($c["ip"] ?? null, $c["user"] ?? null), "link" => "?tab=chat#msg-" . urlencode($c["id"] ?? "")];
         usort($feed, fn($a, $b) => ((int)strtotime($b["t"])) <=> ((int)strtotime($a["t"])));
         $feed = array_slice($feed, 0, 100);
