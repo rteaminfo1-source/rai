@@ -346,7 +346,7 @@ $ACTION_PERMS = [
     "grant_golden" => "gold.manage", "revoke_golden" => "gold.manage", "add_gold_service" => "gold.manage",
     "edit_gold_service" => "gold.manage", "delete_gold_service" => "gold.manage", "gold_reply" => "gold.chat",
     // люди и роли
-    "add_user" => "users.manage", "set_pass" => "users.manage", "del_user" => "users.manage",
+    "add_user" => "users.manage", "set_pass" => "users.manage", "del_user" => "users.manage", "unlink_tg" => "users.manage",
     "set_role" => "roles.manage", "add_to_team" => "roles.manage", "change_team_role" => "roles.manage", "remove_from_team" => "roles.manage",
     "save_perms" => "perms.manage", "reset_perms" => "perms.manage",
 ];
@@ -1384,6 +1384,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
             $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "users", "msg" => "$user сменил пароль пользователю {$login}."];
             save_json("logs.json", $logs);
             flash("Пароль для «{$login}» изменён.", "success");
+        }
+        header("Location: admin.php?tab=users"); exit;
+    }
+
+    // Отвязать Telegram — если человек потерял доступ к нему и не может получить код входа
+    if ($act === "unlink_tg") {
+        $login = $_POST["login"] ?? "";
+        if (!isset($users[$login])) flash("Пользователь не найден.", "error");
+        elseif (!rt_can_edit_user($user, $role, $login, $users[$login]["role"] ?? "Пользователь")) flash("Нельзя отвязать Telegram у «{$login}»: этот человек не младше вас по должности.", "error");
+        else {
+            unset($users[$login]["tg_id"], $users[$login]["tg_username"]);
+            save_json("users.json", $users);
+            $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "users", "msg" => "$user отвязал Telegram у {$login} (вход снова по паролю)."];
+            save_json("logs.json", $logs);
+            flash("Telegram у «{$login}» отвязан — вход теперь по паролю.", "success");
         }
         header("Location: admin.php?tab=users"); exit;
     }
@@ -2828,7 +2843,7 @@ window.addEventListener('DOMContentLoaded', function() {
                     $ri = rt_role_info($ur) ?? ["color" => "#718096"]; ?>
                     <tr>
                         <td><div class="who"><div class="avatar sm" style="--rc:<?=htmlspecialchars($ri["color"])?>"><?=htmlspecialchars(mb_strtoupper(mb_substr($login, 0, 1)))?></div><div><b><?=htmlspecialchars($login)?></b><?php if (!empty($u["email"])): ?><span class="muted" style="font-size:12px;"><?=htmlspecialchars($u["email"])?></span><?php endif; ?></div></div></td>
-                        <td><?=rt_role_badge($ur, $ud, $login)?><?php if (!empty($u["golden"])): ?> <span class="badge badge-gold" style="margin:0;">🎫</span><?php endif; ?></td>
+                        <td><?=rt_role_badge($ur, $ud, $login)?><?php if (!empty($u["golden"])): ?> <span class="badge badge-gold" style="margin:0;">🎫</span><?php endif; ?><?php if (!empty($u["tg_id"])): ?> <span class="chip" title="Telegram привязан<?=!empty($u["tg_username"]) ? ': @' . htmlspecialchars($u["tg_username"]) : ''?> — вход в панель с кодом 2FA">🤖 TG</span><?php endif; ?></td>
                         <td><?php if (!empty($u["ip"])): ?><code><?=htmlspecialchars($u["ip"])?></code><?php else: ?><span class="muted">—</span><?php endif; ?><?php if (!empty($u["last_seen"])): ?><div class="muted" style="font-size:12px;"><?=htmlspecialchars($u["last_seen"])?></div><?php endif; ?></td>
                         <td>
                             <?php if ($editable && ($can_roles || $can_users) || ($can_bans && !empty($u["ip"]))): ?>
@@ -2852,6 +2867,9 @@ window.addEventListener('DOMContentLoaded', function() {
                                     <?php endif; ?>
                                     <div class="inline-form">
                                         <?php if ($can_bans && !empty($u["ip"])): ?><a class="btn sm ghost" href="?tab=bans&quickban_ip=<?=urlencode($u["ip"])?>&quickban_reason=<?=urlencode("Блокировка по IP пользователя " . $login)?>">🎯 Забанить IP</a><?php endif; ?>
+                                        <?php if ($can_users && $editable && !empty($u["tg_id"])): ?>
+                                            <form method="POST" action="?tab=users" onsubmit="return confirm('Отвязать Telegram? Вход будет по паролю, без кода из бота.');"><input type="hidden" name="action" value="unlink_tg"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn sm ghost" type="submit">🤖 Отвязать Telegram</button></form>
+                                        <?php endif; ?>
                                         <?php if ($can_users && $editable && !rt_is_owner($login)): ?>
                                             <form method="POST" action="?tab=users" onsubmit="return confirm('Удалить аккаунт «<?=htmlspecialchars(addslashes($login))?>» навсегда?');"><input type="hidden" name="action" value="del_user"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn sm ghost danger" type="submit">🗑 Удалить аккаунт</button></form>
                                         <?php endif; ?>

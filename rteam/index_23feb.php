@@ -2592,7 +2592,7 @@ body.hol-on {
                     <a href="?logout=1" class="btn btn-block btn-ghost">Выйти из аккаунта</a>
                 <?php else: ?>
                     <h3 class="box-title">Вход и регистрация</h3>
-                    <p class="muted">Создайте аккаунт RTeam, чтобы подавать заявки, участвовать в розыгрышах и следить за рейтингом. Вход администраторов дополнительно защищён 2FA через Telegram-бота.</p>
+                    <p class="muted">Создайте аккаунт RTeam, чтобы подавать заявки, участвовать в розыгрышах и следить за рейтингом. Если привязать Telegram-бота, вход в админ-панель дополнительно защищается кодом 2FA.</p>
                     <a href="login.php" class="btn btn-block">Войти в аккаунт</a>
                     <a href="register.php" class="btn btn-block btn-ghost">Создать аккаунт</a>
                     <div class="divider"><span>или быстрый вход</span></div>

@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/_roles.php'; // роли и права (общий файл с admin.php)
+
 // Читаем токен из настроек сайта
 $settings = file_exists('settings.json') ? json_decode(file_get_contents('settings.json'), true) : [];
 $token = $settings['bot_token'] ?? "";
@@ -33,6 +35,32 @@ $all_notes = file_exists($notes_file) ? json_decode(file_get_contents($notes_fil
 $notifs_file = 'bot_notifs.json';
 $notif_settings = file_exists($notifs_file) ? json_decode(file_get_contents($notifs_file), true) : [];
 
+// Аккаунт сайта, к которому привязан этот Telegram: [логин, данные] или [null, null]
+function botAccount($all_users, $tg_id) {
+    foreach ($all_users as $l => $u) {
+        if (is_array($u) && isset($u['tg_id']) && (string)$u['tg_id'] === (string)$tg_id) return [(string)$l, $u];
+    }
+    return [null, null];
+}
+
+// Привязывает Telegram к аккаунту (и отвязывает его от других аккаунтов, если был)
+function botLinkAccount(&$all_users, $users_file, $login, $tg_id, $tg_username) {
+    foreach ($all_users as $l => &$u) {
+        if (is_array($u) && isset($u['tg_id']) && (string)$u['tg_id'] === (string)$tg_id && (string)$l !== (string)$login) unset($u['tg_id'], $u['tg_username']);
+    }
+    unset($u);
+    $all_users[$login]['tg_id'] = $tg_id;
+    $all_users[$login]['tg_username'] = $tg_username;
+    file_put_contents($users_file, json_encode($all_users, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+// Какое право нужно для кнопок админ-панели бота (как на сайте)
+function botActionPerm($data) {
+    if ($data === "adm_tickets" || strpos($data, "adm_reply_") === 0 || strpos($data, "adm_close_") === 0) return "bot.tickets";
+    if (strpos($data, "adm_ban_") === 0) return "bans.manage";
+    return "bot.manage"; // розыгрыши и рассылка
+}
+
 // Вспомогательная функция транслитерации
 function transliterate($text) {
     $cyr = ['а','б','в','г','д','е','ё','ж','з','и','й','к','л','м','н','о','п','р','с','т','у','ф','х','ц','ч','ш','щ','ъ','ы','ь','э','ю','я','А','Б','В','Г','Д','Е','Ё','Ж','З','И','Й','К','Л','М','Н','О','П','Р','С','Т','У','Ф','Х','Ц','Ч','Ш','Щ','Ъ','Ы','Ь','Э','Ю','Я'];
@@ -49,20 +77,18 @@ if (isset($update['callback_query'])) {
 
     saveUser($user_id);
 
-    // --- ПРОВЕРКА НА АДМИНА ДЛЯ INLINE КНОПОК ---
-    $is_inline_admin = false;
-    $allowed_roles = ["Главный разработчик", "Администратор", "Главный Администратор", "Тестер", "Главный Тестер", "Кодер", "Главный Кодер", "Руководитель", "Разработчик"];
-    foreach ($all_users as $l => $u) {
-        if (isset($u['tg_id']) && $u['tg_id'] == $user_id && in_array($u['role'], $allowed_roles)) {
-            $is_inline_admin = true;
-            break;
-        }
-    }
+    // --- КТО НАЖАЛ: привязанный аккаунт сайта и его роль ---
+    [$cb_login, $cb_user] = botAccount($all_users, $user_id);
+    $cb_role = $cb_user['role'] ?? "Пользователь";
 
     // --- ЛОГИКА АДМИН-ПАНЕЛИ БОТА ---
     if (mb_strpos($data, "adm_") === 0) {
-        if (!$is_inline_admin) {
+        if (!$cb_login || !rt_is_staff($cb_role, $cb_login)) {
             file_get_contents("https://api.telegram.org/bot" . $token . "/answerCallbackQuery?callback_query_id=" . $cq['id'] . "&text=" . urlencode("❌ У вас нет прав администратора!") . "&show_alert=true");
+            exit;
+        }
+        if (!rt_can($cb_login, $cb_role, botActionPerm($data))) {
+            file_get_contents("https://api.telegram.org/bot" . $token . "/answerCallbackQuery?callback_query_id=" . $cq['id'] . "&text=" . urlencode("❌ Для этого действия у роли «" . rt_role_label($cb_role, $cb_user['direction'] ?? "") . "» нет прав.") . "&show_alert=true");
             exit;
         }
 
@@ -80,10 +106,11 @@ if (isset($update['callback_query'])) {
                             [
                                 ["text" => "✍️ Ответить", "callback_data" => "adm_reply_" . $t['id']],
                                 ["text" => "❌ Закрыть", "callback_data" => "adm_close_" . $t['id']]
-                            ],
-                            [["text" => "🔇 Выдать Мут", "callback_data" => "adm_ban_" . $t['user_id']]]
+                            ]
                         ]
                     ];
+                    // мут — это бан, кнопку видят только те, кто может банить
+                    if (rt_can($cb_login, $cb_role, "bans.manage")) $ik["inline_keyboard"][] = [["text" => "🔇 Выдать Мут", "callback_data" => "adm_ban_" . $t['user_id']]];
                     sendMessage($chat_id, $msg, $token, null, $ik);
                 }
             }
@@ -195,43 +222,56 @@ if (isset($update['message'])) {
     saveUser($user_id);
 
     // --- 1. ПРИВЯЗКА АККАУНТА (ДЛЯ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ) ---
+    // /link КОД            — код из личного кабинета на сайте (рекомендуется)
+    // /link Логин Пароль   — старый способ, по паролю
     if (mb_strpos($text, '/link ') === 0) {
-        $parts = explode(' ', $text);
-        if (count($parts) >= 3) {
-            $l = $parts[1]; 
+        $parts = preg_split('/\s+/', trim($text));
+        $tg_username = $update['message']['from']['username'] ?? '';
+        $linked_login = null;
+
+        if (count($parts) == 2) {
+            $code = strtoupper($parts[1]);
+            $tg_codes = file_exists('tg_link_codes.json') ? json_decode(file_get_contents('tg_link_codes.json'), true) : [];
+            if (!is_array($tg_codes)) $tg_codes = [];
+            if (isset($tg_codes[$code]) && ($tg_codes[$code]['expires'] ?? 0) >= time() && isset($all_users[$tg_codes[$code]['login'] ?? ''])) {
+                $linked_login = $tg_codes[$code]['login'];
+                unset($tg_codes[$code]);
+                file_put_contents('tg_link_codes.json', json_encode($tg_codes, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            } else {
+                sendMessage($chat_id, "❌ Код не найден или устарел (код действует 15 минут).\n\nПолучите новый в личном кабинете на сайте: rteam.info/cabinet.php → «Telegram-бот».", $token);
+                exit;
+            }
+        } elseif (count($parts) >= 3) {
+            $l = $parts[1];
             $p = $parts[2];
-            
-            if (isset($all_users[$l]) && $all_users[$l]['password'] === $p) {
-                $all_users[$l]['tg_id'] = $user_id;
-                file_put_contents($users_file, json_encode($all_users, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-                
-                $allowed_roles = ["Главный разработчик", "Администратор", "Главный Администратор", "Тестер", "Главный Тестер", "Кодер", "Главный Кодер", "Руководитель", "Разработчик"];
-                
-                if (in_array($all_users[$l]['role'], $allowed_roles)) {
-                    sendMessage($chat_id, "✅ Аккаунт <b>$l</b> успешно привязан!\n\nВы авторизованы как администратор. Теперь вы подключены к админ-панели бота и будете получать 2FA коды для входа на сайт.\n\n👉 Нажмите /start для обновления меню.", $token);
-                } else {
-                    sendMessage($chat_id, "✅ Аккаунт <b>$l</b> успешно привязан!\n\nТеперь ваш Telegram профиль синхронизирован с сайтом rteam.info.", $token);
-                }
+            if (isset($all_users[$l]) && isset($all_users[$l]['password']) && $all_users[$l]['password'] === $p) {
+                $linked_login = $l;
             } else {
                 sendMessage($chat_id, "❌ Неверный логин или пароль от сайта.", $token);
+                exit;
             }
         } else {
-            sendMessage($chat_id, "⚠️ Использование: `/link ВашЛогин ВашПароль`", $token);
+            sendMessage($chat_id, "⚠️ Использование: <code>/link КОД</code> — код возьмите в личном кабинете на сайте (rteam.info/cabinet.php).", $token);
+            exit;
+        }
+
+        botLinkAccount($all_users, $users_file, $linked_login, $user_id, $tg_username);
+        $l_role = $all_users[$linked_login]['role'] ?? "Пользователь";
+        if (rt_is_staff($l_role, $linked_login)) {
+            sendMessage($chat_id, "✅ Аккаунт <b>" . htmlspecialchars($linked_login) . "</b> успешно привязан!\n\nРоль: <b>" . htmlspecialchars(rt_role_label($l_role, $all_users[$linked_login]['direction'] ?? "")) . "</b>. Теперь при входе в админ-панель на сайте бот будет присылать код подтверждения (2FA), а здесь доступна админ-панель бота.\n\n👉 Нажмите /start для обновления меню.", $token);
+        } else {
+            sendMessage($chat_id, "✅ Аккаунт <b>" . htmlspecialchars($linked_login) . "</b> успешно привязан!\n\nТеперь ваш Telegram профиль синхронизирован с сайтом rteam.info.", $token);
         }
         exit;
     }
 
-    // --- 2. ОПРЕДЕЛЯЕМ, АДМИН ЛИ ЭТОТ ПОЛЬЗОВАТЕЛЬ ---
+    // --- 2. ОПРЕДЕЛЯЕМ, СОТРУДНИК ЛИ ЭТОТ ПОЛЬЗОВАТЕЛЬ (роли — из _roles.php) ---
     $admin_login = null;
     $admin_role = null;
-    $allowed_roles = ["Главный разработчик", "Администратор", "Главный Администратор", "Тестер", "Главный Тестер", "Кодер", "Главный Кодер", "Руководитель", "Разработчик"];
-    
-    foreach ($all_users as $l => $u) {
-        if (isset($u['tg_id']) && $u['tg_id'] == $user_id && in_array($u['role'], $allowed_roles)) {
-            $admin_login = $l;
-            $admin_role = $u['role'];
-            break;
-        }
+    [$acc_login, $acc_user] = botAccount($all_users, $user_id);
+    if ($acc_login && rt_is_staff($acc_user['role'] ?? "Пользователь", $acc_login)) {
+        $admin_login = $acc_login;
+        $admin_role = $acc_user['role'] ?? "Пользователь";
     }
 
     // --- 3. АДМИНСКИЕ ТЕКСТОВЫЕ КОМАНДЫ ---
@@ -248,21 +288,27 @@ if (isset($update['message'])) {
             exit;
         }
 
-        // Открытие админ панели внутри бота
+        // Открытие админ панели внутри бота: кнопки — по правам роли
         if ($text == '⚙️ Админ-панель' || $text == '/admin') {
-            $reply = "👨‍💻 <b>Секретная Панель Rteam</b>\n\nПриветствую, <b>$admin_login</b>!\nОтсюда ты можешь управлять ботом.";
-            $inline_keyboard = [
-                "inline_keyboard" => [
-                    [["text" => "🎟 Новые заявки", "callback_data" => "adm_tickets"], ["text" => "🎁 Розыгрыши", "callback_data" => "adm_gws"]],
-                    [["text" => "📢 Сделать рассылку", "callback_data" => "adm_broadcast"]]
-                ]
-            ];
-            sendMessage($chat_id, $reply, $token, null, $inline_keyboard);
+            $role_text = rt_role_label($admin_role, $acc_user['direction'] ?? "");
+            $rows = [];
+            $row1 = [];
+            if (rt_can($admin_login, $admin_role, "bot.tickets")) $row1[] = ["text" => "🎟 Новые заявки", "callback_data" => "adm_tickets"];
+            if (rt_can($admin_login, $admin_role, "bot.manage"))  $row1[] = ["text" => "🎁 Розыгрыши", "callback_data" => "adm_gws"];
+            if ($row1) $rows[] = $row1;
+            if (rt_can($admin_login, $admin_role, "bot.manage"))  $rows[] = [["text" => "📢 Сделать рассылку", "callback_data" => "adm_broadcast"]];
+            if (!$rows) {
+                sendMessage($chat_id, "👨‍💻 Привет, <b>" . htmlspecialchars($admin_login) . "</b>!\nВаша роль: <b>" . htmlspecialchars($role_text) . "</b>.\n\nУправление ботом для вашей роли пока недоступно. Здесь вы можете получать код входа: /code", $token);
+                exit;
+            }
+            $reply = "👨‍💻 <b>Секретная Панель Rteam</b>\n\nПриветствую, <b>" . htmlspecialchars($admin_login) . "</b> (" . htmlspecialchars($role_text) . ")!\nОтсюда ты можешь управлять ботом.";
+            sendMessage($chat_id, $reply, $token, null, ["inline_keyboard" => $rows]);
             exit;
         }
 
         // Ответ на заявку (/reply ID текст)
         if (mb_strpos($text, '/reply ') === 0) {
+            if (!rt_can($admin_login, $admin_role, "bot.tickets")) { sendMessage($chat_id, "❌ Отвечать на заявки вашей роли нельзя.", $token); exit; }
             $parts = explode(' ', $text, 3);
             if (count($parts) == 3) {
                 $t_id = $parts[1];
@@ -286,6 +332,7 @@ if (isset($update['message'])) {
 
         // Массовая рассылка (/bc текст)
         if (mb_strpos($text, '/bc ') === 0) {
+            if (!rt_can($admin_login, $admin_role, "bot.manage")) { sendMessage($chat_id, "❌ Делать рассылку вашей роли нельзя.", $token); exit; }
             $bc_text = mb_substr($text, 4);
             $bot_users = file_exists('bot_users.json') ? json_decode(file_get_contents('bot_users.json'), true) : [];
             $count = 0;
@@ -301,8 +348,8 @@ if (isset($update['message'])) {
         }
     }
 
-    if (!$admin_login && $text == '/admin') {
-        sendMessage($chat_id, "Для доступа к админ-панели привяжите ваш аккаунт разработчика. Введите команду:\n\n`/link ВашЛогин ВашПароль`", $token);
+    if (!$admin_login && in_array($text, ['/admin', '/code'], true)) {
+        sendMessage($chat_id, "Это доступно только сотрудникам команды с привязанным аккаунтом.\n\nЧтобы привязать аккаунт, откройте личный кабинет на сайте (rteam.info/cabinet.php), нажмите «Привязать Telegram» и отправьте сюда команду <code>/link КОД</code>.", $token);
         exit;
     }
 
@@ -313,12 +360,9 @@ if (isset($update['message'])) {
     if ($text == "👤 Профиль" || $text == "/profile") {
         $linked_acc = "Не привязан";
         $user_role = "Пользователь";
-        foreach ($all_users as $l => $u) {
-            if (isset($u['tg_id']) && $u['tg_id'] == $user_id) {
-                $linked_acc = $l;
-                $user_role = $u['role'] ?? "Пользователь";
-                break;
-            }
+        if ($acc_login) {
+            $linked_acc = htmlspecialchars($acc_login);
+            $user_role = htmlspecialchars(rt_role_label($acc_user['role'] ?? "Пользователь", $acc_user['direction'] ?? ""));
         }
         $notif_status = (!isset($notif_settings[$user_id]) || $notif_settings[$user_id] === true) ? "🔔 Включены" : "🔕 Выключены";
         $reply = "👤 <b>Ваш Профиль:</b>\n\n";
@@ -326,7 +370,7 @@ if (isset($update['message'])) {
         $reply .= "🔗 <b>Аккаунт на сайте:</b> <b>$linked_acc</b>\n";
         $reply .= "🎭 <b>Ваша роль:</b> $user_role\n";
         $reply .= "📩 <b>Уведомления:</b> $notif_status\n\n";
-        $reply .= "<i>Для привязки аккаунта используйте команду /link Логин Пароль</i>";
+        $reply .= $acc_login ? "<i>Отвязать аккаунт можно в личном кабинете на сайте.</i>" : "<i>Для привязки аккаунта возьмите код в личном кабинете на сайте и отправьте /link КОД</i>";
         sendMessage($chat_id, $reply, $token);
         exit;
     }
@@ -558,7 +602,7 @@ if (isset($update['message'])) {
 
     // Инструкция по привязке аккаунта
     if ($text == "🔗 Привязать аккаунт") {
-        $reply = "🔗 <b>Синхронизация профиля</b>\n\nПривязка аккаунта с сайта <b>rteam.info</b> к боту позволит вам:\n• Быть в курсе новостей и статусов заявок\n• <i>Для администрации:</i> получать 2FA коды и управлять платформой.\n\n👉 <b>Чтобы привязать аккаунт, отправьте боту команду:</b>\n`/link ВашЛогин ВашПароль`\n\n<i>Пример: /link Roma_07b MyPassword123</i>";
+        $reply = "🔗 <b>Синхронизация профиля</b>\n\nПривязка аккаунта с сайта <b>rteam.info</b> к боту позволит вам:\n• Быть в курсе новостей и статусов заявок\n• <i>Для команды:</i> получать код подтверждения при входе в админ-панель и управлять ботом.\n\nПривязка необязательна: без неё вход на сайт работает по паролю.\n\n👉 <b>Как привязать:</b>\n1. Откройте личный кабинет: rteam.info/cabinet.php\n2. Нажмите «Привязать Telegram» — появится код\n3. Отправьте сюда: <code>/link КОД</code>";
         sendMessage($chat_id, $reply, $token);
     }
 

@@ -12,9 +12,17 @@ if (!empty($_SESSION["user"])) {
     exit;
 }
 
+/* Код из бота живёт 10 минут, на ввод — 5 попыток. После этого нужно
+   снова ввести логин и пароль: придёт новый код. */
+const RT_2FA_TTL = 600;
+const RT_2FA_TRIES = 5;
+function rteam_clear_2fa() {
+    unset($_SESSION["pending_2fa_user"], $_SESSION["pending_2fa_role"], $_SESSION["pending_2fa_time"], $_SESSION["pending_2fa_tries"]);
+}
+
 /* ОТМЕНА 2FA ВХОДА */
 if (isset($_POST["action"]) && $_POST["action"] === "cancel_2fa") {
-    unset($_SESSION["pending_2fa_user"], $_SESSION["pending_2fa_role"]);
+    rteam_clear_2fa();
     header("Location: login.php");
     exit;
 }
@@ -25,16 +33,27 @@ if (isset($_POST["action"]) && $_POST["action"] === "verify_2fa") {
     $login = $_SESSION["pending_2fa_user"] ?? "";
     $codes = load_json("2fa_codes.json", []);
 
-    if ($login && isset($codes[$login]) && (string)$codes[$login] === $code_input) {
-        rteam_login_user($login, $_SESSION["pending_2fa_role"]);
-        unset($_SESSION["pending_2fa_user"], $_SESSION["pending_2fa_role"]);
+    $expired = time() - (int)($_SESSION["pending_2fa_time"] ?? 0) > RT_2FA_TTL;
+    $_SESSION["pending_2fa_tries"] = (int)($_SESSION["pending_2fa_tries"] ?? 0) + 1;
+
+    if ($login && $expired) {
+        unset($codes[$login]); save_json("2fa_codes.json", $codes);
+        rteam_clear_2fa();
+        $error = "Код устарел. Введите логин и пароль ещё раз — бот пришлёт новый.";
+    } elseif ($login && isset($codes[$login]) && hash_equals((string)$codes[$login], $code_input)) {
+        rteam_login_user($login, $users[$login]["role"] ?? $_SESSION["pending_2fa_role"]);
+        rteam_clear_2fa();
         unset($codes[$login]);
         save_json("2fa_codes.json", $codes);
         rteam_log("login", "Вход (2FA Бот): $login");
         header("Location: " . rteam_post_login_redirect());
         exit;
+    } elseif ($_SESSION["pending_2fa_tries"] >= RT_2FA_TRIES) {
+        if ($login) { unset($codes[$login]); save_json("2fa_codes.json", $codes); }
+        rteam_clear_2fa();
+        $error = "Слишком много неверных попыток. Введите логин и пароль ещё раз — бот пришлёт новый код.";
     } else {
-        $error = "Неверный код от бота. Попробуйте ещё раз.";
+        $error = "Неверный код от бота. Осталось попыток: " . (RT_2FA_TRIES - $_SESSION["pending_2fa_tries"]) . ".";
     }
 }
 
@@ -46,22 +65,26 @@ if (isset($_POST["action"]) && $_POST["action"] === "login") {
     if (isset($users[$login]) && isset($users[$login]["password"]) && $users[$login]["password"] === $pass) {
         $role = $users[$login]["role"] ?? "Пользователь";
 
-        // Код из Telegram нужен всем, кто входит в админ-панель — включая стажёров
-        // и всех, кому роль назначили в панели (список ролей — в _roles.php)
-        if (rt_is_staff($role, $login) || in_array($role, rteam_admin_roles())) {
-            $code = rand(100000, 999999);
-            $_SESSION["pending_2fa_user"] = $login;
-            $_SESSION["pending_2fa_role"] = $role;
+        // Код из Telegram-бота спрашиваем у тех, кто входит в админ-панель
+        // (включая стажёров), но только если Telegram привязан к аккаунту
+        // и бот настроен. Без привязки — обычный вход по паролю.
+        $is_panel_role = rt_is_staff($role, $login) || in_array($role, rteam_admin_roles());
+        $tg_linked     = !empty($users[$login]["tg_id"]) && !empty($settings["bot_token"]);
+
+        if ($is_panel_role && $tg_linked) {
+            $code = random_int(100000, 999999);
+            $_SESSION["pending_2fa_user"]  = $login;
+            $_SESSION["pending_2fa_role"]  = $role;
+            $_SESSION["pending_2fa_time"]  = time();
+            $_SESSION["pending_2fa_tries"] = 0;
 
             $codes = load_json("2fa_codes.json", []);
             $codes[$login] = (string)$code;
             save_json("2fa_codes.json", $codes);
 
-            if (!empty($settings["bot_token"]) && !empty($users[$login]["tg_id"])) {
-                $url = "https://api.telegram.org/bot" . $settings["bot_token"] . "/sendMessage";
-                $data = ['chat_id' => $users[$login]["tg_id"], 'text' => "🔐 Ваш одноразовый код для входа в панель Rteam:\n\n<b>$code</b>", 'parse_mode' => 'HTML'];
-                $ch = curl_init($url); curl_setopt($ch, CURLOPT_POST, 1); curl_setopt($ch, CURLOPT_POSTFIELDS, $data); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); curl_exec($ch); curl_close($ch);
-            }
+            $url = "https://api.telegram.org/bot" . $settings["bot_token"] . "/sendMessage";
+            $data = ['chat_id' => $users[$login]["tg_id"], 'text' => "🔐 Ваш одноразовый код для входа в панель Rteam:\n\n<b>$code</b>\n\nКод действует 10 минут.", 'parse_mode' => 'HTML'];
+            $ch = curl_init($url); curl_setopt($ch, CURLOPT_POST, 1); curl_setopt($ch, CURLOPT_POSTFIELDS, $data); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); curl_exec($ch); curl_close($ch);
             header("Location: login.php");
             exit;
         } else {
@@ -98,7 +121,7 @@ $pending_2fa = isset($_SESSION["pending_2fa_user"]);
             <p>Войдите, чтобы отслеживать заявки, участвовать в розыгрышах и открывать эксклюзивные фишки сайта.</p>
             <ul>
                 <li>Быстрый вход через Google</li>
-                <li>2FA для администраторов через Telegram</li>
+                <li>Код 2FA из Telegram — если бот привязан</li>
                 <li>Единый вход RTeam для других проектов</li>
             </ul>
         </div>
@@ -113,7 +136,7 @@ $pending_2fa = isset($_SESSION["pending_2fa_user"]);
 
         <?php if ($pending_2fa): ?>
             <h1 class="auth-title">Код подтверждения</h1>
-            <p class="auth-subtitle">🔐 Для входа в аккаунт администратора нужен код из Telegram-бота. Напишите боту команду <b>/code</b>, чтобы его получить.</p>
+            <p class="auth-subtitle">🔐 К вашему аккаунту привязан Telegram, поэтому для входа в админ-панель нужен код — бот уже прислал его. Не пришёл? Напишите боту команду <b>/code</b>. Код действует 10 минут.</p>
             <?php if ($error): ?><div class="error-box"><?=htmlspecialchars($error)?></div><?php endif; ?>
             <form method="POST">
                 <input type="hidden" name="action" value="verify_2fa">

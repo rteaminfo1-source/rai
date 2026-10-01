@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/config.php';
+require_once __DIR__ . '/_roles.php'; // роли и права (общий файл с admin.php)
 
 /* =========================================================
    ЛИЧНЫЙ КАБИНЕТ RTEAM
@@ -19,6 +20,11 @@ $squid_game   = load_json("squid_game.json", ["paused" => false, "progress" => [
 
 $me       = $_SESSION["user"] ?? null;
 $my_role  = $_SESSION["role"] ?? null;
+// Роль берём из users.json: смена роли в админ-панели видна сразу, без перевхода
+if ($me && isset($users[$me]) && is_array($users[$me])) {
+    $my_role = $users[$me]["role"] ?? "Пользователь";
+    $_SESSION["role"] = $my_role;
+}
 
 $view_login = isset($_GET["u"]) && trim($_GET["u"]) !== "" ? trim($_GET["u"]) : null;
 $is_own     = ($view_login === null) || ($me !== null && $view_login === $me);
@@ -144,7 +150,7 @@ if ($is_own && $me && isset($_POST["action"])) {
         unset($users[$me]["tg_id"], $users[$me]["tg_username"]);
         save_json("users.json", $users);
         rteam_log("profile", "Отвязан Telegram: $me");
-        $success = "Telegram отвязан. 2FA для входа отключена, пока не будет привязан новый аккаунт.";
+        $success = "Telegram отвязан. Теперь вход на сайт — просто по паролю, без кода из бота.";
         $target = $users[$me];
     }
 }
@@ -191,17 +197,23 @@ if (isset($_GET["action"]) && $_GET["action"] === "complete_tg_link") {
 }
 
 $accent   = $settings["accent"] ?? "#9b5cff";
-$is_admin_viewer = $me && in_array($my_role, ["Главный разработчик", "Администратор", "Главный Администратор", "Тестер", "Главный Тестер", "Кодер", "Главный Кодер", "Руководитель"]);
+$is_admin_viewer = $me && rt_is_staff($my_role, $me);
 
+// Роль с направлением стажёра, например «Стажёр · Кодер»
+$target_role_info  = rt_role_info($target["role"] ?? "Пользователь") ?? ["icon" => "👤"];
+$target_role_label = rt_role_label($target["role"] ?? "Пользователь", $target["direction"] ?? "");
+$target_is_staff   = rt_is_staff($target["role"] ?? "Пользователь", $target_login);
+
+// Мои заявки: по логину, который админ-панель записывает при решении,
+// по логину в заявке или по нику/email из ответов
 $my_apps = [];
 if ($is_own) {
     foreach ($applications as $a) {
-        $a_login = $a["login"] ?? $a["user"] ?? null;
-        if ($a_login === $me || (isset($a["email"]) && isset($target["email"]) && $a["email"] === $target["email"])) {
-            $my_apps[] = $a;
-        }
+        $a_login = $a["account"] ?? $a["login"] ?? $a["user"] ?? rt_app_account($a, $users);
+        if ($a_login === $me) $my_apps[] = $a;
     }
 }
+$app_status_names = ["new" => "На рассмотрении", "viewed" => "Просмотрена", "resolved_accept" => "Принята", "resolved_decline" => "Отклонена"];
 
 $my_squid = $squid_game["progress"][$target_login] ?? ["season" => 0, "completed" => false];
 
@@ -363,7 +375,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
         </div>
         <div>
             <h1><?=htmlspecialchars($target_login)?><?= $is_own ? " (Вы)" : "" ?></h1>
-            <span class="role-chip"><?=htmlspecialchars($target["role"] ?? "Пользователь")?></span>
+            <span class="role-chip"><?=$target_role_info["icon"]?> <?=htmlspecialchars($target_role_label)?></span>
             <?php if (!empty($target["golden"])): ?>
                 <div><span class="badge-golden">🎫 <?=htmlspecialchars($target["golden_title"] ?? "Золотой билет RTeam")?></span></div>
                 <?php if (!empty($target["golden_status"])): ?>
@@ -400,7 +412,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
             <div class="card">
                 <h3>ℹ️ Об аккаунте</h3>
                 <p class="desc">Публичная информация, видимая всем посетителям сайта.</p>
-                <p class="muted">Роль: <b><?=htmlspecialchars($target["role"] ?? "Пользователь")?></b></p>
+                <p class="muted">Роль: <b><?=htmlspecialchars($target_role_label)?></b></p>
                 <?php if (!empty($target["golden"])): ?>
                     <p class="muted">Статус: обладатель «Золотого билета RTeam» 🎫</p>
                 <?php endif; ?>
@@ -467,13 +479,14 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
             <!-- Telegram -->
             <div class="card">
                 <h3>🤖 Telegram-бот</h3>
-                <p class="desc">Нужен для получения кода 2FA при входе (для администраторов) и уведомлений.</p>
+                <p class="desc">Необязательно. Если привязать<?= $target_is_staff ? "" : " и потом попасть в команду" ?>, при входе в админ-панель бот будет присылать код подтверждения (2FA) — это защитит аккаунт, даже если пароль узнают. Без привязки вход по паролю.</p>
                 <?php if (!empty($target["tg_id"])): ?>
                     <div class="status-row"><span class="status-pill on">Привязан ✅</span></div>
                     <?php if (!empty($target["tg_username"])): ?>
                         <p class="muted">Аккаунт: <b>@<?=htmlspecialchars($target["tg_username"])?></b></p>
                     <?php endif; ?>
-                    <form method="POST" onsubmit="return confirm('Отвязать Telegram? Если у вас админ-роль, вход с 2FA станет недоступен, пока не привяжете новый аккаунт.');">
+                    <?php if ($target_is_staff): ?><p class="muted">🔐 Вход в админ-панель защищён кодом из бота.</p><?php endif; ?>
+                    <form method="POST" onsubmit="return confirm('Отвязать Telegram? Код из бота при входе больше спрашиваться не будет — только пароль.');">
                         <input type="hidden" name="action" value="unlink_telegram">
                         <button class="btn btn-ghost btn-sm">Отвязать Telegram</button>
                     </form>
@@ -543,8 +556,9 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
                             <li>
                                 <span><?=htmlspecialchars($a["type"] ?? "Заявка")?></span>
                                 <span class="muted"><?=htmlspecialchars($a["date"] ?? $a["time"] ?? "")?></span>
-                                <span class="status-pill <?= ($a["status"] ?? "") === "Принята" ? "on" : "" ?>">
-                                    <?=htmlspecialchars($a["status"] ?? "На рассмотрении")?>
+                                <?php $a_st = $a["status"] ?? "new"; ?>
+                                <span class="status-pill <?= in_array($a_st, ["resolved_accept", "Принята"], true) ? "on" : "" ?>">
+                                    <?=htmlspecialchars($app_status_names[$a_st] ?? $a_st)?><?= $a_st === "resolved_accept" && !empty($a["direction"]) ? " · стажёр (" . htmlspecialchars($a["direction"]) . ")" : "" ?>
                                 </span>
                             </li>
                         <?php endforeach; ?>
@@ -557,7 +571,11 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
             <div class="card full-width">
                 <h3>⚙️ Аккаунт</h3>
                 <div class="status-row"><span class="muted">Логин</span><b><?=htmlspecialchars($me)?></b></div>
-                <div class="status-row"><span class="muted">Роль</span><b><?=htmlspecialchars($target["role"] ?? "Пользователь")?></b></div>
+                <div class="status-row"><span class="muted">Роль</span><b><?=$target_role_info["icon"]?> <?=htmlspecialchars($target_role_label)?></b></div>
+                <?php if ($target_is_staff): ?>
+                    <div class="status-row"><span class="muted">Вход в панель</span><b><?= !empty($target["tg_id"]) ? "пароль + код из Telegram 🔐" : "по паролю" ?></b></div>
+                    <a href="admin.php" class="btn btn-sm">Открыть админ-панель</a>
+                <?php endif; ?>
                 <a href="?logout=1" style="text-decoration:none;">
                     <button type="button" class="btn btn-danger btn-sm" onclick="location.href='index.php?logout=1'">Выйти из аккаунта</button>
                 </a>
