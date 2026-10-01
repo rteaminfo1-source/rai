@@ -390,16 +390,65 @@ function default_webhook_url() {
 }
 
 /* Сообщение в тикете поддержки. У сообщений клиента — IP, с которого оно
-   отправлено (support.php сохраняет его), и кнопка бана для тех, кто банит. */
+   отправлено (support.php сохраняет его), и кнопка бана для тех, кто банит.
+   Ответы ИИ (Rai) и системные пометки (кто позвал администратора) выделены. */
 function render_ticket_reply($reply, $ticket) {
+    $date = htmlspecialchars($reply["date"] ?? "");
+    if (!empty($reply["is_system"])) {
+        return '<div class="sup-sys">' . htmlspecialchars($reply["text"] ?? "") . ' <span>' . $date . '</span></div>';
+    }
     $is_admin = $reply["is_admin"] ?? true;
-    $author = $is_admin ? htmlspecialchars($reply["employee"] ?? "") . ' (Rteam)' : 'Клиент: ' . htmlspecialchars($ticket['client'] ?? "");
-    $html  = '<div class="bubble ' . ($is_admin ? 'admin' : 'client') . '">';
-    $html .= '<div class="b-meta">' . $author . ' <span style="color:#777; font-weight:normal; font-size:10px;">(' . htmlspecialchars($reply["date"] ?? "") . ')</span></div>';
+    $is_ai = !empty($reply["is_ai"]);
+    if ($is_ai) {
+        $src = (string)($reply["ai_source"] ?? "");
+        $author = '✨ Rai · ИИ' . ($src !== "" ? ' <span class="ai-src" title="Откуда ИИ взял ответ">' . htmlspecialchars(ai_source_label($src)) . '</span>' : '');
+    } else {
+        $author = $is_admin ? htmlspecialchars($reply["employee"] ?? "") . ' (Rteam)' : 'Клиент: ' . htmlspecialchars($ticket['client'] ?? "");
+    }
+    $html  = '<div class="bubble ' . ($is_ai ? 'admin ai' : ($is_admin ? 'admin' : 'client')) . '">';
+    $html .= '<div class="b-meta">' . $author . ' <span style="color:#777; font-weight:normal; font-size:10px;">(' . $date . ')</span></div>';
     $html .= nl2br(htmlspecialchars($reply["text"] ?? ""));
-    if (!empty($reply["photo"])) $html .= '<div style="margin-top:8px;"><img src="' . htmlspecialchars($reply["photo"]) . '" style="max-height:150px; border-radius:6px; border:1px solid #333;"></div>';
+    if (!empty($reply["photo"])) $html .= '<div style="margin-top:8px;"><a href="' . htmlspecialchars($reply["photo"]) . '" target="_blank" rel="noopener"><img src="' . htmlspecialchars($reply["photo"]) . '" style="max-height:150px; border-radius:6px; border:1px solid #333;"></a></div>';
     if (!$is_admin && can("bans.manage")) $html .= '<div class="b-ip">IP: ' . ip_tag(author_ip($reply["ip"] ?? null, $ticket["client"] ?? null), "Тикет #" . ($ticket["id"] ?? "") . ": " . mb_strimwidth(str_replace(["\r", "\n"], " ", $reply["text"] ?? ""), 0, 60, "…")) . '</div>';
     return $html . '</div>';
+}
+
+/* Откуда ИИ взял ответ: база знаний, страница сайта, интернет… */
+function ai_source_label($src) {
+    if (strpos($src, "kb:") === 0) return "база знаний: " . substr($src, 3);
+    $names = ["site" => "страница сайта", "web" => "интернет", "secret" => "отказ: секреты", "human" => "просьба позвать человека",
+              "greeting" => "приветствие", "thanks" => "благодарность", "fallback" => "не нашёл ответа", "empty" => "пустое сообщение",
+              "repeat" => "повтор — предложил человека"];
+    return $names[$src] ?? $src;
+}
+
+/* Ждёт ли тикет сотрудника: клиент или ИИ позвал администратора, или тикет открыт,
+   а ИИ прямо сейчас на него не отвечает (выключен, не ответил, тикет старше ИИ) */
+function ticket_needs_staff($t, $settings) {
+    $st = $t["status"] ?? "";
+    if ($st === "Ждёт администратора") return true;
+    if ($st !== "Открыт") return false;
+    $ai_busy = rt_ticket_ai_on($t, $settings) && !empty($t["ai_pending"]) && time() - (int)$t["ai_pending"] < 300;
+    return !$ai_busy;
+}
+
+/* Список тикетов слева (страница и AJAX рисуют одинаково) */
+function render_ticket_list($tickets, $active_id, $settings) {
+    if (!$tickets) return '<div style="padding: 20px; color: #777; text-align: center; font-size: 13px;">Тикетов пока нет.</div>';
+    $html = "";
+    $cls = ["Открыт" => "st-open", "Ожидает ответа клиента" => "st-answered", "Ждёт администратора" => "st-human", "Закрыт" => "st-closed"];
+    foreach (array_reverse($tickets) as $t) {
+        $st = $t["status"] ?? "Открыт";
+        $who = "";
+        if ($st !== "Закрыт" && rt_support_ai_ready($settings)) {
+            $who = rt_ticket_ai_on($t, $settings) ? '<span class="sup-who ai" title="Отвечает ИИ">✨ ИИ</span>' : '<span class="sup-who human" title="Отвечает сотрудник">🛡 Человек</span>';
+        }
+        $html .= '<a href="?tab=support&ticket_id=' . urlencode((string)$t['id']) . '" class="sup-ticket' . ((string)$active_id === (string)$t['id'] ? ' active' : '') . (ticket_needs_staff($t, $settings) ? ' needs' : '') . '">'
+               . '<div class="sup-t-top"><span class="sup-t-title">' . htmlspecialchars($t['topic'] ?? "") . '</span>' . $who . '</div>'
+               . '<div class="sup-t-meta"><span>#' . htmlspecialchars((string)$t['id']) . ' · ' . htmlspecialchars($t['client'] ?? "") . '</span>'
+               . '<span class="sup-st ' . ($cls[$st] ?? "st-open") . '">' . htmlspecialchars($st) . '</span></div></a>';
+    }
+    return $html;
 }
 
 /* Какое право нужно для каждого действия. Действие, которого нет
@@ -427,7 +476,8 @@ $ACTION_PERMS = [
     "add_fine" => "fines.manage", "pay_fine_manual" => "fines.manage", "del_fine" => "fines.manage", "pay_fine_online" => "",
     // почта и тикеты
     "reply_msg" => "mail.view", "del_msg" => "mail.view",
-    "reply_ticket" => "support.view", "close_ticket" => "support.view", "pin_photo" => "support.view",
+    "reply_ticket" => "support.view", "close_ticket" => "support.view", "pin_photo" => "support.view", "ticket_ai" => "support.view",
+    "save_support_ai" => "settings.manage", "test_support_ai" => "settings.manage",
     // бот
     "reply_tg_ticket" => "bot.tickets", "close_tg_ticket" => "bot.tickets",
     "broadcast_tg" => "bot.manage", "add_bot_gw" => "bot.manage", "del_bot_gw" => "bot.manage", "roll_bot_gw" => "bot.manage",
@@ -501,15 +551,17 @@ if (isset($_GET['ajax_html_ticket'])) {
     if (!can("support.view")) { echo json_encode(["html" => "", "status" => ""]); exit; }
     $id = $_GET['ajax_html_ticket'];
     $tickets_data = load_json("tickets.json", []);
-    $html = ""; $status = "Закрыт";
+    $sup_settings = load_json("settings.json", []);
+    $html = ""; $status = "Закрыт"; $ai_on = false;
     foreach ($tickets_data as $t) {
         if ((string)$t['id'] === (string)$id) {
             $status = $t['status'];
+            $ai_on = rt_ticket_ai_on($t, $sup_settings);
             foreach ($t["replies"] as $reply) $html .= render_ticket_reply($reply, $t);
             break;
         }
     }
-    echo json_encode(["html" => $html, "status" => $status]);
+    echo json_encode(["html" => $html, "status" => $status, "ai_on" => $ai_on]);
     exit;
 }
 
@@ -517,24 +569,23 @@ if (isset($_GET['ajax_html_ticket'])) {
 if (isset($_GET['ajax_ticket_list'])) {
     header('Content-Type: application/json');
     if (!can("support.view")) { echo json_encode(["html" => ""]); exit; }
-    $tickets_data = load_json("tickets.json", []);
-    $html = "";
-    $active_id = $_GET['active_id'] ?? null;
-    if (!$tickets_data) {
-        $html = '<div style="padding: 20px; color: #777; text-align: center; font-size: 13px;">Тикетов пока нет.</div>';
-    } else {
-        foreach (array_reverse($tickets_data) as $t) {
-            $statusColor = $t['status'] === 'Открыт' ? '#1f9d55' : ($t['status'] === 'Закрыт' ? '#777' : '#d97706');
-            $activeClass = ($active_id == $t['id']) ? 'active' : '';
-            $html .= '<a href="?tab=support&ticket_id='.urlencode($t['id']).'" class="sup-ticket '.$activeClass.'">';
-            $html .= '<div style="font-weight: bold; margin-bottom: 5px; color: #ff7777;">'.htmlspecialchars($t['topic']).'</div>';
-            $html .= '<div style="font-size: 11px; color: #777; display: flex; justify-content: space-between;">';
-            $html .= '<span>#'.htmlspecialchars($t['id']).' | '.htmlspecialchars($t['client']).'</span>';
-            $html .= '<span id="sidebar_status_'.htmlspecialchars($t['id']).'" style="background: '.$statusColor.'; padding: 2px 6px; border-radius: 4px; color: #fff;">'.htmlspecialchars($t['status']).'</span>';
-            $html .= '</div></a>';
-        }
-    }
-    echo json_encode(["html" => $html]);
+    echo json_encode(["html" => render_ticket_list(load_json("tickets.json", []), $_GET['active_id'] ?? null, load_json("settings.json", []))]);
+    exit;
+}
+
+/* --- «✨ Подсказка ИИ»: черновик ответа клиенту, сотрудник правит и отправляет сам --- */
+if (isset($_GET['ajax_ai_draft'])) {
+    header('Content-Type: application/json');
+    if (!can("support.view")) { echo json_encode(["error" => "Нет доступа"]); exit; }
+    $sup_settings = load_json("settings.json", []);
+    $ticket = null;
+    foreach (load_json("tickets.json", []) as $t) if ((string)$t['id'] === (string)$_GET['ajax_ai_draft']) $ticket = $t;
+    if (!$ticket) { echo json_encode(["error" => "Тикет не найден"]); exit; }
+    if (empty($sup_settings["support_ai_url"]) || empty($sup_settings["support_ai_key"])) { echo json_encode(["error" => "ИИ не настроен: «Поддержка» → «ИИ поддержки»"]); exit; }
+    session_write_close();
+    @set_time_limit(90);
+    $res = rt_support_ai_ask($sup_settings, $ticket, "draft");
+    echo json_encode(!empty($res["error"]) ? ["error" => $res["error"]] : ["reply" => $res["reply"], "source" => ai_source_label((string)($res["source"] ?? ""))], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -1234,23 +1285,72 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
     if ($_POST["action"] === "del_msg") { $messages = array_filter($messages, fn($m) => (string)$m["id"] !== (string)$_POST["id"]); save_json("messages.json", array_values($messages)); header("Location: admin.php?tab=messages"); exit; }
 
     if ($tab === "support") {
+        $id = (string)($_POST["id"] ?? "");
+        $back = "admin.php?tab=support" . ($id !== "" ? "&ticket_id=" . urlencode($id) : "");
         if ($_POST["action"] === "reply_ticket") {
-            $id = $_POST["id"]; $reply_photo_path = null;
-            if (!empty($_FILES["reply_photo"]["name"]) && $_FILES["reply_photo"]["error"] === 0) {
-                $dir = "support_uploads/"; if (!is_dir($dir)) mkdir($dir, 0777, true);
-                $safe_name = time() . "_admin_" . rand(100,999) . "_" . basename($_FILES["reply_photo"]["name"]);
-                if (move_uploaded_file($_FILES["reply_photo"]["tmp_name"], $dir . $safe_name)) $reply_photo_path = $dir . $safe_name;
+            $text = trim($_POST["reply_text"] ?? "");
+            $reply_photo_path = rt_save_image_upload($_FILES["reply_photo"] ?? [], "admin_");
+            if ($text !== "" || $reply_photo_path) {
+                // Ответ сотрудника: тикет переходит к человеку, ИИ в нём больше не отвечает
+                rt_tickets_update(function (&$tickets) use ($id, $text, $reply_photo_path, $user) {
+                    foreach ($tickets as &$t) {
+                        if ((string)$t["id"] !== $id) continue;
+                        $t["replies"][] = ["text" => $text !== "" ? $text : "📷 Фото", "photo" => $reply_photo_path, "employee" => $user, "date" => date("Y-m-d H:i:s"), "is_admin" => true];
+                        $t["status"] = "Ожидает ответа клиента";
+                        $t["ai"] = false;
+                        unset($t["ai_pending"]);
+                        break;
+                    }
+                });
             }
-            foreach ($tickets as &$t) {
-                if ((string)$t["id"] === (string)$id) {
-                    $t["replies"][] = ["text" => trim($_POST["reply_text"]), "photo" => $reply_photo_path, "employee" => $user, "date" => date("Y-m-d H:i:s"), "is_admin" => true];
-                    $t["status"] = "Ожидает ответа клиента"; break;
-                }
-            } save_json("tickets.json", $tickets);
-            if (isset($_POST['is_ajax'])) exit; header("Location: admin.php?tab=support&ticket_id=" . $id); exit;
+            if (isset($_POST['is_ajax'])) exit; header("Location: $back"); exit;
         }
-        if ($_POST["action"] === "close_ticket") { $id = $_POST["id"]; foreach ($tickets as &$t) if ((string)$t["id"] === (string)$id) $t["status"] = "Закрыт"; save_json("tickets.json", $tickets); header("Location: admin.php?tab=support&ticket_id=" . $id); exit; }
-        if ($_POST["action"] === "pin_photo") { $id = $_POST["id"]; foreach ($tickets as &$t) if ((string)$t["id"] === (string)$id) $t["pinned_photo"] = !empty($t["pinned_photo"]) ? false : true; save_json("tickets.json", $tickets); header("Location: admin.php?tab=support&ticket_id=" . $id); exit; }
+        if ($_POST["action"] === "close_ticket") {
+            rt_tickets_update(function (&$tickets) use ($id) { foreach ($tickets as &$t) if ((string)$t["id"] === $id) { $t["status"] = "Закрыт"; unset($t["ai_pending"]); } });
+            header("Location: $back"); exit;
+        }
+        if ($_POST["action"] === "pin_photo") {
+            rt_tickets_update(function (&$tickets) use ($id) { foreach ($tickets as &$t) if ((string)$t["id"] === $id) $t["pinned_photo"] = empty($t["pinned_photo"]); });
+            header("Location: $back"); exit;
+        }
+        // Забрать тикет у ИИ или вернуть ИИ
+        if ($_POST["action"] === "ticket_ai") {
+            $on = ($_POST["ai"] ?? "") === "1";
+            rt_tickets_update(function (&$tickets) use ($id, $on, $user) {
+                foreach ($tickets as &$t) {
+                    if ((string)$t["id"] !== $id) continue;
+                    $t["ai"] = $on;
+                    if (!$on) unset($t["ai_pending"]);
+                    $t["replies"][] = ["text" => $on ? "Сотрудник $user вернул тикет ИИ-помощнику Rai." : "Тикет взял сотрудник $user. ИИ отключён.",
+                                       "employee" => "Система", "date" => date("Y-m-d H:i:s"), "is_admin" => true, "is_system" => true];
+                    if ($on && ($t["status"] ?? "") === "Ждёт администратора") $t["status"] = "Ожидает ответа клиента";
+                    break;
+                }
+            });
+            flash($on ? "✨ Тикет снова ведёт ИИ: он ответит на следующее сообщение клиента." : "🛡 Тикет ваш: ИИ в нём больше не отвечает.", "success");
+            header("Location: $back"); exit;
+        }
+        // Настройки ИИ поддержки
+        if ($_POST["action"] === "save_support_ai") {
+            $url = trim($_POST["support_ai_url"] ?? "");
+            if ($url !== "" && !preg_match('~^https?://~i', $url)) { flash("Адрес ИИ должен начинаться с https://", "error"); header("Location: $back"); exit; }
+            if ($url !== "" && !preg_match('~/api/support/?$~', $url)) $url = rtrim($url, "/") . "/api/support"; // вставили адрес сервера без пути
+            $settings["support_ai_url"] = $url;
+            if (trim($_POST["support_ai_key"] ?? "") !== "") $settings["support_ai_key"] = trim($_POST["support_ai_key"]);
+            $settings["support_ai_enabled"] = isset($_POST["support_ai_enabled"]);
+            save_json("settings.json", $settings);
+            flash(rt_support_ai_ready($settings) ? "✨ ИИ поддержки включён." : "Настройки ИИ сохранены" . ($settings["support_ai_enabled"] ? ", но не хватает адреса или ключа." : " (ИИ выключен)."), "success");
+            header("Location: $back"); exit;
+        }
+        if ($_POST["action"] === "test_support_ai") {
+            $probe = ["id" => 0, "topic" => "Проверка", "description" => "Как подать заявку в команду?", "replies" => []];
+            $t0 = microtime(true);
+            $res = rt_support_ai_ask($settings, $probe, "client");
+            $ms = (int)round((microtime(true) - $t0) * 1000);
+            if (!empty($res["error"])) flash("❌ " . $res["error"], "error");
+            else flash("✅ ИИ отвечает (" . $ms . " мс): «" . mb_strimwidth($res["reply"], 0, 90, "…") . "»", "success");
+            header("Location: $back"); exit;
+        }
     }
 
     /* --- БОТ TELEGRAM (АВТОНОМНАЯ AJAX СИСТЕМА, РОЗЫГРЫШИ И МУТЫ) --- */
@@ -1726,7 +1826,7 @@ $stats = [ "apps_total" => count($applications), "users_total" => count($users),
 $count = [
     "apps"      => count(array_filter(load_json("applications.json", []), fn($a) => ($a["status"] ?? "new") === "new")),
     "directors" => count(array_filter($director_requests, fn($r) => ($r["status"] ?? "pending") === "pending")),
-    "support"   => count(array_filter($tickets, fn($t) => ($t["status"] ?? "") === "Открыт")),
+    "support"   => count(array_filter($tickets, fn($t) => ticket_needs_staff($t, $settings))),
     "messages"  => count(array_filter($messages, fn($m) => empty($m["reply"]))),
     "bot"       => count(array_filter((array)load_json("bot_tickets.json", []), fn($t) => ($t["status"] ?? "") === "new")),
 ];
@@ -2034,6 +2134,44 @@ details.card > summary::-webkit-details-marker { display: none; }
 .b-meta { font-size: 11px; font-weight: 700; margin-bottom: 5px; color: color-mix(in srgb, var(--accent) 60%, #fff); }
 .file-upload-btn { background: var(--panel-3); padding: 9px 11px; border-radius: 10px; cursor: pointer; font-size: 16px; border: 1px solid var(--line-2); display: flex; align-items: center; justify-content: center; }
 .file-upload-btn:hover { background: #2a2a38; }
+/* Тикеты: ИИ-помощник Rai */
+.sup-t-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.sup-t-title { font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sup-t-meta { font-size: 11.5px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sup-t-meta > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sup-ticket.needs { box-shadow: inset 3px 0 0 #f59e0b; }
+.sup-ticket.needs.active { box-shadow: none; }
+.sup-st { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; border: 1px solid var(--line-2); white-space: nowrap; }
+.sup-st.st-open { color: #8bb8ff; background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.35); }
+.sup-st.st-answered { color: #6ee7a0; background: rgba(34,197,94,.1); border-color: rgba(34,197,94,.35); }
+.sup-st.st-human { color: #fcc56b; background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.4); }
+.sup-st.st-closed { color: var(--muted); }
+.sup-who { flex: none; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
+.sup-who.ai { color: #e9d5ff; background: rgba(139,92,246,.18); border: 1px solid rgba(167,139,250,.35); }
+.sup-who.human { color: #fde68a; background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3); }
+.bubble.ai { border: 1px solid transparent; background: linear-gradient(180deg, rgba(30,24,48,.96), rgba(20,17,32,.96)) padding-box, linear-gradient(135deg, rgba(167,139,250,.75), rgba(236,72,153,.45)) border-box; }
+.bubble.ai .b-meta { color: #ddd6fe; }
+.ai-src { font-weight: 600; font-size: 10.5px; color: #c4b5fd; background: rgba(139,92,246,.16); border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
+.sup-sys { align-self: center; text-align: center; font-size: 12px; color: #fcd34d; padding: 6px 14px; border-radius: 999px; background: rgba(245,158,11,.08); border: 1px dashed rgba(245,158,11,.35); }
+.sup-sys span { color: var(--muted); font-size: 10.5px; margin-left: 4px; }
+.sup-head-info { min-width: 0; }
+.sup-head-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
+.sup-head-actions form { margin: 0; }
+.sup-head-actions .btn { margin-top: 0; }
+.ai-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+.ai-state.on { color: #e9d5ff; background: rgba(139,92,246,.15); border: 1px solid rgba(167,139,250,.4); }
+.ai-state.off { color: #fde68a; background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.35); }
+.btn.ai-btn { background: linear-gradient(135deg, #8b5cf6, #db2777); color: #fff; box-shadow: 0 6px 18px -6px rgba(139,92,246,.7); }
+.sup-controls textarea { margin: 0; flex: 1; height: 42px; min-height: 42px; max-height: 160px; resize: none; padding: 10px 12px; }
+.sup-controls .btn { margin-top: 0; }
+.draft-note { display: none; padding: 6px 14px; font-size: 12px; color: #c4b5fd; background: rgba(139,92,246,.08); border-top: 1px solid rgba(167,139,250,.25); }
+.draft-note.on { display: block; }
+.ai-card > summary { cursor: pointer; display: flex; align-items: center; gap: 10px; font-weight: 700; color: #fff; font-size: 15px; }
+.ai-card .ai-logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: linear-gradient(135deg, #8b5cf6, #ec4899); box-shadow: 0 6px 18px -6px rgba(139,92,246,.7); }
+.ai-card .ai-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+.ai-card ol { margin: 6px 0 0; padding-left: 18px; color: var(--soft); font-size: 13px; line-height: 1.6; }
+.ai-card code { font-size: 12px; background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 5px; }
+@media (max-width: 960px) { .ai-card .ai-grid { grid-template-columns: 1fr; } }
 
 /* ===== ТЕЛЕФОН ===== */
 @media (max-width: 960px) {
@@ -2375,7 +2513,7 @@ window.addEventListener('DOMContentLoaded', function() {
                 <?php
                 $notif = [];
                 if (can("apps.view") && $count["apps"])               $notif[] = ["apps", "📝", $count["apps"], "новых заявок"];
-                if (can("support.view") && $count["support"])         $notif[] = ["support", "🎧", $count["support"], "открытых тикетов"];
+                if (can("support.view") && $count["support"])         $notif[] = ["support", "🎧", $count["support"], "тикетов ждут ответа"];
                 if (can("mail.view") && $count["messages"])           $notif[] = ["messages", "✉️", $count["messages"], "писем без ответа"];
                 if (can("bot.tickets") && $count["bot"])              $notif[] = ["bot", "🤖", $count["bot"], "заявок в Telegram-боте"];
                 if (can("directors.manage") && $count["directors"])   $notif[] = ["directors", "🏫", $count["directors"], "школ ждут одобрения"];
@@ -2419,7 +2557,7 @@ window.addEventListener('DOMContentLoaded', function() {
             <?php
             $kpis = [];
             if (can("apps.view"))        $kpis[] = ["apps", "📝", $count["apps"], "новых заявок", $count["apps"] > 0];
-            if (can("support.view"))     $kpis[] = ["support", "🎧", $count["support"], "открытых тикетов", $count["support"] > 0];
+            if (can("support.view"))     $kpis[] = ["support", "🎧", $count["support"], "тикетов ждут ответа", $count["support"] > 0];
             if (can("mail.view"))        $kpis[] = ["messages", "✉️", $count["messages"], "писем без ответа", $count["messages"] > 0];
             if (can("bot.tickets"))      $kpis[] = ["bot", "🤖", $count["bot"], "заявок в боте", $count["bot"] > 0];
             if (can("directors.manage")) $kpis[] = ["directors", "🏫", $count["directors"], "школ ждут одобрения", $count["directors"] > 0];
@@ -2995,44 +3133,117 @@ window.addEventListener('DOMContentLoaded', function() {
         <?php endif; ?>
 
     <!-- === ТИКЕТЫ ПОДДЕРЖКИ САЙТА === -->
-    <?php elseif ($tab === "support"): ?>
+    <?php elseif ($tab === "support"): $ai_ready = rt_support_ai_ready($settings); $active_id = $_GET['ticket_id'] ?? null; ?>
+        <?php if (can("settings.manage")): ?>
+        <details class="card ai-card" <?= $ai_ready ? "" : "open" ?>>
+            <summary><span class="ai-logo">✨</span> ИИ поддержки Rai
+                <span class="chip <?= $ai_ready ? "on" : "" ?>"><?= $ai_ready ? "включён — отвечает первым" : (!empty($settings["support_ai_enabled"]) ? "не хватает адреса или ключа" : "выключен") ?></span>
+                <span class="muted" style="margin-left:auto; font-weight:500; font-size:12px;">настроить ▾</span></summary>
+            <div class="ai-grid">
+                <form method="POST">
+                    <input type="hidden" name="action" value="save_support_ai">
+                    <label class="switch-row"><input type="checkbox" name="support_ai_enabled" <?= !empty($settings["support_ai_enabled"]) ? "checked" : "" ?>> ИИ отвечает в тикетах</label>
+                    <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Адрес сервиса (Render)</label>
+                    <input type="text" name="support_ai_url" value="<?=htmlspecialchars($settings["support_ai_url"] ?? "")?>" placeholder="https://rai-xxxx.onrender.com/api/support">
+                    <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Ключ SUPPORT_AI_KEY</label>
+                    <input type="password" name="support_ai_key" value="" autocomplete="new-password" placeholder="<?= !empty($settings["support_ai_key"]) ? "сохранён — оставьте пустым, чтобы не менять" : "тот же ключ, что в Render" ?>">
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn primary" type="submit">Сохранить</button>
+                        <button class="btn ghost" type="submit" form="aiTestForm" <?= empty($settings["support_ai_url"]) ? "disabled" : "" ?>>Проверить связь</button>
+                    </div>
+                </form>
+                <div>
+                    <div style="font-weight:700; color:#fff;">Как это работает</div>
+                    <ol>
+                        <li>Клиент пишет в поддержку — первым отвечает Rai: по базе знаний о сайте, страницам rteam.info и интернету.</li>
+                        <li>Оплата, баны и апелляции, а также кнопка клиента «Позвать администратора» — тикет переходит к сотруднику, ИИ в нём отключается.</li>
+                        <li>Любой ответ сотрудника тоже забирает тикет у ИИ. Вернуть ИИ можно кнопкой в шапке тикета.</li>
+                        <li>«✨ Подсказка ИИ» пишет черновик ответа — его можно поправить и отправить.</li>
+                    </ol>
+                    <div class="muted" style="font-size:12.5px; margin-top:10px;">🔒 ИИ получает только текст тикета. Пароли, токены и users.json ему не передаются — он их не знает и не может выдать.</div>
+                </div>
+            </div>
+            <form method="POST" id="aiTestForm" style="display:none;"><input type="hidden" name="action" value="test_support_ai"></form>
+        </details>
+        <?php elseif ($ai_ready): ?>
+        <div class="card" style="display:flex; gap:10px; align-items:center; padding:12px 16px;"><span class="ai-state on">✨ ИИ Rai</span><span class="muted">отвечает клиентам первым. Тикеты, где нужен человек, отмечены оранжевым.</span></div>
+        <?php endif; ?>
+
         <div class="support-layout">
-            <div class="sup-sidebar"><div id="ticketSidebarList">
-                <?php $active_id = $_GET['ticket_id'] ?? null; if (!$tickets): ?><div style="padding: 20px; color: #777; text-align: center; font-size: 13px;">Тикетов пока нет.</div><?php else: ?>
-                    <?php foreach (array_reverse($tickets) as $t): $statusColor = $t['status'] === 'Открыт' ? '#1f9d55' : ($t['status'] === 'Закрыт' ? '#777' : '#d97706'); ?>
-                        <a href="?tab=support&ticket_id=<?=urlencode($t['id'])?>" class="sup-ticket <?= ($active_id == $t['id']) ? 'active' : '' ?>"><div style="font-weight: bold; margin-bottom: 5px; color: #ff7777;"><?=htmlspecialchars($t['topic'])?></div><div style="font-size: 11px; color: #777; display: flex; justify-content: space-between;"><span>#<?=htmlspecialchars($t['id'])?> | <?=htmlspecialchars($t['client'])?></span><span id="sidebar_status_<?=htmlspecialchars($t['id'])?>" style="background: <?=$statusColor?>; padding: 2px 6px; border-radius: 4px; color: #fff;"><?=htmlspecialchars($t['status'])?></span></div></a>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </div></div>
+            <div class="sup-sidebar"><div id="ticketSidebarList"><?=render_ticket_list($tickets, $active_id, $settings)?></div></div>
             <div class="sup-chat">
                 <?php if ($active_id): ?>
-                    <?php $curr_ticket = null; foreach ($tickets as $t) if ((string)$t["id"] === (string)$active_id) $curr_ticket = $t; if ($curr_ticket): ?>
+                    <?php $curr_ticket = null; foreach ($tickets as $t) if ((string)$t["id"] === (string)$active_id) $curr_ticket = $t; if ($curr_ticket):
+                        $t_ai_on = rt_ticket_ai_on($curr_ticket, $settings); $t_closed = $curr_ticket['status'] === 'Закрыт'; $handoff = $curr_ticket["handoff"] ?? null; ?>
                         <div class="sup-header">
-                            <div><h3 style="margin:0; color:#fff;"><?=htmlspecialchars($curr_ticket['topic'])?></h3><div style="font-size: 12px; color: #aaa;">Клиент: <b><?=htmlspecialchars($curr_ticket['client'])?></b> | Статус: <span id="header_status"><?=htmlspecialchars($curr_ticket['status'])?></span></div><?php if (can("bans.manage")): ?><div style="font-size: 12px; margin-top:4px;">Последний IP клиента: <?=ip_tag(author_ip($curr_ticket["last_ip"] ?? ($curr_ticket["ip"] ?? null), $curr_ticket["client"] ?? null), "Тикет #" . $curr_ticket["id"] . ": " . ($curr_ticket["topic"] ?? ""))?></div><?php endif; ?></div>
-                            <?php if ($curr_ticket['status'] !== 'Закрыт'): ?><form method="POST" style="margin:0;" id="closeForm"><input type="hidden" name="action" value="close_ticket"><input type="hidden" name="id" value="<?=$curr_ticket['id']?>"><button class="btn no" type="submit" style="margin:0; padding:6px 12px;">Закрыть тикет</button></form><?php endif; ?>
+                            <div class="sup-head-info">
+                                <h3 style="margin:0; color:#fff;"><?=htmlspecialchars($curr_ticket['topic'])?></h3>
+                                <div style="font-size: 12px; color: #aaa;">Клиент: <b><?=htmlspecialchars($curr_ticket['client'])?></b> | Статус: <span id="header_status"><?=htmlspecialchars($curr_ticket['status'])?></span></div>
+                                <?php if ($handoff): ?><div style="font-size: 12px; color:#fcd34d; margin-top:3px;">🙋 <?= ($handoff["by"] ?? "") === "ai" ? "ИИ передал тикет администратору" . (!empty($handoff["reason"]) ? " (" . htmlspecialchars(ai_source_label($handoff["reason"])) . ")" : "") : "Клиент позвал администратора" ?> · <?=htmlspecialchars($handoff["date"] ?? "")?></div><?php endif; ?>
+                                <?php if (!empty($curr_ticket["ai_error"]) && $t_ai_on): ?><div style="font-size: 12px; color:#ff9b9b; margin-top:3px;">⚠️ ИИ не ответил: <?=htmlspecialchars($curr_ticket["ai_error"]["text"] ?? "")?> (<?=htmlspecialchars($curr_ticket["ai_error"]["date"] ?? "")?>)</div><?php endif; ?>
+                                <?php if (can("bans.manage")): ?><div style="font-size: 12px; margin-top:4px;">Последний IP клиента: <?=ip_tag(author_ip($curr_ticket["last_ip"] ?? ($curr_ticket["ip"] ?? null), $curr_ticket["client"] ?? null), "Тикет #" . $curr_ticket["id"] . ": " . ($curr_ticket["topic"] ?? ""))?></div><?php endif; ?>
+                            </div>
+                            <div class="sup-head-actions">
+                                <?php if ($ai_ready && !$t_closed): ?>
+                                    <span class="ai-state <?= $t_ai_on ? "on" : "off" ?>" id="aiState"><?= $t_ai_on ? "✨ Отвечает ИИ" : "🛡 Отвечает человек" ?></span>
+                                    <form method="POST"><input type="hidden" name="action" value="ticket_ai"><input type="hidden" name="id" value="<?=htmlspecialchars((string)$curr_ticket['id'])?>"><input type="hidden" name="ai" value="<?= $t_ai_on ? "0" : "1" ?>"><button class="btn sm ghost" type="submit"><?= $t_ai_on ? "🛡 Забрать у ИИ" : "✨ Вернуть ИИ" ?></button></form>
+                                <?php endif; ?>
+                                <?php if (!$t_closed): ?><form method="POST" id="closeForm"><input type="hidden" name="action" value="close_ticket"><input type="hidden" name="id" value="<?=htmlspecialchars((string)$curr_ticket['id'])?>"><button class="btn sm no" type="submit">Закрыть тикет</button></form><?php endif; ?>
+                            </div>
                         </div>
                         <div class="sup-history" id="adminChatHistory">
                             <div class="bubble client">
                                 <div class="b-meta">Клиент: <?=htmlspecialchars($curr_ticket['client'])?> <span style="color:#777; font-weight:normal; font-size:10px;">(<?=htmlspecialchars($curr_ticket['date'])?>)</span></div><?=nl2br(htmlspecialchars($curr_ticket['description']))?><?php if (can("bans.manage")): ?><div class="b-ip">IP: <?=ip_tag(author_ip($curr_ticket["ip"] ?? null, $curr_ticket["client"] ?? null), "Тикет #" . $curr_ticket["id"] . ": " . ($curr_ticket["topic"] ?? ""))?></div><?php endif; ?>
-                                <?php if (!empty($curr_ticket["photo"])): ?><div style="margin-top: 10px; border-top: 1px dashed #333; padding-top: 10px;"><img src="<?=htmlspecialchars($curr_ticket["photo"])?>" style="max-height: 200px; border-radius: 4px; display:block; margin-bottom:10px;"><form method="POST" style="margin:0;"><input type="hidden" name="action" value="pin_photo"><input type="hidden" name="id" value="<?=$curr_ticket["id"]?>"><button class="btn <?=empty($curr_ticket['pinned_photo']) ? 'blue' : 'gray'?>" type="submit" style="padding:4px 8px; font-size:12px; margin:0;"><?=empty($curr_ticket['pinned_photo']) ? '📌 Закрепить фото' : 'Открепить фото'?></button></form></div><?php endif; ?>
+                                <?php if (!empty($curr_ticket["photo"])): ?><div style="margin-top: 10px; border-top: 1px dashed #333; padding-top: 10px;"><a href="<?=htmlspecialchars($curr_ticket["photo"])?>" target="_blank" rel="noopener"><img src="<?=htmlspecialchars($curr_ticket["photo"])?>" style="max-height: 200px; border-radius: 4px; display:block; margin-bottom:10px;"></a><form method="POST" style="margin:0;"><input type="hidden" name="action" value="pin_photo"><input type="hidden" name="id" value="<?=htmlspecialchars((string)$curr_ticket["id"])?>"><button class="btn <?=empty($curr_ticket['pinned_photo']) ? 'blue' : 'gray'?>" type="submit" style="padding:4px 8px; font-size:12px; margin:0;"><?=empty($curr_ticket['pinned_photo']) ? '📌 Закрепить фото' : 'Открепить фото'?></button></form></div><?php endif; ?>
                             </div>
                             <div id="repliesContainer">
                                 <?php foreach ($curr_ticket["replies"] as $reply) echo render_ticket_reply($reply, $curr_ticket); ?>
                             </div>
                         </div>
-                        <form class="sup-controls" id="replyForm" method="POST" enctype="multipart/form-data" style="<?= $curr_ticket['status'] === 'Закрыт' ? 'display:none;' : '' ?>"><input type="hidden" name="action" value="reply_ticket"><input type="hidden" name="id" value="<?=$curr_ticket['id']?>"><input type="hidden" name="is_ajax" value="1"><label class="file-upload-btn" title="Прикрепить фото">📷 <input type="file" name="reply_photo" accept="image/*" style="display: none;"></label><input type="text" name="reply_text" placeholder="Ответить клиенту..." required style="margin:0; flex:1;"><button class="btn ok" type="submit" style="margin:0; width: auto;">Отправить</button></form>
+                        <div class="draft-note" id="draftNote"></div>
+                        <form class="sup-controls" id="replyForm" method="POST" enctype="multipart/form-data" style="<?= $t_closed ? 'display:none;' : '' ?>">
+                            <input type="hidden" name="action" value="reply_ticket"><input type="hidden" name="id" value="<?=htmlspecialchars((string)$curr_ticket['id'])?>"><input type="hidden" name="is_ajax" value="1">
+                            <label class="file-upload-btn" title="Прикрепить картинку">📷 <input type="file" name="reply_photo" accept="image/png,image/jpeg,image/gif,image/webp" style="display: none;"></label>
+                            <textarea name="reply_text" id="replyText" rows="1" placeholder="Ответить клиенту… (Enter — отправить)"></textarea>
+                            <?php if (!empty($settings["support_ai_url"]) && !empty($settings["support_ai_key"])): ?><button class="btn ai-btn" type="button" id="draftBtn" title="ИИ напишет черновик ответа по переписке">✨ Подсказка ИИ</button><?php endif; ?>
+                            <button class="btn ok" type="submit">Отправить</button>
+                        </form>
                         <script>
-                            const adminHist = document.getElementById("adminChatHistory"); const replyForm = document.getElementById("replyForm"); let lastHtml = document.getElementById("repliesContainer").innerHTML; const ticketId = <?=json_encode((string)$curr_ticket['id'])?>;
-                            if(adminHist) adminHist.scrollTop = adminHist.scrollHeight;
-                            if (replyForm) { replyForm.addEventListener('submit', function(e) { e.preventDefault(); fetch('', { method: 'POST', body: new FormData(this) }).then(() => { this.reset(); loadMessages(); }); }); }
-                            function loadMessages() { fetch('?ajax_html_ticket=' + ticketId).then(r => r.json()).then(data => { if (data.html !== lastHtml) { document.getElementById('repliesContainer').innerHTML = data.html; lastHtml = data.html; adminHist.scrollTop = adminHist.scrollHeight; } if (data.status === 'Закрыт') { if (replyForm) replyForm.style.display = 'none'; if (document.getElementById('closeForm')) document.getElementById('closeForm').style.display = 'none'; document.getElementById('header_status').innerText = 'Закрыт'; } }); }
+                            const adminHist = document.getElementById("adminChatHistory"); const replyForm = document.getElementById("replyForm"); const replyText = document.getElementById("replyText");
+                            let lastHtml = document.getElementById("repliesContainer").innerHTML; const ticketId = <?=json_encode((string)$curr_ticket['id'])?>;
+                            if (adminHist) adminHist.scrollTop = adminHist.scrollHeight;
+                            const grow = () => { replyText.style.height = 'auto'; replyText.style.height = Math.min(replyText.scrollHeight, 160) + 'px'; };
+                            replyText.addEventListener('input', grow);
+                            replyText.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); replyForm.requestSubmit(); } });
+                            replyForm.addEventListener('submit', function (e) {
+                                e.preventDefault();
+                                if (!replyText.value.trim() && !replyForm.reply_photo.files.length) return replyText.focus();
+                                fetch('', { method: 'POST', body: new FormData(this) }).then(() => { this.reset(); grow(); document.getElementById('draftNote').classList.remove('on'); loadMessages(); loadTicketList(); });
+                            });
+                            const draftBtn = document.getElementById('draftBtn');
+                            if (draftBtn) draftBtn.addEventListener('click', async () => {
+                                const note = document.getElementById('draftNote'); const label = draftBtn.textContent;
+                                draftBtn.disabled = true; draftBtn.textContent = '✨ Думаю…';
+                                try {
+                                    const d = await (await fetch('?ajax_ai_draft=' + encodeURIComponent(ticketId), { cache: 'no-store' })).json();
+                                    if (d.error) showToast(d.error, 'error');
+                                    else { replyText.value = d.reply; grow(); replyText.focus(); note.textContent = '✨ Черновик ИИ (' + d.source + ') — проверьте и отправьте. Ответ от вашего имени.'; note.classList.add('on'); }
+                                } catch (err) { showToast('ИИ не ответил', 'error'); }
+                                draftBtn.disabled = false; draftBtn.textContent = label;
+                            });
+                            function loadMessages() { fetch('?ajax_html_ticket=' + encodeURIComponent(ticketId), { cache: 'no-store' }).then(r => r.json()).then(data => {
+                                if (data.html !== lastHtml) { const stick = adminHist.scrollHeight - adminHist.scrollTop - adminHist.clientHeight < 140; document.getElementById('repliesContainer').innerHTML = data.html; lastHtml = data.html; if (stick) adminHist.scrollTop = adminHist.scrollHeight; }
+                                document.getElementById('header_status').innerText = data.status;
+                                const st = document.getElementById('aiState'); if (st && data.status !== 'Закрыт') { st.className = 'ai-state ' + (data.ai_on ? 'on' : 'off'); st.textContent = data.ai_on ? '✨ Отвечает ИИ' : '🛡 Отвечает человек'; }
+                                if (data.status === 'Закрыт') { if (replyForm) replyForm.style.display = 'none'; if (document.getElementById('closeForm')) document.getElementById('closeForm').style.display = 'none'; }
+                            }); }
                             setInterval(loadMessages, 2500);
                         </script>
-                    <?php endif; ?>
+                    <?php else: ?><div style="display:flex; flex:1; align-items:center; justify-content:center; color:#777;">Тикет не найден.</div><?php endif; ?>
                 <?php else: ?><div style="display:flex; flex:1; align-items:center; justify-content:center; color:#777;">Выберите тикет в меню слева.</div><?php endif; ?>
             </div>
         </div>
-        <script> function loadTicketList() { const activeId = <?=json_encode((string)($_GET['ticket_id'] ?? ''))?>; fetch('?ajax_ticket_list=1&active_id=' + activeId).then(r => r.json()).then(data => { let sidebarList = document.getElementById('ticketSidebarList'); if (sidebarList && data.html !== sidebarList.innerHTML) { sidebarList.innerHTML = data.html; } }); } setInterval(loadTicketList, 3000); </script>
+        <script> function loadTicketList() { const activeId = <?=json_encode((string)($_GET['ticket_id'] ?? ''))?>; fetch('?ajax_ticket_list=1&active_id=' + encodeURIComponent(activeId), { cache: 'no-store' }).then(r => r.json()).then(data => { let sidebarList = document.getElementById('ticketSidebarList'); if (sidebarList && data.html !== sidebarList.innerHTML) { sidebarList.innerHTML = data.html; } }); } setInterval(loadTicketList, 3000); </script>
 
     <!-- === БАНЫ === -->
     <?php elseif ($tab === "bans"): ?>

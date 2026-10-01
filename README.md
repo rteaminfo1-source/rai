@@ -146,6 +146,7 @@ Rai работает **полностью на своём движке**: без
 | `versions.py` | Настройки пяти версий |
 | `pyodide/` | Python для браузера (Pyodide 314.0.7), чтобы чат не зависел от внешних CDN |
 | `knowledge.json` | База знаний: вопросы и ответы. **Дополняйте её сами** |
+| `support_ai.py`, `support_kb.json` | ИИ поддержки rteam.info: отвечает в тикетах `support.php` и подсказывает ответы сотрудникам (см. `rteam/README.md`) |
 | `test_app.py` | Тесты: `python -m unittest -v` |
 | `requirements.txt`, `Procfile`, `render.yaml` | Для запуска на хостинге |
 
@@ -174,6 +175,9 @@ Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8`.
 - `RAI_DEFAULT_VERSION`: версия по умолчанию (`pro`).
 - `RAI_ADMIN_TOKEN`: секрет для обучения через `/api/teach`.
 - `RAI_TZ`: часовой пояс (`Europe/Moscow`).
+- `SUPPORT_AI_KEY`: ключ для ИИ поддержки rteam.info (`/api/support`). Тот же ключ вписывается в админ-панели сайта.
+- `SUPPORT_SITE_URL`, `SUPPORT_SITE_PAGES`: сайт и страницы, которые ИИ поддержки читает (по умолчанию `https://rteam.info` и `/,/team.php,/projects.php`).
+- `RAI_SEARCH_URL`: адрес `net.php` на хостинге — поиск Google / DuckDuckGo для ответов из интернета.
 
 ## Аккаунты
 
@@ -192,6 +196,8 @@ Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8`.
 | POST | `/rai.php`, `/rai` | Совместимость со старым `chat.js` |
 | POST | `/api/code` | Код: `{"action": "check" \| "fix" \| "explain" \| "comment" \| "generate", "code", "lang", "prompt"}` |
 | POST | `/api/teach` | Научить новому ответу (нужен `RAI_ADMIN_TOKEN`) |
+| POST | `/api/support` | ИИ поддержки: `{"message", "history", "topic", "mode": "client" \| "draft"}` → `{"reply", "handoff", "source"}` (заголовок `X-Support-Key`) |
+| GET | `/api/support/health` | Состояние ИИ поддержки (с ключом — число записей базы знаний и страниц сайта) |
 
 Запрос:
 

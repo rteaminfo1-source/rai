@@ -407,3 +407,117 @@ function rt_active_ban($ip) {
     }
     return null;
 }
+
+/* ---------- ИИ поддержки (Rai) ----------
+   Python-сервис support_ai.py (app.py на Render): POST /api/support.
+   Адрес, ключ и включение — в админ-панели («Поддержка» → «ИИ поддержки»), хранятся в settings.json.
+   ИИ получает только текст тикета: никаких паролей, users.json и токенов ему не передаётся. */
+
+const RT_AI_NAME = "Rai · ИИ";
+
+function rt_support_ai_ready($settings) {
+    return !empty($settings["support_ai_enabled"]) && !empty($settings["support_ai_url"]) && !empty($settings["support_ai_key"]);
+}
+
+/* Отвечает ли ИИ в этом тикете: ИИ включён, тикет не закрыт и его не забрал администратор (ai = false) */
+function rt_ticket_ai_on($ticket, $settings) {
+    return rt_support_ai_ready($settings) && ($ticket["ai"] ?? true) !== false && ($ticket["status"] ?? "") !== "Закрыт";
+}
+
+/* История тикета для ИИ: [{"from": "client"|"admin"|"ai", "text"}] */
+function rt_ticket_ai_history($ticket) {
+    $hist = [["from" => "client", "text" => (string)($ticket["description"] ?? "")]];
+    foreach ((array)($ticket["replies"] ?? []) as $r) {
+        if (!empty($r["is_system"])) continue;
+        $from = !empty($r["is_ai"]) ? "ai" : (($r["is_admin"] ?? true) ? "admin" : "client");
+        $hist[] = ["from" => $from, "text" => (string)($r["text"] ?? "")];
+    }
+    return $hist;
+}
+
+/* Сообщения клиента, на которые ещё никто не ответил (после последнего ответа сотрудника или ИИ) */
+function rt_ticket_unanswered($ticket) {
+    $msgs = [];
+    foreach (rt_ticket_ai_history($ticket) as $h) {
+        if ($h["from"] === "client") $msgs[] = $h["text"];
+        else $msgs = [];
+    }
+    return trim(implode("\n", $msgs));
+}
+
+/* Запрос к ИИ. $mode: "client" — ответ клиенту, "draft" — подсказка сотруднику.
+   Возвращает ["reply", "handoff", "source", ...] или ["error" => "..."] */
+function rt_support_ai_ask($settings, $ticket, $mode = "client") {
+    $url = trim($settings["support_ai_url"] ?? "");
+    $key = (string)($settings["support_ai_key"] ?? "");
+    if ($url === "" || $key === "") return ["error" => "ИИ не настроен: укажите адрес и ключ в админ-панели"];
+    if (!preg_match('~^https?://~i', $url)) return ["error" => "Адрес ИИ должен начинаться с https://"];
+    $hist = rt_ticket_ai_history($ticket);
+    $message = rt_ticket_unanswered($ticket);
+    if ($message === "") foreach ($hist as $h) if ($h["from"] === "client") $message = $h["text"]; // всё отвечено — берём последнее сообщение клиента
+    $body = json_encode([
+        "message" => $message,
+        "history" => array_slice($hist, -20),
+        "topic"   => (string)($ticket["topic"] ?? ""),
+        "mode"    => $mode,
+    ], JSON_UNESCAPED_UNICODE);
+    $headers = ["Content-Type: application/json", "X-Support-Key: " . $key];
+    // Бесплатный Render засыпает: первый запрос после простоя может идти до 50 секунд
+    $code = 0; $resp = false; $err = "";
+    if (function_exists("curl_init")) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 55, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_FOLLOWLOCATION => false]);
+        $resp = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+    } else {
+        $ctx = stream_context_create(["http" => ["method" => "POST", "header" => implode("\r\n", $headers), "content" => $body,
+            "timeout" => 55, "ignore_errors" => true]]);
+        $resp = @file_get_contents($url, false, $ctx);
+        if (isset($http_response_header[0]) && preg_match('~\s(\d{3})~', $http_response_header[0], $m)) $code = (int)$m[1];
+    }
+    if ($resp === false || $code === 0) return ["error" => "ИИ не отвечает" . ($err ? ": $err" : "")];
+    if ($code === 403) return ["error" => "ИИ отклонил ключ: проверьте SUPPORT_AI_KEY"];
+    if ($code === 503) return ["error" => "На сервере ИИ не задан SUPPORT_AI_KEY"];
+    $data = json_decode($resp, true);
+    if ($code !== 200 || !is_array($data) || !isset($data["reply"])) return ["error" => "ИИ ответил с ошибкой (HTTP $code)"];
+    $data["reply"] = trim((string)$data["reply"]);
+    return $data;
+}
+
+/* ---------- Тикеты поддержки ---------- */
+
+/* Изменение tickets.json под блокировкой (support.php и admin.php): ответ клиента, ответ ИИ и ответ
+   сотрудника приходят разными запросами почти одновременно и не должны затирать друг друга.
+   Файл записывается целиком через временный (rename), чтобы никто не прочитал его наполовину. */
+function rt_tickets_update(callable $fn) {
+    $lock = @fopen("tickets.json.lock", "c");
+    if ($lock) flock($lock, LOCK_EX);
+    $raw = file_exists("tickets.json") ? (string)file_get_contents("tickets.json") : "";
+    $tickets = json_decode($raw, true);
+    if (!is_array($tickets)) {
+        if (trim($raw) !== "") { if ($lock) { flock($lock, LOCK_UN); fclose($lock); } return null; } // файл повреждён — не трогаем
+        $tickets = [];
+    }
+    $result = $fn($tickets);
+    $tmp = "tickets.json.tmp" . getmypid();
+    if (@file_put_contents($tmp, json_encode($tickets, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) === false || !@rename($tmp, "tickets.json")) {
+        @unlink($tmp);
+        rt_json_save("tickets.json", $tickets); // хостинг не дал создать временный файл — пишем напрямую
+    }
+    if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
+    return $result;
+}
+
+/* Только картинки: проверяем расширение и содержимое, имя файла придумываем сами */
+function rt_save_image_upload($file, $prefix) {
+    if (empty($file["name"]) || ($file["error"] ?? 1) !== 0 || ($file["size"] ?? 0) > 8 * 1024 * 1024) return null;
+    $ext = strtolower(pathinfo($file["name"], PATHINFO_EXTENSION));
+    if (!in_array($ext, ["jpg", "jpeg", "png", "gif", "webp"], true) || !@getimagesize($file["tmp_name"])) return null;
+    $dir = "support_uploads/";
+    if (!is_dir($dir)) mkdir($dir, 0755, true);
+    $name = $dir . time() . "_" . $prefix . bin2hex(random_bytes(4)) . "." . $ext;
+    return move_uploaded_file($file["tmp_name"], $name) ? $name : null;
+}

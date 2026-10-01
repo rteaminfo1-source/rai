@@ -190,12 +190,24 @@ def _plain(md: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", md).strip()
 
 
-def _history_text(history, limit=6):
-    """Последние сообщения клиента — чтобы понять вопрос по контексту («а как это сделать?»)."""
+def _client_messages(history, limit=6):
+    """Последние сообщения клиента (старые → новые) — чтобы понять вопрос по контексту («а как это сделать?»)."""
     if not isinstance(history, list):
-        return ""
-    msgs = [str(h.get("text", "")) for h in history[-limit:] if isinstance(h, dict) and h.get("from") == "client"]
-    return " ".join(msgs)[-600:]
+        return []
+    return [str(h.get("text", ""))[:600] for h in history[-limit:] if isinstance(h, dict) and h.get("from") == "client"]
+
+
+def _already_said(history, answer):
+    """Давал ли ИИ уже этот ответ в тикете."""
+    if not isinstance(history, list):
+        return False
+    key = nlp.normalize(answer)[:200]
+    return any(isinstance(h, dict) and h.get("from") == "ai" and nlp.normalize(str(h.get("text", "")))[:200] == key
+               for h in history)
+
+
+def _history_text(history, limit=6):
+    return " ".join(_client_messages(history, limit))[-600:]
 
 
 def reply(message: str, history=None, topic: str = "", mode: str = "client") -> dict:
@@ -240,6 +252,13 @@ def reply(message: str, history=None, topic: str = "", mode: str = "client") -> 
     query = " ".join(x for x in (topic, _history_text(history), text) if x)
     item, score = kb_match(text)
     if not item:
+        # «а как это сделать?», «жду» — ищем по прошлым сообщениям, начиная с самых свежих, потом по теме тикета
+        for prev in reversed(_client_messages(history)):
+            if prev.strip() and prev.strip() != text:
+                item, score = kb_match(prev + " " + text)
+                if item:
+                    break
+    if not item:
         item, score = kb_match(query)
     found = site.search(text) or site.search(query)
     if item and score < 5 and not item.get("handoff") and found and found[1] >= 0.66:
@@ -249,6 +268,11 @@ def reply(message: str, history=None, topic: str = "", mode: str = "client") -> 
         if not handoff and item.get("handoff_if"):
             handoff = any(w in nlp.normalize(text) for w in item["handoff_if"])
         answer = item.get("draft") if draft and item.get("draft") else item["answer"]
+        if not draft and not handoff and _already_said(history, answer):
+            # Тот же ответ уже был выше и не помог — не повторяемся, а предлагаем человека
+            return out("Я уже ответил на это выше, и, похоже, этого мало. Нажмите «Позвать администратора» — "
+                       "сотрудник RTeam разберётся лично. Или опишите подробнее, что именно не получается.",
+                       "repeat", 0.3)
         return out(answer, "kb:" + item["id"], min(1.0, score / 8), handoff=handoff)
 
     # 4. Страницы сайта
