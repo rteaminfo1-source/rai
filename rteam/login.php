@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/config.php';
+require_once __DIR__ . '/_roles.php'; // роли и права (общий файл с admin.php)
 
 $users    = load_json("users.json", []);
 $settings = load_json("settings.json", []);
@@ -43,9 +44,11 @@ if (isset($_POST["action"]) && $_POST["action"] === "login") {
     $pass  = trim($_POST["password"] ?? "");
 
     if (isset($users[$login]) && isset($users[$login]["password"]) && $users[$login]["password"] === $pass) {
-        $role = $users[$login]["role"];
+        $role = $users[$login]["role"] ?? "Пользователь";
 
-        if (in_array($role, rteam_admin_roles())) {
+        // Код из Telegram нужен всем, кто входит в админ-панель — включая стажёров
+        // и всех, кому роль назначили в панели (список ролей — в _roles.php)
+        if (rt_is_staff($role, $login) || in_array($role, rteam_admin_roles())) {
             $code = rand(100000, 999999);
             $_SESSION["pending_2fa_user"] = $login;
             $_SESSION["pending_2fa_role"] = $role;
