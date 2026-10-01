@@ -13,3 +13,9 @@ services:
         sync: false
       - key: RAI_ADMIN_TOKEN
         sync: false
+      - key: SUPPORT_AI_KEY
+        sync: false
+      - key: SUPPORT_SITE_URL
+        value: "https://rteam.info"
+      - key: RAI_SEARCH_URL
+        sync: false
