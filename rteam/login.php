@@ -7,54 +7,83 @@ $settings = load_json("settings.json", []);
 $error    = "";
 $info     = "";
 
+// Страницу входа не кэшируем: иначе хостинг или браузер может показать
+// старую форму логина вместо формы кода из бота
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Pragma: no-cache");
+
 if (!empty($_SESSION["user"])) {
     header("Location: index.php");
     exit;
 }
 
-/* Код из бота живёт 10 минут, на ввод — 5 попыток. После этого нужно
-   снова ввести логин и пароль: придёт новый код. */
+/* ВХОД С КОДОМ ИЗ TELEGRAM-БОТА
+   Шаг 1: логин и пароль верны → бот присылает код, открывается форма кода.
+   Шаг 2: вводим код → вход.
+   Логин передаётся вместе с формой кода, а срок кода и число попыток хранятся
+   на сервере (2fa_pending.json), поэтому второй шаг не зависит от сессии:
+   если хостинг потеряет сессию между шагами, вход всё равно сработает.
+   Код живёт 10 минут, на ввод — 5 попыток, потом нужно снова ввести пароль. */
 const RT_2FA_TTL = 600;
 const RT_2FA_TRIES = 5;
-function rteam_clear_2fa() {
+
+function rteam_2fa_forget($login) {
+    $codes = load_json("2fa_codes.json", []);
+    $pending = load_json("2fa_pending.json", []);
+    if ($login !== "") { unset($codes[$login], $pending[$login]); }
+    save_json("2fa_codes.json", $codes);
+    save_json("2fa_pending.json", $pending);
     unset($_SESSION["pending_2fa_user"], $_SESSION["pending_2fa_role"], $_SESSION["pending_2fa_time"], $_SESSION["pending_2fa_tries"]);
+}
+function rteam_2fa_url($login) {
+    return "login.php?step=2fa&u=" . urlencode($login);
+}
+
+/* Для кого сейчас открыта форма кода */
+$pending_login = (string)($_SESSION["pending_2fa_user"] ?? "");
+if ($pending_login === "" && ($_GET["step"] ?? "") === "2fa") $pending_login = trim((string)($_GET["u"] ?? ""));
+if (isset($_POST["action"]) && in_array($_POST["action"], ["verify_2fa", "cancel_2fa"], true) && trim($_POST["login"] ?? "") !== "") {
+    $pending_login = trim($_POST["login"]);
 }
 
 /* ОТМЕНА 2FA ВХОДА */
 if (isset($_POST["action"]) && $_POST["action"] === "cancel_2fa") {
-    rteam_clear_2fa();
+    rteam_2fa_forget($pending_login);
     header("Location: login.php");
     exit;
 }
 
 /* ПОДТВЕРЖДЕНИЕ 2FA КОДА ОТ БОТА */
 if (isset($_POST["action"]) && $_POST["action"] === "verify_2fa") {
-    $code_input = trim($_POST["code"] ?? "");
-    $login = $_SESSION["pending_2fa_user"] ?? "";
-    $codes = load_json("2fa_codes.json", []);
+    $code_input = preg_replace('/\D+/', '', (string)($_POST["code"] ?? "")); // только цифры: пробелы и т.п. не мешают
+    $login   = $pending_login;
+    $codes   = load_json("2fa_codes.json", []);
+    $pending = load_json("2fa_pending.json", []);
+    $p       = $pending[$login] ?? null;
 
-    $expired = time() - (int)($_SESSION["pending_2fa_time"] ?? 0) > RT_2FA_TTL;
-    $_SESSION["pending_2fa_tries"] = (int)($_SESSION["pending_2fa_tries"] ?? 0) + 1;
-
-    if ($login && $expired) {
-        unset($codes[$login]); save_json("2fa_codes.json", $codes);
-        rteam_clear_2fa();
+    if ($login === "" || !isset($users[$login]) || !isset($codes[$login])) {
+        rteam_2fa_forget($login);
+        $error = "Запрос кода не найден (возможно, код уже использован). Введите логин и пароль ещё раз.";
+    } elseif ($p !== null && time() - (int)($p["time"] ?? 0) > RT_2FA_TTL) {
+        rteam_2fa_forget($login);
         $error = "Код устарел. Введите логин и пароль ещё раз — бот пришлёт новый.";
-    } elseif ($login && isset($codes[$login]) && hash_equals((string)$codes[$login], $code_input)) {
-        rteam_login_user($login, $users[$login]["role"] ?? $_SESSION["pending_2fa_role"]);
-        rteam_clear_2fa();
-        unset($codes[$login]);
-        save_json("2fa_codes.json", $codes);
+    } elseif (hash_equals((string)$codes[$login], $code_input)) {
+        rteam_2fa_forget($login);
+        rteam_login_user($login, $users[$login]["role"] ?? "Пользователь");
         rt_track_login_ip($login); // IP входа — для банов в админ-панели
         rteam_log("login", "Вход (2FA Бот): $login");
         header("Location: " . rteam_post_login_redirect());
         exit;
-    } elseif ($_SESSION["pending_2fa_tries"] >= RT_2FA_TRIES) {
-        if ($login) { unset($codes[$login]); save_json("2fa_codes.json", $codes); }
-        rteam_clear_2fa();
-        $error = "Слишком много неверных попыток. Введите логин и пароль ещё раз — бот пришлёт новый код.";
     } else {
-        $error = "Неверный код от бота. Осталось попыток: " . (RT_2FA_TRIES - $_SESSION["pending_2fa_tries"]) . ".";
+        $tries = (int)($p["tries"] ?? 0) + 1;
+        if ($tries >= RT_2FA_TRIES) {
+            rteam_2fa_forget($login);
+            $error = "Слишком много неверных попыток. Введите логин и пароль ещё раз — бот пришлёт новый код.";
+        } else {
+            $pending[$login] = ["time" => (int)($p["time"] ?? time()), "tries" => $tries];
+            save_json("2fa_pending.json", $pending);
+            $error = "Неверный код. Введите последний код, который прислал бот. Осталось попыток: " . (RT_2FA_TRIES - $tries) . ".";
+        }
     }
 }
 
@@ -73,20 +102,22 @@ if (isset($_POST["action"]) && $_POST["action"] === "login") {
         $tg_linked     = !empty($users[$login]["tg_id"]) && !empty($settings["bot_token"]);
 
         if ($is_panel_role && $tg_linked) {
-            $code = random_int(100000, 999999);
-            $_SESSION["pending_2fa_user"]  = $login;
-            $_SESSION["pending_2fa_role"]  = $role;
-            $_SESSION["pending_2fa_time"]  = time();
-            $_SESSION["pending_2fa_tries"] = 0;
+            $code = (string)random_int(100000, 999999);
 
             $codes = load_json("2fa_codes.json", []);
-            $codes[$login] = (string)$code;
+            $codes[$login] = $code;
             save_json("2fa_codes.json", $codes);
+            $pending = load_json("2fa_pending.json", []);
+            $pending[$login] = ["time" => time(), "tries" => 0];
+            save_json("2fa_pending.json", $pending);
+
+            $_SESSION["pending_2fa_user"] = $login;
+            $_SESSION["pending_2fa_role"] = $role;
 
             $url = "https://api.telegram.org/bot" . $settings["bot_token"] . "/sendMessage";
             $data = ['chat_id' => $users[$login]["tg_id"], 'text' => "🔐 Ваш одноразовый код для входа в панель Rteam:\n\n<b>$code</b>\n\nКод действует 10 минут.", 'parse_mode' => 'HTML'];
-            $ch = curl_init($url); curl_setopt($ch, CURLOPT_POST, 1); curl_setopt($ch, CURLOPT_POSTFIELDS, $data); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); curl_exec($ch); curl_close($ch);
-            header("Location: login.php");
+            $ch = curl_init($url); curl_setopt($ch, CURLOPT_POST, 1); curl_setopt($ch, CURLOPT_POSTFIELDS, $data); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); curl_setopt($ch, CURLOPT_TIMEOUT, 10); curl_exec($ch); curl_close($ch);
+            header("Location: " . rteam_2fa_url($login));
             exit;
         } else {
             rteam_login_user($login, $role);
@@ -104,7 +135,9 @@ if (isset($_GET["registered"])) $info = "Регистрация прошла у�
 if (isset($_GET["google_new"])) $info = "Мы создали аккаунт через Google и уже вошли вас в систему.";
 if (isset($_GET["oauth_error"])) $error = "Не удалось войти через Google. Попробуйте ещё раз.";
 
-$pending_2fa = isset($_SESSION["pending_2fa_user"]);
+// Форму кода показываем, только если для этого логина действительно ждём код
+$pending_codes = load_json("2fa_codes.json", []);
+$pending_2fa = $pending_login !== "" && isset($pending_codes[$pending_login]);
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -140,14 +173,17 @@ $pending_2fa = isset($_SESSION["pending_2fa_user"]);
             <h1 class="auth-title">Код подтверждения</h1>
             <p class="auth-subtitle">🔐 К вашему аккаунту привязан Telegram, поэтому для входа в админ-панель нужен код — бот уже прислал его. Не пришёл? Напишите боту команду <b>/code</b>. Код действует 10 минут.</p>
             <?php if ($error): ?><div class="error-box"><?=htmlspecialchars($error)?></div><?php endif; ?>
-            <form method="POST">
+            <p class="auth-subtitle" style="margin-top:-6px;">Вход для: <b><?=htmlspecialchars($pending_login)?></b></p>
+            <form method="POST" action="<?=htmlspecialchars(rteam_2fa_url($pending_login))?>">
                 <input type="hidden" name="action" value="verify_2fa">
+                <input type="hidden" name="login" value="<?=htmlspecialchars($pending_login)?>">
                 <label class="field-label">Код из бота</label>
-                <input type="text" name="code" class="otp-input" placeholder="000000" required autocomplete="off" maxlength="6">
+                <input type="text" name="code" class="otp-input" placeholder="000000" required autocomplete="one-time-code" inputmode="numeric" maxlength="12" autofocus>
                 <button class="btn">Подтвердить вход</button>
             </form>
-            <form method="POST">
+            <form method="POST" action="login.php">
                 <input type="hidden" name="action" value="cancel_2fa">
+                <input type="hidden" name="login" value="<?=htmlspecialchars($pending_login)?>">
                 <button class="btn btn-google" style="margin-top:10px;">Отменить и выйти</button>
             </form>
         <?php else: ?>
