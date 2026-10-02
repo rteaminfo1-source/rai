@@ -549,3 +549,151 @@ function rt_save_image_upload($file, $prefix) {
     $name = $dir . time() . "_" . $prefix . bin2hex(random_bytes(4)) . "." . $ext;
     return move_uploaded_file($file["tmp_name"], $name) ? $name : null;
 }
+
+/* ---------- Discord: вход, регистрация, привязка и сообщения от бота ----------
+   Вход и привязка — discord_auth.php (Discord OAuth2: client_id и client_secret из Developer Portal).
+   Бот (папка discord/ в репозитории, index.js) присылает в ЛС коды входа и уведомления: сайт отправляет
+   запрос на адрес бота с ключом api_key — тем же, что в secret.json бота.
+   Секреты лежат в discord_config.php рядом с сайтом (в GitHub его нет) или задаются в админ-панели
+   (вкладка «Discord»): значения из админ-панели важнее. */
+
+function rt_discord_conf($settings = null) {
+    static $file = null;
+    if ($file === null) {
+        $file = [];
+        $f = __DIR__ . "/discord_config.php";
+        if (is_file($f)) { $c = include $f; if (is_array($c)) $file = $c; }
+    }
+    if (!is_array($settings)) $settings = rt_json_load("settings.json", []);
+    $pick = function ($key) use ($file, $settings) {
+        $v = trim((string)($settings["discord_" . $key] ?? ""));
+        return $v !== "" ? $v : trim((string)($file[$key] ?? ""));
+    };
+    $api = $pick("api_base"); // только для проверки на своём компьютере
+    return [
+        "client_id"     => preg_match('/^\d{15,22}$/', $pick("client_id")) ? $pick("client_id") : "",
+        "client_secret" => $pick("client_secret"),
+        "bot_url"       => preg_match('~^https?://[^\s"\'<>]+$~i', $pick("bot_url")) ? rtrim($pick("bot_url"), "/") : "",
+        "api_key"       => $pick("api_key"),
+        "invite"        => preg_match('~^https://[^\s"\'<>]+$~i', $pick("invite")) ? $pick("invite") : "",
+        "redirect"      => preg_match('~^https?://[^\s"\'<>]+$~i', $pick("redirect")) ? $pick("redirect") : "",
+        "api"           => preg_match('~^http://(127\.0\.0\.1|localhost)(:\d+)?$~', rtrim($api, "/")) ? rtrim($api, "/") : "https://discord.com/api",
+        "oauth"         => preg_match('~^http://(127\.0\.0\.1|localhost)(:\d+)?$~', rtrim($api, "/")) ? rtrim($api, "/") . "/oauth2/authorize" : "https://discord.com/oauth2/authorize",
+    ];
+}
+function rt_discord_login_ready($settings = null) {
+    $c = rt_discord_conf($settings);
+    return $c["client_id"] !== "" && $c["client_secret"] !== "";
+}
+function rt_discord_bot_ready($settings = null) {
+    $c = rt_discord_conf($settings);
+    return $c["bot_url"] !== "" && $c["api_key"] !== "";
+}
+
+/* Адрес сайта (https://rteam.info) — для ссылок в сообщениях бота */
+function rt_site_url() {
+    $host = preg_replace('/[^a-z0-9.\-:\[\]]/i', '', (string)($_SERVER["HTTP_HOST"] ?? "rteam.info"));
+    $local = preg_match('/^(127\.0\.0\.1|localhost)(:\d+)?$/', $host);
+    $dir = rtrim(str_replace("\\", "/", dirname((string)($_SERVER["SCRIPT_NAME"] ?? "/"))), "/");
+    return ($local ? "http://" : "https://") . $host . $dir;
+}
+/* Куда Discord возвращает после входа. Этот адрес должен быть в Developer Portal → OAuth2 → Redirects */
+function rt_discord_redirect_uri($conf) {
+    return $conf["redirect"] !== "" ? $conf["redirect"] : rt_site_url() . "/discord_auth.php";
+}
+
+function rt_discord_avatar($u) {
+    $id = (string)($u["discord_id"] ?? "");
+    if ($id === "") return "";
+    if (!empty($u["discord_avatar"])) return "https://cdn.discordapp.com/avatars/" . rawurlencode($id) . "/" . rawurlencode($u["discord_avatar"]) . ".png?size=64";
+    return "https://cdn.discordapp.com/embed/avatars/" . (((int)$id >> 22) % 6) . ".png";
+}
+
+/* Запрос к Discord или к боту: [http-код, ответ JSON или null] */
+function rt_discord_http($method, $url, $form = null, $headers = []) {
+    $ch = curl_init($url);
+    $opts = [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15, CURLOPT_CONNECTTIMEOUT => 6,
+             CURLOPT_HTTPHEADER => array_merge(["Accept: application/json", "User-Agent: RTeamSite (https://rteam.info, 1.0)"], $headers)];
+    if ($form !== null) $opts[CURLOPT_POSTFIELDS] = is_array($form) ? http_build_query($form) : $form;
+    curl_setopt_array($ch, $opts);
+    $res = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+    if ($res === false) return [0, ["error" => "no_connection", "message" => $err]];
+    $json = json_decode((string)$res, true);
+    return [$code, is_array($json) ? $json : null];
+}
+
+/* Сообщение в ЛС Discord от бота. $button = ["label" => …, "url" => "https://…"] */
+function rt_discord_dm($discord_id, $text, $title = "", $button = null, $settings = null) {
+    $c = rt_discord_conf($settings);
+    if (!preg_match('/^\d{15,22}$/', (string)$discord_id)) return ["ok" => false, "error" => "bad_user"];
+    if ($c["bot_url"] === "" || $c["api_key"] === "") return ["ok" => false, "error" => "not_configured"];
+    $body = ["user_id" => (string)$discord_id, "text" => (string)$text];
+    if ($title !== "") $body["title"] = $title;
+    if (is_array($button) && preg_match('~^https://~', (string)($button["url"] ?? ""))) $body["button"] = $button;
+    [$code, $res] = rt_discord_http("POST", $c["bot_url"] . "/dm", json_encode($body, JSON_UNESCAPED_UNICODE),
+                                    ["Content-Type: application/json", "X-Api-Key: " . $c["api_key"]]);
+    if (is_array($res) && isset($res["ok"])) return $res;
+    return ["ok" => false, "error" => $code ? "http_$code" : "no_connection"];
+}
+/* Состояние бота для админ-панели */
+function rt_discord_bot_status($settings = null) {
+    $c = rt_discord_conf($settings);
+    if ($c["bot_url"] === "" || $c["api_key"] === "") return ["ok" => false, "error" => "not_configured"];
+    [$code, $res] = rt_discord_http("GET", $c["bot_url"] . "/status", null, ["X-Api-Key: " . $c["api_key"]]);
+    if (is_array($res) && isset($res["ok"])) return $res + ["http" => $code];
+    return ["ok" => false, "error" => $code ? "http_$code" : "no_connection", "http" => $code];
+}
+
+/* ---------- Код входа в админ-панель (2FA): Telegram или Discord ---------- */
+
+/* Куда можно прислать код этому пользователю: "tg", "ds" */
+function rt_2fa_channels($u, $settings) {
+    $out = [];
+    if (!empty($u["tg_id"]) && !empty($settings["bot_token"])) $out[] = "tg";
+    if (!empty($u["discord_id"]) && rt_discord_bot_ready($settings)) $out[] = "ds";
+    return $out;
+}
+function rt_2fa_label($via) { return $via === "ds" ? "Discord" : "Telegram"; }
+
+/* Отправить код в выбранное место. true — отправлено */
+function rt_2fa_deliver($u, $settings, $via, $code) {
+    if ($via === "tg") {
+        $ch = curl_init("https://api.telegram.org/bot" . $settings["bot_token"] . "/sendMessage");
+        curl_setopt_array($ch, [CURLOPT_POST => 1, CURLOPT_RETURNTRANSFER => true, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_TIMEOUT => 10,
+            CURLOPT_POSTFIELDS => ['chat_id' => $u["tg_id"], 'parse_mode' => 'HTML',
+                'text' => "🔐 Ваш одноразовый код для входа в панель Rteam:\n\n<b>$code</b>\n\nКод действует 10 минут."]]);
+        $res = json_decode((string)curl_exec($ch), true);
+        curl_close($ch);
+        return !empty($res["ok"]);
+    }
+    if ($via === "ds") {
+        $r = rt_discord_dm($u["discord_id"] ?? "", "Ваш одноразовый код для входа в панель RTeam:\n\n**`$code`**\n\nКод действует 10 минут. Никому его не сообщайте — администрация его не спрашивает.", "🔐 Код входа", null, $settings);
+        return !empty($r["ok"]);
+    }
+    return false;
+}
+
+/* Начать вход с кодом: создать код и прислать его. $via — куда (пусто — куда выбрал пользователь).
+   Если туда не дошло, пробуем другое место. Возвращает, куда отправлено ("" — никуда не дошло). */
+function rt_2fa_begin($login, $role, $u, $settings, $via = "") {
+    $channels = rt_2fa_channels($u, $settings);
+    if (!$channels) return "";
+    if (!in_array($via, $channels, true)) $via = in_array($u["2fa_via"] ?? "", $channels, true) ? $u["2fa_via"] : $channels[0];
+    $code = (string)random_int(100000, 999999);
+    $codes = rt_json_load("2fa_codes.json", []);
+    $codes[$login] = $code;
+    rt_json_save("2fa_codes.json", $codes);
+    $sent = "";
+    foreach (array_unique(array_merge([$via], $channels)) as $try) {
+        if (rt_2fa_deliver($u, $settings, $try, $code)) { $sent = $try; break; }
+    }
+    $pending = rt_json_load("2fa_pending.json", []);
+    $pending[$login] = ["time" => time(), "tries" => 0, "via" => $sent !== "" ? $sent : $via, "sent" => time(), "resends" => 0, "failed" => $sent === ""];
+    rt_json_save("2fa_pending.json", $pending);
+    $_SESSION["pending_2fa_user"] = $login;
+    $_SESSION["pending_2fa_role"] = $role;
+    return $sent;
+}

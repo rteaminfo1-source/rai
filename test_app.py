@@ -716,5 +716,30 @@ class SupportNNTest(unittest.TestCase):
         self.assertEqual(set(q["questions"]), set(self.model.ids))
 
 
+
+class DiscordBotTest(unittest.TestCase):
+    """Discord-бот (discord/index.js) против поддельного Discord: нужен node и npm install в папке discord."""
+
+    def test_bot(self):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "discord")
+        if not node or not os.path.isdir(os.path.join(here, "node_modules", "discord.js")):
+            self.skipTest("нет node или discord.js (cd discord && npm install)")
+        res = subprocess.run([node, "test_bot.js"], cwd=here, capture_output=True, text=True, timeout=180)
+        self.assertEqual(res.returncode, 0, res.stdout[-3000:] + res.stderr[-3000:])
+        self.assertIn("Все тесты прошли", res.stdout)
+
+    def test_config(self):
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "discord")
+        with open(os.path.join(here, "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        for q in cfg["applications"]["questions"]:
+            self.assertLessEqual(len(q["label"]), 45, q["label"])  # предел Discord для вопросов в окне
+        self.assertFalse(os.path.exists(os.path.join(here, "secret.json")) and "secret.json" not in open(
+            os.path.join(os.path.dirname(here), ".gitignore"), encoding="utf-8").read())
+
+
 if __name__ == "__main__":
     unittest.main()

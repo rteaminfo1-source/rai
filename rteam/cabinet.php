@@ -7,6 +7,7 @@ require_once __DIR__ . '/_roles.php'; // роли и права (общий фа
    - Просмотр и редактирование своего профиля
    - Привязка Google-аккаунта
    - Привязка Telegram-бота (2FA / уведомления)
+   - Привязка Discord (вход через Discord, коды и уведомления в ЛС от бота)
    - Смена пароля
    - Мои заявки
    - Достижения (Золотой билет, Игра в кальмара)
@@ -59,6 +60,18 @@ if ($is_own && $me) {
     } elseif (($_GET["google_error"] ?? "") === "already_linked") {
         $error = "Этот Google-аккаунт уже привязан к другому пользователю RTeam.";
     }
+    // Сообщения от discord_auth.php
+    if (isset($_GET["discord_linked"])) {
+        $success = "Discord привязан. Теперь можно входить через Discord, а коды и уведомления будут приходить в ЛС от бота RTeam.";
+    } elseif (isset($_GET["discord_new"])) {
+        $success = "Аккаунт создан через Discord, вы уже вошли. Чтобы входить и по логину, задайте пароль в разделе «Безопасность».";
+    } elseif (isset($_GET["discord_error"])) {
+        $error = [
+            "already_linked" => "Этот Discord уже привязан к другому аккаунту RTeam.",
+            "denied"         => "Привязка Discord отменена.",
+            "off"            => "Вход через Discord пока не настроен.",
+        ][$_GET["discord_error"]] ?? "Не удалось привязать Discord. Попробуйте ещё раз.";
+    }
 }
 
 /* ---------------------------------------------------------
@@ -107,7 +120,9 @@ if ($is_own && $me && isset($_POST["action"])) {
         $new1    = trim($_POST["new_password"] ?? "");
         $new2    = trim($_POST["new_password2"] ?? "");
 
-        if (!isset($users[$me]["password"]) || $users[$me]["password"] !== $current) {
+        // Аккаунт создан через Google или Discord и пароля ещё нет — задаём без текущего
+        $has_password = isset($users[$me]["password"]) && $users[$me]["password"] !== "";
+        if ($has_password && $users[$me]["password"] !== $current) {
             $error = "Текущий пароль указан неверно.";
         } elseif (strlen($new1) < 6) {
             $error = "Новый пароль должен быть не короче 6 символов.";
@@ -122,8 +137,10 @@ if ($is_own && $me && isset($_POST["action"])) {
         }
     }
 
-    // --- Отвязать Google ---
-    if ($action === "unlink_google") {
+    // --- Отвязать Google (если это не единственный способ войти) ---
+    if ($action === "unlink_google" && empty($users[$me]["password"]) && empty($users[$me]["discord_id"])) {
+        $error = "Сначала задайте пароль в разделе «Безопасность» — иначе вы не сможете войти в аккаунт.";
+    } elseif ($action === "unlink_google") {
         unset($users[$me]["google_id"], $users[$me]["google_email"], $users[$me]["google_name"], $users[$me]["google_avatar"]);
         save_json("users.json", $users);
         rteam_log("profile", "Отвязан Google: $me");
@@ -143,6 +160,28 @@ if ($is_own && $me && isset($_POST["action"])) {
         save_json("tg_link_codes.json", $tg_codes);
         $_SESSION["tg_link_code"] = $code;
         $success = "Код для привязки бота создан.";
+    }
+
+    // --- Отвязать Discord (если это не единственный способ войти) ---
+    if ($action === "unlink_discord") {
+        if (empty($users[$me]["password"]) && empty($users[$me]["google_id"])) {
+            $error = "Сначала задайте пароль в разделе «Безопасность» — иначе вы не сможете войти в аккаунт.";
+        } else {
+            unset($users[$me]["discord_id"], $users[$me]["discord_username"], $users[$me]["discord_name"], $users[$me]["discord_avatar"]);
+            if (($users[$me]["2fa_via"] ?? "") === "ds") unset($users[$me]["2fa_via"]);
+            save_json("users.json", $users);
+            rteam_log("profile", "Отвязан Discord: $me");
+            $success = "Discord отвязан.";
+            $target = $users[$me];
+        }
+    }
+
+    // --- Куда присылать код входа: Telegram или Discord ---
+    if ($action === "set_2fa_via" && in_array($_POST["via"] ?? "", ["tg", "ds"], true)) {
+        $users[$me]["2fa_via"] = $_POST["via"];
+        save_json("users.json", $users);
+        $success = "Код входа будет приходить в " . rt_2fa_label($_POST["via"]) . ".";
+        $target = $users[$me];
     }
 
     // --- Отвязать Telegram ---
@@ -224,6 +263,11 @@ $tg_link_code = $_SESSION["tg_link_code"] ?? null;
 $bot_username = $settings["bot_username"] ?? "RteamBot";
 $has_google   = !empty($target["google_id"]);
 $has_tg       = !empty($target["tg_id"]);
+$has_ds       = !empty($target["discord_id"]);
+$has_password = isset($target["password"]) && $target["password"] !== "";
+$discord_on   = rt_discord_login_ready($settings);
+$ds_conf      = rt_discord_conf($settings);
+$twofa_via    = rt_2fa_channels($target, $settings);
 $initial      = mb_strtoupper(mb_substr($target_login, 0, 1));
 ?>
 <!DOCTYPE html>
@@ -367,6 +411,9 @@ textarea { resize: vertical; min-height: 90px; }
 .btn-danger:hover { background: rgba(239,68,68,.1); }
 .btn-google { background: #fff; color: #1f1f1f; box-shadow: 0 8px 22px -10px rgba(255,255,255,.35); }
 .btn-tg { background: linear-gradient(180deg, #2aabee, #1c8ad0); box-shadow: 0 8px 22px -10px rgba(42,171,238,.6); }
+.btn-discord { background: linear-gradient(180deg, #6b77f5, #4752c4); box-shadow: 0 8px 22px -10px rgba(88,101,242,.6); }
+.via-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; color: var(--soft); font-size: 13px; }
+.via-form .btn { margin-top: 0; }
 .btn-gold { background: linear-gradient(135deg, #ffe066, #d4a017); color: #3a2a00; box-shadow: 0 8px 22px -10px rgba(255,215,0,.6); }
 .btn-sm { padding: 8px 13px; font-size: 13px; margin-top: 12px; }
 .btn-block { width: 100%; }
@@ -473,7 +520,7 @@ kbd { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border-radius
         <div class="stat"><div class="s-ico">🦑</div><div class="s-num"><?= !empty($my_squid["completed"]) ? "✓" : $squid_season . "/3" ?></div><div class="s-lbl">Игра в кальмара</div></div>
         <?php if ($is_own): ?>
             <div class="stat"><div class="s-ico">📨</div><div class="s-num"><?=count($my_apps)?></div><div class="s-lbl">заявок подано</div></div>
-            <div class="stat"><div class="s-ico">🔐</div><div class="s-num" style="font-size:16px; margin-top:8px;"><?= ($has_google ? "Google" : "") . ($has_google && $has_tg ? " + " : "") . ($has_tg ? "Telegram" : "") ?: "—" ?></div><div class="s-lbl">привязки</div></div>
+            <div class="stat"><div class="s-ico">🔐</div><div class="s-num" style="font-size:16px; margin-top:8px;"><?= implode(" + ", array_keys(array_filter(["Google" => $has_google, "Telegram" => $has_tg, "Discord" => $has_ds]))) ?: "—" ?></div><div class="s-lbl">привязки</div></div>
         <?php else: ?>
             <div class="stat"><div class="s-ico">🎫</div><div class="s-num"><?= !empty($target["golden"]) ? "Есть" : "—" ?></div><div class="s-lbl">золотой билет</div></div>
         <?php endif; ?>
@@ -597,6 +644,37 @@ kbd { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border-radius
                     </form>
                 <?php endif; ?>
             </div>
+
+            <!-- Discord -->
+            <div class="card" id="discord">
+                <div class="link-head">
+                    <div style="display:flex; gap:12px; align-items:center;"><div class="link-icon" style="background:rgba(88,101,242,.16);"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37A19.8 19.8 0 0 0 15.4 2.84a.07.07 0 0 0-.08.04c-.21.38-.45.87-.61 1.25a18.3 18.3 0 0 0-5.49 0 12.6 12.6 0 0 0-.62-1.25.08.08 0 0 0-.08-.04 19.7 19.7 0 0 0-4.92 1.53.07.07 0 0 0-.03.03C.53 9.05-.32 13.58.1 18.06a.08.08 0 0 0 .03.05 19.9 19.9 0 0 0 6 3.03.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.23-1.99a.08.08 0 0 0-.04-.1 13.1 13.1 0 0 1-1.87-.9.08.08 0 0 1-.01-.12l.37-.29a.07.07 0 0 1 .08-.01c3.93 1.79 8.18 1.79 12.06 0a.07.07 0 0 1 .08 0l.37.3a.08.08 0 0 1 0 .12c-.6.35-1.22.65-1.87.89a.08.08 0 0 0-.04.11c.36.7.77 1.36 1.23 1.99a.08.08 0 0 0 .08.03 19.8 19.8 0 0 0 6-3.03.08.08 0 0 0 .04-.05c.5-5.18-.84-9.67-3.55-13.66a.06.06 0 0 0-.03-.03zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42s.96-2.42 2.16-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42s.95-2.42 2.15-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg></div>
+                    <div><h3 style="margin:0;">Discord</h3><div style="color:var(--muted); font-size:12.5px;">Вход через Discord, коды и уведомления в ЛС</div></div></div>
+                    <span class="status <?=$has_ds ? "on" : ""?>"><?=$has_ds ? "Привязан" : "Не привязан"?></span>
+                </div>
+                <?php if ($has_ds): ?>
+                    <div class="link-who"><img src="<?=htmlspecialchars(rt_discord_avatar($target))?>" alt=""><div><b style="color:#fff;"><?=htmlspecialchars($target["discord_name"] ?? $target["discord_username"] ?? "")?></b><?php if (!empty($target["discord_username"])): ?><br><span style="font-size:12.5px;">@<?=htmlspecialchars($target["discord_username"])?></span><?php endif; ?></div></div>
+                    <?php if ($target_is_staff && count($twofa_via) > 1): ?>
+                        <form method="POST" action="cabinet.php#links" class="via-form">
+                            <input type="hidden" name="action" value="set_2fa_via">
+                            <span>Код входа присылать в:</span>
+                            <?php foreach ($twofa_via as $v): $cur = ($target["2fa_via"] ?? $twofa_via[0]) === $v; ?>
+                                <button class="btn btn-sm <?=$cur ? "" : "btn-ghost"?>" name="via" value="<?=$v?>" type="submit"><?=$cur ? "✓ " : ""?><?=rt_2fa_label($v)?></button>
+                            <?php endforeach; ?>
+                        </form>
+                    <?php endif; ?>
+                    <form method="POST" action="cabinet.php#links" onsubmit="return confirm('Отвязать Discord? Входить через Discord и получать коды в ЛС больше не получится.');">
+                        <input type="hidden" name="action" value="unlink_discord">
+                        <button class="btn btn-danger btn-sm">Отвязать Discord</button>
+                    </form>
+                <?php elseif ($discord_on): ?>
+                    <p class="desc" style="margin:12px 0 0;">Входите на сайт через Discord в один клик. Бот RTeam будет присылать в ЛС коды входа<?= $target_is_staff ? " в админ-панель" : "" ?> и уведомления — например, об ответе в поддержке.</p>
+                    <a href="discord_auth.php?mode=link" class="btn btn-discord btn-block">Привязать Discord</a>
+                <?php else: ?>
+                    <p class="desc" style="margin:12px 0 0;">Привязка Discord скоро появится.</p>
+                <?php endif; ?>
+                <?php if ($ds_conf["invite"] !== ""): ?><a href="<?=htmlspecialchars($ds_conf["invite"])?>" target="_blank" rel="noopener" class="btn btn-ghost btn-sm btn-block">Наш Discord-сервер →</a><?php endif; ?>
+            </div>
         </div>
 
         <div class="section-title" id="security">Безопасность</div>
@@ -606,8 +684,12 @@ kbd { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border-radius
                 <p class="desc">Не короче 6 символов. Лучше длинный и с цифрами.</p>
                 <form method="POST" action="cabinet.php#security">
                     <input type="hidden" name="action" value="change_password">
+                    <?php if ($has_password): ?>
                     <label class="field-label">Текущий пароль</label>
                     <div class="pass-wrap"><input type="password" name="current_password" required autocomplete="current-password"><button type="button" class="pass-eye" onclick="togglePass(this)" aria-label="Показать пароль">👁</button></div>
+                    <?php else: ?>
+                    <p class="desc" style="margin:0 0 6px;">Аккаунт создан через Google или Discord, пароля пока нет. Задайте его — тогда можно будет входить и по логину <b><?=htmlspecialchars($target_login)?></b>.</p>
+                    <?php endif; ?>
                     <label class="field-label">Новый пароль</label>
                     <div class="pass-wrap"><input type="password" name="new_password" id="newPass" required autocomplete="new-password"><button type="button" class="pass-eye" onclick="togglePass(this)" aria-label="Показать пароль">👁</button></div>
                     <div class="meter"><span id="passMeter"></span></div>
@@ -621,12 +703,13 @@ kbd { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border-radius
             <div class="card">
                 <h3>🛡️ Защита входа</h3>
                 <p class="desc">Как сейчас защищён ваш аккаунт.</p>
-                <div class="kv"><span>Пароль</span><b>✓ установлен</b></div>
+                <div class="kv"><span>Пароль</span><b><?=$has_password ? "✓ установлен" : "не задан"?></b></div>
                 <div class="kv"><span>Вход через Google</span><b><?=$has_google ? "✓ включён" : "—"?></b></div>
                 <div class="kv"><span>Telegram</span><b><?=$has_tg ? "✓ привязан" : "—"?></b></div>
+                <div class="kv"><span>Discord</span><b><?=$has_ds ? "✓ привязан" : "—"?></b></div>
                 <?php if ($target_is_staff): ?>
-                    <div class="kv"><span>Вход в админ-панель</span><b><?=$has_tg ? "пароль + код 🔐" : "только пароль"?></b></div>
-                    <?php if (!$has_tg): ?><a href="#links" class="btn btn-tg btn-sm btn-block">Включить код из Telegram</a><?php endif; ?>
+                    <div class="kv"><span>Вход в админ-панель</span><b><?=$twofa_via ? "пароль + код из " . implode(" или ", array_map("rt_2fa_label", $twofa_via)) . " 🔐" : "только пароль"?></b></div>
+                    <?php if (!$twofa_via): ?><a href="#links" class="btn btn-tg btn-sm btn-block">Включить код из Telegram или Discord</a><?php endif; ?>
                 <?php endif; ?>
             </div>
         </div>

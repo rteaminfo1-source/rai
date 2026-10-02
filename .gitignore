@@ -18,3 +18,11 @@ hosting/rai/data/*
 !hosting/rai/data/.htaccess
 # Собранные папки для хостинга (make_hosting.py)
 dist/
+# Discord-бот: токен, данные и зависимости — только на хостинге
+discord/secret.json
+discord/data.json
+discord/bot.lock
+discord/rai-cache
+discord/node_modules
+discord/*.tmp
+rteam/discord_config.php

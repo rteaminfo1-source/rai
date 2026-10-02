@@ -493,7 +493,8 @@ $ACTION_PERMS = [
     "grant_golden" => "gold.manage", "revoke_golden" => "gold.manage", "add_gold_service" => "gold.manage",
     "edit_gold_service" => "gold.manage", "delete_gold_service" => "gold.manage", "gold_reply" => "gold.chat",
     // люди и роли
-    "add_user" => "users.manage", "set_pass" => "users.manage", "del_user" => "users.manage", "unlink_tg" => "users.manage",
+    "add_user" => "users.manage", "set_pass" => "users.manage", "del_user" => "users.manage", "unlink_tg" => "users.manage", "unlink_ds" => "users.manage", "discord_dm" => "users.manage",
+    "save_discord" => "settings.manage", "check_discord" => "settings.manage",
     "set_role" => "roles.manage", "add_to_team" => "roles.manage", "change_team_role" => "roles.manage", "remove_from_team" => "roles.manage",
     "save_perms" => "perms.manage", "reset_perms" => "perms.manage",
 ];
@@ -589,6 +590,7 @@ $TABS = [
     "support"   => ["Тикеты",         "🎧", "support.view",                                 "Работа"],
     "messages"  => ["Почта",          "✉️", "mail.view",                                    "Работа"],
     "bot"       => ["Telegram-бот",   "🤖", ["bot.tickets", "bot.manage", "settings.manage"], "Работа"],
+    "discord"   => ["Discord",        "💬", "settings.manage",                              "Работа"],
     "directors" => ["Директора школ", "🏫", "directors.manage",                             "Работа"],
     "blog"      => ["Блог",           "📰", "blog.manage",                                  "Контент"],
     "leaks"     => ["Сливы",          "💧", "leaks.manage",                                 "Контент"],
@@ -1278,16 +1280,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
             $reply_photo_path = rt_save_image_upload($_FILES["reply_photo"] ?? [], "admin_");
             if ($text !== "" || $reply_photo_path) {
                 // Ответ сотрудника: тикет переходит к человеку, ИИ в нём больше не отвечает
-                rt_tickets_update(function (&$tickets) use ($id, $text, $reply_photo_path, $user) {
+                $t_client = rt_tickets_update(function (&$tickets) use ($id, $text, $reply_photo_path, $user) {
                     foreach ($tickets as &$t) {
                         if ((string)$t["id"] !== $id) continue;
                         $t["replies"][] = ["text" => $text !== "" ? $text : "📷 Фото", "photo" => $reply_photo_path, "employee" => $user, "date" => date("Y-m-d H:i:s"), "is_admin" => true];
                         $t["status"] = "Ожидает ответа клиента";
                         $t["ai"] = false;
                         unset($t["ai_pending"]);
-                        break;
+                        return (string)($t["client"] ?? "");
                     }
+                    return "";
                 });
+                // Клиент с привязанным Discord получает уведомление в ЛС от бота
+                if ($t_client && !empty($users[$t_client]["discord_id"]) && rt_discord_bot_ready($settings)) {
+                    rt_discord_dm($users[$t_client]["discord_id"], "В вашем обращении #$id ответил сотрудник RTeam:\n\n> " . mb_substr(str_replace("\n", "\n> ", $text !== "" ? $text : "📷 Фото"), 0, 1500),
+                                  "🎧 Ответ поддержки", ["label" => "Открыть обращение", "url" => rt_site_url() . "/support.php?ticket_id=" . rawurlencode($id)], $settings);
+                }
             }
             if (isset($_POST['is_ajax'])) exit; header("Location: $back"); exit;
         }
@@ -1602,6 +1610,52 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
     if ($_POST["action"] === "edit_post") { foreach ($blog as &$p) if ((string)$p["id"] === (string)$_POST["id"]) { $p["title"] = $_POST["title"]; $p["content"] = $_POST["content"]; break; } unset($p); save_json("blog.json", $blog); header("Location: admin.php?tab=blog"); exit; }
     if ($_POST["action"] === "toggle_post") { foreach ($blog as &$p) if ((string)$p["id"] === (string)$_POST["id"]) $p["hidden"] = !$p["hidden"]; unset($p); save_json("blog.json", $blog); header("Location: admin.php?tab=blog"); exit; }
     if ($_POST["action"] === "del_post") { $blog = array_filter($blog, fn($p) => (string)$p["id"] !== (string)$_POST["id"]); save_json("blog.json", array_values($blog)); header("Location: admin.php?tab=blog"); exit; }
+    /* --- DISCORD: вход через Discord и бот --- */
+    if ($_POST["action"] === "save_discord") {
+        $fields = ["client_id" => '/^\d{15,22}$/', "bot_url" => '~^https?://[^\s"\'<>]+$~i', "invite" => '~^https://[^\s"\'<>]+$~i', "redirect" => '~^https://[^\s"\'<>]+$~i'];
+        foreach ($fields as $k => $re) {
+            $v = trim((string)($_POST["discord_" . $k] ?? ""));
+            if ($v !== "" && !preg_match($re, $v)) { flash("Проверьте поле «" . $k . "»: " . ($k === "client_id" ? "только цифры" : "адрес должен начинаться с https://"), "error"); header("Location: admin.php?tab=discord"); exit; }
+            $settings["discord_" . $k] = $k === "bot_url" ? rtrim($v, "/") : $v;
+        }
+        // Секреты меняем, только если вписали новые (пустое поле — оставить как есть)
+        foreach (["client_secret", "api_key"] as $k) {
+            $v = trim((string)($_POST["discord_" . $k] ?? ""));
+            if ($v !== "") $settings["discord_" . $k] = $v;
+            if (isset($_POST["clear_" . $k])) unset($settings["discord_" . $k]);
+        }
+        save_json("settings.json", $settings);
+        $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "settings", "msg" => "$user изменил настройки Discord."];
+        save_json("logs.json", $logs);
+        flash("Настройки Discord сохранены.", "success");
+        header("Location: admin.php?tab=discord"); exit;
+    }
+    if ($_POST["action"] === "check_discord") {
+        $c = rt_discord_conf($settings);
+        $rep = [];
+        $rep[] = ($c["client_id"] !== "" && $c["client_secret"] !== "") ? "✅ Вход через Discord настроен (Client ID и Secret есть)" : "❌ Вход через Discord: нет Client ID или Client Secret";
+        $rep[] = "ℹ️ В Discord Developer Portal → OAuth2 → Redirects должен быть адрес: " . rt_discord_redirect_uri($c);
+        if ($c["bot_url"] === "" || $c["api_key"] === "") {
+            $rep[] = "❌ Бот: не указан адрес бота или ключ";
+        } else {
+            $st = rt_discord_bot_status($settings);
+            if (empty($st["ok"])) {
+                $rep[] = "❌ Бот не отвечает по адресу " . $c["bot_url"] . " (" . ($st["error"] ?? "ошибка") . ($st["error"] === "forbidden" ? ": ключ не совпадает с api_key в secret.json бота" : "") . ")";
+            } else {
+                $rep[] = ($st["online"] ?? false) ? "✅ Бот " . ($st["bot"] ?? "") . " в сети" . (!empty($st["guild"]) ? ", сервер «" . $st["guild"] . "»" : "") : "❌ Бот запущен, но не подключён к Discord" . (!empty($st["last_error"]) ? ": " . $st["last_error"] : "");
+                foreach (($st["checks"] ?? []) as $chk) $rep[] = (!empty($chk["ok"]) ? "✅ " : "❌ ") . $chk["text"];
+                if (!empty($st["invite_url"])) $rep[] = "ℹ️ Пригласить бота на сервер: " . $st["invite_url"];
+            }
+            // Файлы бота не должны открываться из браузера (Document root в Plesk — папка public)
+            foreach (["secret.json", "data.json"] as $f) {
+                [$fc, $fj] = rt_discord_http("GET", $c["bot_url"] . "/" . $f);
+                if ($fc === 200 && is_array($fj)) $rep[] = "❌ ОПАСНО: " . $c["bot_url"] . "/$f открывается всем! В Plesk поставьте Document root = папка public внутри папки бота.";
+            }
+        }
+        $_SESSION["discord_report"] = $rep;
+        header("Location: admin.php?tab=discord"); exit;
+    }
+
     /* --- ЛЮДИ И РОЛИ ---
        Кто кому что может менять, решает _roles.php: роли выдаёт тот, у кого
        есть право «roles.manage», и только тем, кто младше его по уровню
@@ -1681,6 +1735,46 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
             $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "users", "msg" => "$user отвязал Telegram у {$login} (вход снова по паролю)."];
             save_json("logs.json", $logs);
             flash("Telegram у «{$login}» отвязан — вход теперь по паролю.", "success");
+        }
+        header("Location: admin.php?tab=users"); exit;
+    }
+
+    // Отвязать Discord — если человек потерял к нему доступ
+    if ($act === "unlink_ds") {
+        $login = $_POST["login"] ?? "";
+        if (!isset($users[$login])) flash("Пользователь не найден.", "error");
+        elseif (!rt_can_edit_user($user, $role, $login, $users[$login]["role"] ?? "Пользователь")) flash("Нельзя отвязать Discord у «{$login}»: этот человек не младше вас по должности.", "error");
+        else {
+            unset($users[$login]["discord_id"], $users[$login]["discord_username"], $users[$login]["discord_name"], $users[$login]["discord_avatar"]);
+            if (($users[$login]["2fa_via"] ?? "") === "ds") unset($users[$login]["2fa_via"]);
+            save_json("users.json", $users);
+            $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "users", "msg" => "$user отвязал Discord у {$login}."];
+            save_json("logs.json", $logs);
+            flash("Discord у «{$login}» отвязан." . (empty($users[$login]["password"]) && empty($users[$login]["google_id"]) ? " У аккаунта нет пароля — задайте его, иначе человек не сможет войти." : ""), "success");
+        }
+        header("Location: admin.php?tab=users"); exit;
+    }
+
+    // Написать человеку в ЛС Discord от бота
+    if ($act === "discord_dm") {
+        $login = $_POST["login"] ?? "";
+        $text = trim((string)($_POST["text"] ?? ""));
+        if (!isset($users[$login]) || empty($users[$login]["discord_id"])) flash("У «{$login}» не привязан Discord.", "error");
+        elseif ($text === "") flash("Напишите текст сообщения.", "error");
+        else {
+            $r = rt_discord_dm($users[$login]["discord_id"], mb_substr($text, 0, 3000), "✉️ Сообщение от администрации RTeam", null, $settings);
+            if (!empty($r["ok"])) {
+                $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "users", "msg" => "$user написал {$login} в Discord."];
+                save_json("logs.json", $logs);
+                flash("Сообщение отправлено «{$login}» в Discord.", "success");
+            } else {
+                flash("Не отправлено: " . ([
+                    "dm_closed" => "у человека закрыты ЛС или его нет на сервере",
+                    "not_configured" => "бот не настроен (вкладка «Discord»)",
+                    "no_connection" => "бот не отвечает",
+                    "forbidden" => "ключ сайта не совпадает с ключом бота",
+                ][$r["error"] ?? ""] ?? ($r["error"] ?? "ошибка")) . ".", "error");
+            }
         }
         header("Location: admin.php?tab=users"); exit;
     }
@@ -2972,6 +3066,64 @@ window.addEventListener('DOMContentLoaded', function() {
         <?php endif; ?>
 
     <!-- === СООБЩЕНИЯ САЙТА === -->
+    <!-- === DISCORD: ВХОД ЧЕРЕЗ DISCORD И БОТ === -->
+    <?php elseif ($tab === "discord"):
+        $dc = rt_discord_conf($settings);
+        $d_report = $_SESSION["discord_report"] ?? null; unset($_SESSION["discord_report"]);
+        $d_linked = count(array_filter($users, fn($u) => is_array($u) && !empty($u["discord_id"])));
+        $d_src = fn($k) => trim((string)($settings["discord_" . $k] ?? "")) !== "" ? "задан в админке" : ($dc[$k] !== "" ? "задан в discord_config.php" : "");
+    ?>
+        <div class="card">
+            <h3>💬 Discord: вход на сайт и бот</h3>
+            <p class="meta">Вход и регистрация через Discord, привязка в кабинете, коды входа в админ-панель и уведомления в ЛС от бота RTeam. Сам бот (автомодерация, заявки в модераторы, идеи, правила) работает отдельно — папка <code>discord/</code>, файл <code>index.js</code>.</p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;">
+                <span class="chip <?=rt_discord_login_ready($settings) ? "on" : ""?>">Вход через Discord: <?=rt_discord_login_ready($settings) ? "включён" : "не настроен"?></span>
+                <span class="chip <?=rt_discord_bot_ready($settings) ? "on" : ""?>">Бот: <?=rt_discord_bot_ready($settings) ? htmlspecialchars($dc["bot_url"]) : "не настроен"?></span>
+                <span class="chip">Привязали Discord: <?=$d_linked?></span>
+            </div>
+            <?php if ($d_report): ?>
+                <div class="callout" style="flex-direction:column; gap:4px; word-break:break-word;"><?php foreach ($d_report as $line): ?><div><?=preg_replace('~(https://[^\s<]+)~', '<a href="$1" target="_blank" rel="noopener">$1</a>', htmlspecialchars($line))?></div><?php endforeach; ?></div>
+            <?php endif; ?>
+            <form method="POST" action="?tab=discord">
+                <input type="hidden" name="action" value="save_discord">
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px;">
+                    <div>
+                        <label class="muted" style="display:block; margin-top:6px; font-size:12.5px;">Client ID (Developer Portal → OAuth2)</label>
+                        <input type="text" name="discord_client_id" value="<?=htmlspecialchars($settings["discord_client_id"] ?? "")?>" placeholder="<?=htmlspecialchars($dc["client_id"] ?: "1506622482856017970")?>">
+                        <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Client Secret <?=$d_src("client_secret") ? "· ✓ " . $d_src("client_secret") : ""?></label>
+                        <input type="password" name="discord_client_secret" value="" autocomplete="new-password" placeholder="<?=$d_src("client_secret") ? "оставьте пустым, чтобы не менять" : "секрет из OAuth2"?>">
+                        <?php if (!empty($settings["discord_client_secret"])): ?><label class="switch-row" style="margin-top:6px;"><input type="checkbox" name="clear_client_secret"> убрать секрет из админки</label><?php endif; ?>
+                        <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Адрес возврата (пусто — <?=htmlspecialchars(rt_site_url() . "/discord_auth.php")?>)</label>
+                        <input type="text" name="discord_redirect" value="<?=htmlspecialchars($settings["discord_redirect"] ?? "")?>" placeholder="<?=htmlspecialchars($dc["redirect"] ?: "https://rteam.info/discord_auth.php")?>">
+                    </div>
+                    <div>
+                        <label class="muted" style="display:block; margin-top:6px; font-size:12.5px;">Адрес бота (Node.js-приложение в Plesk)</label>
+                        <input type="text" name="discord_bot_url" value="<?=htmlspecialchars($settings["discord_bot_url"] ?? "")?>" placeholder="<?=htmlspecialchars($dc["bot_url"] ?: "https://discord.rteam.info")?>">
+                        <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Ключ бота (api_key из secret.json бота) <?=$d_src("api_key") ? "· ✓ " . $d_src("api_key") : ""?></label>
+                        <input type="password" name="discord_api_key" value="" autocomplete="new-password" placeholder="<?=$d_src("api_key") ? "оставьте пустым, чтобы не менять" : "длинная случайная строка"?>">
+                        <?php if (!empty($settings["discord_api_key"])): ?><label class="switch-row" style="margin-top:6px;"><input type="checkbox" name="clear_api_key"> убрать ключ из админки</label><?php endif; ?>
+                        <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Приглашение на сервер (для кнопки в кабинете)</label>
+                        <input type="text" name="discord_invite" value="<?=htmlspecialchars($settings["discord_invite"] ?? "")?>" placeholder="<?=htmlspecialchars($dc["invite"] ?: "https://discord.gg/…")?>">
+                    </div>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+                    <button class="btn primary" type="submit">Сохранить</button>
+                    <button class="btn ghost" type="submit" form="dsCheck">Проверить всё</button>
+                </div>
+            </form>
+            <form method="POST" action="?tab=discord" id="dsCheck"><input type="hidden" name="action" value="check_discord"></form>
+            <div class="muted" style="font-size:12px; margin-top:10px;">Пустые поля берутся из файла <code>discord_config.php</code> рядом с сайтом. Секреты здесь не показываются.</div>
+        </div>
+        <div class="card">
+            <h3>Как всё устроено</h3>
+            <ol style="margin:8px 0 0; padding-left:20px; line-height:1.6;">
+                <li><b>Вход через Discord</b> — кнопки на страницах входа и регистрации. Нет аккаунта — создаётся новый (логин из ника Discord). Сотрудникам с привязанным Telegram после входа через Discord нужен ещё код из Telegram.</li>
+                <li><b>Привязка</b> — кабинет → «Привязки» → «Привязать Discord». Если привязаны и Telegram, и Discord, сотрудник выбирает, куда приходит код входа; на странице кода можно прислать его в другое место.</li>
+                <li><b>ЛС от бота</b>: коды входа, ответы поддержки в тикетах, сообщения администрации («Пользователи» → «Управлять» → «Написать в Discord»). Бот пишет только тем, кто есть на сервере и не закрыл ЛС.</li>
+                <li><b>Бот на сервере</b>: автомодерация, заявки в модераторы (кнопка → вопросы → «Отклонить» / «На обзвон» с ролью → «Принять»), идеи с 👍/👎, правила, ответы нейросети Rai в ЛС. Настройки и ID каналов — <code>discord/config.json</code>.</li>
+            </ol>
+        </div>
+
     <?php elseif ($tab === "directors"): ?>
         <h3>Заявки на регистрацию школы</h3>
         <?php
@@ -3718,7 +3870,7 @@ window.addEventListener('DOMContentLoaded', function() {
                     $ri = rt_role_info($ur) ?? ["color" => "#718096"]; ?>
                     <tr>
                         <td><div class="who"><div class="avatar sm" style="--rc:<?=htmlspecialchars($ri["color"])?>"><?=htmlspecialchars(mb_strtoupper(mb_substr($login, 0, 1)))?></div><div><b><?=htmlspecialchars($login)?></b><?php if (!empty($u["email"])): ?><span class="muted" style="font-size:12px;"><?=htmlspecialchars($u["email"])?></span><?php endif; ?></div></div></td>
-                        <td><?=rt_role_badge($ur, $ud, $login)?><?php if (!empty($u["golden"])): ?> <span class="badge badge-gold" style="margin:0;">🎫</span><?php endif; ?><?php if (!empty($u["tg_id"])): ?> <span class="chip" title="Telegram привязан<?=!empty($u["tg_username"]) ? ': @' . htmlspecialchars($u["tg_username"]) : ''?> — вход в панель с кодом 2FA">🤖 TG</span><?php endif; ?></td>
+                        <td><?=rt_role_badge($ur, $ud, $login)?><?php if (!empty($u["golden"])): ?> <span class="badge badge-gold" style="margin:0;">🎫</span><?php endif; ?><?php if (!empty($u["tg_id"])): ?> <span class="chip" title="Telegram привязан<?=!empty($u["tg_username"]) ? ': @' . htmlspecialchars($u["tg_username"]) : ''?> — вход в панель с кодом 2FA">🤖 TG</span><?php endif; ?><?php if (!empty($u["discord_id"])): ?> <span class="chip" title="Discord привязан<?=!empty($u["discord_username"]) ? ': @' . htmlspecialchars($u["discord_username"]) : ''?>">💬 DS</span><?php endif; ?></td>
                         <td><?php if (!empty($u["ip"])): ?><code><?=htmlspecialchars($u["ip"])?></code><?php if (count($u["ip_history"] ?? []) > 1): ?> <span class="chip" title="Разных IP в истории">+<?=count($u["ip_history"]) - 1?></span><?php endif; ?><?php if ($can_bans && ip_is_banned($u["ip"])): ?> <span class="badge badge-dec" style="margin:0;">⛔</span><?php endif; ?><?php else: ?><span class="muted">—</span><?php endif; ?><?php if (!empty($u["last_seen"])): ?><div class="muted" style="font-size:12px;"><?=htmlspecialchars($u["last_seen"])?></div><?php endif; ?></td>
                         <td>
                             <?php $u_hist = (isset($u["ip_history"]) && is_array($u["ip_history"])) ? $u["ip_history"] : (!empty($u["ip"]) ? [["ip" => $u["ip"], "last" => $u["last_seen"] ?? "", "visits" => 0]] : []); ?>
@@ -3741,6 +3893,13 @@ window.addEventListener('DOMContentLoaded', function() {
                                             <button class="btn sm gray" type="submit">Сменить пароль</button>
                                         </form>
                                     <?php endif; ?>
+                                    <?php if ($can_users && !empty($u["discord_id"])): ?>
+                                        <form method="POST" action="?tab=users" class="inline-form">
+                                            <input type="hidden" name="action" value="discord_dm"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>">
+                                            <input type="text" name="text" placeholder="Сообщение в ЛС Discord" required maxlength="3000">
+                                            <button class="btn sm blue" type="submit">💬 Написать в Discord</button>
+                                        </form>
+                                    <?php endif; ?>
                                     <?php if ($can_bans && $u_hist): ?>
                                         <div>
                                             <div class="muted" style="font-size:12px; margin-bottom:4px;">IP-адреса аккаунта (последние <?=count($u_hist)?>):</div>
@@ -3758,6 +3917,9 @@ window.addEventListener('DOMContentLoaded', function() {
                                     <div class="inline-form">
                                         <?php if ($can_users && $editable && !empty($u["tg_id"])): ?>
                                             <form method="POST" action="?tab=users" onsubmit="return confirm('Отвязать Telegram? Вход будет по паролю, без кода из бота.');"><input type="hidden" name="action" value="unlink_tg"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn sm ghost" type="submit">🤖 Отвязать Telegram</button></form>
+                                        <?php endif; ?>
+                                        <?php if ($can_users && $editable && !empty($u["discord_id"])): ?>
+                                            <form method="POST" action="?tab=users" onsubmit="return confirm('Отвязать Discord?');"><input type="hidden" name="action" value="unlink_ds"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn sm ghost" type="submit">💬 Отвязать Discord</button></form>
                                         <?php endif; ?>
                                         <?php if ($can_users && $editable && !rt_is_owner($login)): ?>
                                             <form method="POST" action="?tab=users" onsubmit="return confirm('Удалить аккаунт «<?=htmlspecialchars(addslashes($login))?>» навсегда?');"><input type="hidden" name="action" value="del_user"><input type="hidden" name="login" value="<?=htmlspecialchars($login)?>"><button class="btn sm ghost danger" type="submit">🗑 Удалить аккаунт</button></form>

@@ -147,6 +147,7 @@ Rai работает **полностью на своём движке**: без
 | `pyodide/` | Python для браузера (Pyodide 314.0.7), чтобы чат не зависел от внешних CDN |
 | `knowledge.json` | База знаний: вопросы и ответы. **Дополняйте её сами** |
 | `support/` | Своя нейросеть поддержки rteam.info: обучающие данные, обучение, модель и версия для браузера (см. `support/README.md`) |
+| `discord/` | Discord-бот RTeam (`index.js`): автомодерация, заявки в модераторы, идеи, правила, ЛС с нейросетью Rai, коды входа на rteam.info (см. `discord/README.md`) |
 | `test_app.py` | Тесты: `python -m unittest -v` |
 | `requirements.txt`, `Procfile`, `render.yaml` | Для запуска на хостинге |
 
