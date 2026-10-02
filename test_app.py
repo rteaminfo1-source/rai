@@ -731,5 +731,117 @@ class HostingTest(unittest.TestCase):
                 upstream.server_close()
 
 
+    @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
+    def test_social_links(self):
+        """Ссылки на TikTok, YouTube, Telegram, Instagram и сайт: PHP достаёт цифры, Rai считает вовлечённость и даёт советы."""
+        import http.server
+        import socket
+        import subprocess
+        import threading
+        import time
+        import urllib.request
+        from datetime import datetime, timezone
+        import brain as brain_mod
+        import social
+        from tests.social_fixtures import PAGES
+        base = os.path.dirname(os.path.abspath(__file__))
+
+        class Pages(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                path = urllib.parse.unquote(self.path.split("?")[0].lstrip("/"))
+                if path.startswith("vm.tiktok.com/"):  # короткая ссылка TikTok
+                    self.send_response(302)
+                    self.send_header("Location", f"http://127.0.0.1:{self.server.server_address[1]}/www.tiktok.com/@rai.team/video/7400000000000000001")
+                    self.end_headers()
+                    return
+                body, ctype = PAGES.get(path, ("", ""))
+                self.send_response(200 if body else 404)
+                self.send_header("Content-Type", ctype or "text/plain")
+                self.end_headers()
+                self.wfile.write(body.encode())
+
+            def log_message(self, *a):
+                pass
+        pages = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Pages)
+        threading.Thread(target=pages.serve_forever, daemon=True).start()
+        with tempfile.TemporaryDirectory() as site:
+            for name in ("net.php", "social.php"):
+                with open(os.path.join(base, "hosting", "rai", name), encoding="utf-8") as src, open(os.path.join(site, name), "w", encoding="utf-8") as dst:
+                    dst.write(src.read())
+            with socket.socket() as sk:
+                sk.bind(("127.0.0.1", 0))
+                port = sk.getsockname()[1]
+            env = dict(os.environ, NET_TEST_LOCAL="1", NET_TEST_SOCIAL=f"http://127.0.0.1:{pages.server_address[1]}/")
+            php = subprocess.Popen(["php", "-S", f"127.0.0.1:{port}", "-t", site], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                def get(url):
+                    for _ in range(50):
+                        try:
+                            raw = urllib.request.urlopen(f"http://127.0.0.1:{port}/net.php?social=" + urllib.parse.quote(url, safe=""), timeout=10).read()
+                            return json.loads(raw)
+                        except urllib.error.URLError:
+                            time.sleep(0.1)
+                    raise AssertionError("PHP не ответил")
+                now = datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc)
+                video = get("https://vm.tiktok.com/ZMabc/")
+                self.assertEqual((video["platform"], video["kind"]), ("tiktok", "video"))
+                self.assertEqual(video["stats"]["views"], 1250000)
+                self.assertEqual(video["author"]["followers"], 120000)
+                text, att = social.report(video, now)
+                self.assertIn("| Вовлечённость (ER) | **6,0 %** — хорошо |", text)
+                self.assertIn("попало в рекомендации", text)
+                self.assertEqual(att[0]["type"], "photo")
+                profile = get("https://www.tiktok.com/@rai.studio")
+                self.assertEqual((profile["kind"], profile["author"]["videos"]), ("profile", 200))
+                self.assertIn("Пустое описание профиля", social.report(profile, now)[0])
+                yt = get("https://youtu.be/dQw4w9WgXcQ")
+                self.assertEqual((yt["stats"]["views"], yt["stats"]["likes"], yt["duration"]), (48210, 2950, 754))
+                self.assertIn("{без серверов}", yt["title"])  # фигурные скобки в строках не ломают разбор
+                self.assertEqual(get("https://www.youtube.com/@raiteam")["author"]["followers"], 1230000)
+                tg = get("https://t.me/raichannel")
+                self.assertEqual((tg["author"]["followers"], len(tg["posts"])), (12500, 4))
+                tg_text = social.report(tg, now)[0]
+                self.assertIn("**28 %** — хорошо", tg_text)
+                self.assertIn("[5 600 просмотров](https://t.me/raichannel/103)", tg_text)
+                self.assertEqual(get("https://t.me/raichannel/103")["stats"]["views"], 5600)
+                insta = get("https://www.instagram.com/rai.team/")
+                self.assertEqual((insta["author"]["followers"], insta["author"]["handle"]), (15200, "rai.team"))
+                post = get("https://www.instagram.com/p/ABC123/")
+                self.assertEqual((post["stats"]["likes"], post["stats"]["comments"]), (1204, 87))
+                web = get("https://example.com/")
+                self.assertEqual((web["seo"]["h1"], web["seo"]["images_no_alt"]), (["Rai"], 1))
+                self.assertIn("Картинок без alt: 1", social.report(web, now)[0])
+                # Rai: данные, которые страница получила от сайта, — сразу в отчёт
+                b = brain_mod.Brain(learned_path=os.path.join(site, "learned.json"))
+                r = b.answer(SUN, "проанализируй https://vm.tiktok.com/ZMabc/\n[[link-data]]\n" + json.dumps(video, ensure_ascii=False))
+                self.assertEqual(r["intent"], "social")
+                self.assertIn("Вовлечённость (ER)", r["answer"])
+                r = b.answer(SUN, "https://t.me/raichannel\n[[link-data]]\n" + json.dumps({"error": "Сайт ответил 403"}))
+                self.assertIn("Сайт ответил 403", r["answer"])
+            finally:
+                php.terminate()
+                php.wait()
+                pages.shutdown()
+                pages.server_close()
+
+    def test_link_routing(self):
+        import social
+        self.assertTrue(social.is_link_request("https://www.tiktok.com/@user/video/1"))
+        self.assertTrue(social.is_link_request("что скажешь про vm.tiktok.com/ZMabc/"))
+        self.assertTrue(social.is_link_request("https://example.com"))                       # просто ссылка — разбор сайта
+        self.assertTrue(social.is_link_request("проанализируй сайт https://example.com"))
+        self.assertFalse(social.is_link_request("я читал https://example.com/news вчера, было интересно"))
+        self.assertFalse(social.is_link_request("привет"))
+        with tempfile.TemporaryDirectory() as d:
+            b = Brain(learned_path=os.path.join(d, "l.json"))
+            # без посредника на хостинге честно говорим, где это работает
+            r = b.answer(SUN, "https://www.tiktok.com/@user/video/1")
+            self.assertEqual(r["intent"], "social")
+            self.assertIn("rai.rteam.info", r["answer"])
+            self.assertIn("версии с интернетом", b.answer(FAST, "https://t.me/channel")["answer"])
+            # «сделай сайт как …» — это код, а не анализ
+            self.assertNotEqual(b.answer(SUN, "сделай сайт как https://example.com")["intent"], "social")
+
+
 if __name__ == "__main__":
     unittest.main()

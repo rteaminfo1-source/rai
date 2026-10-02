@@ -85,6 +85,22 @@ def search(query: str, limit: int = 6):
     return found
 
 
+def social(url: str) -> dict:
+    """Данные для анализа по ссылке (TikTok, YouTube, Telegram, Instagram, VK, X, сайты) — через посредник на хостинге."""
+    base = PROXY or SEARCH_URL
+    if not base:
+        raise NetError("нет посредника net.php")
+    address = base + ("&" if "?" in base else "?") + urllib.parse.urlencode({"social": url[:2000]})
+    text = _xhr(address) if IN_BROWSER else fetch_text(address, timeout=40)
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise NetError("посредник вернул не JSON") from e
+    if not isinstance(data, dict) or data.get("error"):
+        raise NetError(str((data or {}).get("error") or "нет данных"))
+    return data
+
+
 def fetch_json(address: str, ttl: float = 0):
     """Скачать JSON. ttl > 0 — хранить ответ в памяти столько секунд."""
     now = time.time()

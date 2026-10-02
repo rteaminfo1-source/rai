@@ -223,7 +223,9 @@ function social_youtube($url) {
     elseif (preg_match('#"content":"([\d\s ,.]+\s*(?:тыс\.?|млн|K|M|B)?)\s*(?:subscribers|подписчик)#u', $html, $m)) $subs = social_num($m[1]);
     if (preg_match('#"content":"([\d\s ,.]+\s*(?:тыс\.?|K)?)\s*(?:videos|видео)#u', $html, $m)) $videos = social_num($m[1]);
     elseif (preg_match('#"videosCountText":\{"runs":\[\{"text":"([^"]+)"#', $html, $m)) $videos = social_num($m[1]);
-    $r['author'] = ['name' => $r['title'], 'url' => $cm['vanityChannelUrl'] ?? $final, 'handle' => $cm['externalId'] ?? '',
+    $vanity = (string)($cm['vanityChannelUrl'] ?? '');
+    $handle = preg_match('#/@([\w.-]+)#', $vanity ?: $final, $hm) ? $hm[1] : ($cm['externalId'] ?? '');
+    $r['author'] = ['name' => $r['title'], 'url' => $vanity ?: $final, 'handle' => $handle,
                     'followers' => $subs, 'videos' => $videos, 'bio' => $r['text']];
     $r['keywords'] = array_slice(preg_split('/\s+/', (string)($cm['keywords'] ?? ''), -1, PREG_SPLIT_NO_EMPTY), 0, 30);
     $r['thumbnail'] = $cm['avatar']['thumbnails'][0]['url'] ?? ($meta['og:image'] ?? null);

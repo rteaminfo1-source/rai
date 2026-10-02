@@ -15,7 +15,7 @@ import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py",
-         "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "brain.py", "knowledge.json", "glossary.json"]
+         "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "brain.py", "knowledge.json", "glossary.json"]
 
 
 def build(pyodide=None, fragment=False, stdlib=None, cdn=False):

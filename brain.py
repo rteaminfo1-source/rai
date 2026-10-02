@@ -24,6 +24,7 @@ import nlp
 import online
 import proglangs
 import skills
+import social
 import webgen
 from versions import Version
 
@@ -35,6 +36,8 @@ GLOSSARY_PATH = os.environ.get("RAI_GLOSSARY_PATH", os.path.join(BASE_DIR, "glos
 MAX_MESSAGE_CHARS = int(os.environ.get("RAI_MAX_MESSAGE_CHARS", "4000"))
 MAX_SCREEN_CHARS = 16000
 SCREEN_MARK = "[[screen]]"
+LINK_MARK = "[[link-data]]"  # данные по ссылке, которые страница уже получила от посредника на хостинге
+MAX_LINK_CHARS = 60000
 _OPTION_RE = re.compile(r"^\s*(?:[a-dа-гA-DА-Г]|\d{1,2})\s*[).]\s+\S|^\s*[-•○□☐◯]\s+\S")
 _QUESTION_START = re.compile(r"^\s*(?:вопрос\s*\d*[.:]?\s*|\d{1,2}\s*[.)]\s*|задани\w*\s*\d*[.:]?\s*)", re.I)
 _MATH_LINE = re.compile(r"^[\d\s+\-*/×÷:^().,=?x]{3,}$")
@@ -209,7 +212,8 @@ class Brain:
         if not message:
             raise RaiError("Пустой запрос.")
         screen = SCREEN_MARK in message  # текст со скриншота или записи экрана (распознан в браузере)
-        if len(message) > (MAX_SCREEN_CHARS if screen else MAX_MESSAGE_CHARS):
+        link = LINK_MARK in message
+        if len(message) > (MAX_SCREEN_CHARS if screen else MAX_LINK_CHARS if link else MAX_MESSAGE_CHARS):
             raise RaiError(f"Запрос слишком длинный (больше {MAX_MESSAGE_CHARS} символов).", 413)
 
         session = self.sessions.get(_clean_session_id(session_id)) if version.context else {}
@@ -222,8 +226,21 @@ class Brain:
             return {"answer": text, "version": version.id, "version_name": version.name, "intent": "screen",
                     "attachments": attachments}
 
+        if link:
+            question, _, raw = message.partition(LINK_MARK)
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                data = None
+            attachments = []
+            text = self._link(version, question.strip(), attachments, data if isinstance(data, dict) else None)
+            return {"answer": text, "version": version.id, "version_name": version.name, "intent": "social",
+                    "attachments": attachments}
+
         parts = [message]
-        if version.multi and not _REMEMBER_RE.match(message) and not codeai.extract_code(message)[0]:
+        if social.is_link_request(message):
+            parts = [message]  # ссылку с вопросом не режем на части
+        elif version.multi and not _REMEMBER_RE.match(message) and not codeai.extract_code(message)[0]:
             parts = [p.strip() for p in re.split(r"(?<=\?)\s+|\n+", message) if p.strip()] or [message]
 
         answers, intents, attachments = [], [], []
@@ -271,6 +288,10 @@ class Brain:
             if not version.memory:
                 return "Запоминать факты умеет только Rai Pro Sun.", "memory"
             return self._memory(text, session), "memory"
+
+        # ---- ссылка на TikTok, YouTube, Telegram, Instagram, VK, X или сайт — разбор аккаунта, видео, страницы
+        if social.is_link_request(text) and not codeai.is_build_request(text):
+            return self._link(version, text, attachments), "social"
 
         if creative.is_slides_request(text):
             if "slides" not in version.skills:
@@ -579,6 +600,27 @@ class Brain:
         tail += (" *Заметки: " + "; ".join(notes) + ".*") if notes else ""
         return (f"Готово: презентация **«{deck['title']}»**{colors}, {count}.{tail} "
                 "Смотрите на весь экран, скачивайте в PowerPoint, файлом или ZIP-архивом.")
+
+    # ------------------------------------------------------------ анализ по ссылке
+
+    def _link(self, version, text, attachments, data=None):
+        """Разбор видео, аккаунта, канала или сайта по ссылке: цифры, вовлечённость, советы."""
+        if "web" not in version.skills:
+            return ("Разбирать ссылки (TikTok, YouTube, Telegram, Instagram, сайты) умеют версии с интернетом: "
+                    "Rai Pro, Pro Plus, Pro Sun и Pro Quasar — переключите версию сверху.")
+        url = social.find_link(text)
+        if data is None:
+            try:
+                data = social.fetch(url)
+            except net.NetError as e:
+                return (f"Не получилось открыть ссылку {url}: {e}.\n\nАнализ по ссылке работает на сайте **rai.rteam.info** — "
+                        "там есть свой сервер (net.php), который читает TikTok, YouTube, Telegram, Instagram, VK и любые сайты.")
+        if data.get("error"):
+            return (f"Не получилось открыть ссылку {url}: {data['error']}.\n\nПроверьте, что ссылка открывается без входа в аккаунт "
+                    "(закрытые профили и приватные видео посмотреть нельзя).")
+        text, extra = social.report(data)
+        attachments.extend(extra)
+        return text
 
     # ------------------------------------------------------------ скриншоты и запись экрана
 

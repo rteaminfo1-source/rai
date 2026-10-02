@@ -257,7 +257,7 @@ function net_page_text($html, $type) {
         $html = @mb_convert_encoding($html, 'UTF-8', $charset) ?: $html;
     }
     $title = preg_match('#<title[^>]*>(.*?)</title>#is', $html, $m) ? net_clean($m[1]) : '';
-    $html = preg_replace('#<(script|style|noscript|svg|nav|footer|header|form|aside|iframe|template)\b.*?</\1>#is', ' ', $html);
+    $html = preg_replace('#<(head|script|style|noscript|svg|nav|footer|header|form|aside|iframe|template)\b.*?</\1>#is', ' ', $html);
     $html = preg_replace('#<!--.*?-->#s', ' ', $html);
     $main = preg_match('#<(article|main)\b[^>]*>(.*?)</\1>#is', $html, $m) && strlen($m[2]) > 800 ? $m[2] : $html;
     $main = preg_replace('#<(br|/p|/div|/li|/h[1-6]|/tr|/section|/blockquote)\b[^>]*>#i', "\n", $main);

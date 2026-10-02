@@ -644,7 +644,7 @@
   if (params.get("py")) CFG.pyBase = params.get("py");
 
   const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "online.py", "proglangs.py", "creative.py",
-                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "brain.py", "knowledge.json", "glossary.json"];
+                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -1790,6 +1790,23 @@ def rai_code(action, code, lang, prompt):
         bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
         message = text + "\n[[screen]]\n" + ocr;
       }
+      // Ссылка на TikTok, YouTube, Telegram, Instagram, VK, X или сайт: данные собирает свой сервер (net.php),
+      // а страница ждёт их в фоне — окно не замирает
+      const link = shots.length ? null : linkToAnalyze(text);
+      const proxy = link ? await proxyReady : "";
+      if (link && proxy) {
+        const bubble = pending.querySelector(".bubble");
+        bubble.textContent = "Открываю ссылку и собираю статистику…";
+        let linkData;
+        try {
+          const r = await withTimeout(fetch(proxy + "?" + new URLSearchParams({social: link})), 45000);
+          linkData = await r.json().catch(() => ({error: "сервер ответил " + r.status}));
+        } catch (e) {
+          linkData = {error: "нет связи с сервером сайта или он не успел ответить"};
+        }
+        bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
+        message = text + "\n[[link-data]]\n" + JSON.stringify(linkData);
+      }
       const neuro = window.RaiNeuro && window.RaiNeuro.ready();
       // Погода, курсы, перевод, картинки, презентации, калькулятор — у движка Rai (точные данные);
       // разговор, вопросы, код, сайты и игры — у нейросети, если она включена.
@@ -1809,7 +1826,8 @@ def rai_code(action, code, lang, prompt):
         // Сначала — свежие сведения: что Rai уже нашёл в интернете, или поиск по вопросу
         let facts = {text: "", sources: []};
         const intent = data ? [].concat(data.intent || []) : [];
-        if (!shots.length && (wantsFacts(text) || intent.includes("web"))) {
+        const linkReport = intent.includes("social") && data.answer ? data.answer : "";
+        if (!shots.length && !linkReport && (wantsFacts(text) || intent.includes("web"))) {
           // Поиск + чтение найденных страниц (богаче, чем короткие ответы поисковика)
           pending.querySelector(".bubble").textContent = "Ищу в интернете и читаю найденные страницы…";
           facts = await webContext(text, engine);
@@ -1821,10 +1839,16 @@ def rai_code(action, code, lang, prompt):
         if (shots.length) prompt += `\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""`;
         if (kb) prompt += `\n\nСправка из базы знаний Rai (точные сведения):\n"""\n${kb}\n"""`;
         if (facts.text) prompt += `\n\nСведения из интернета (свежие, используй их и ставь ссылки):\n"""\n${facts.text}\n"""`;
+        if (linkReport) {
+          prompt += `\n\nДанные по ссылке (точные цифры — не меняй и не выдумывай новые):\n"""\n${linkReport.slice(0, 5000)}\n"""\n` +
+            "Сделай экспертный разбор для автора: что получилось и почему, слабые места, 5 конкретных шагов для роста, " +
+            "3–5 идей для следующих публикаций. Таблицу с цифрами не повторяй — она уже показана.";
+        }
         // Сложная задача (математика, логика, ошибки в коде) — нейросеть сначала думает; кнопка «лампочка» — думать всегда
         reply = await neuroAnswer(pending, history, prompt, t0, facts.sources, {thinking: thinkOn() || isHard(text), question: text});
         const photos = ((data && data.attachments) || []).filter((a) => a.type === "photo");
         if (photos.length) reply.attachments = photos.concat(reply.attachments || []);
+        if (linkReport) reply.text = linkReport + "\n\n---\n\n### Разбор Rai Нейро\n\n" + reply.text;  // точные цифры + разбор нейросети
       } else {
         const ms = Math.max(1, Math.round(performance.now() - t0));
         reply = {role: "rai", text: data.answer || "Результат не получен.", attachments: data.attachments || [],
@@ -1906,6 +1930,21 @@ def rai_code(action, code, lang, prompt):
   const FACT_RE = /(?<![а-яёa-z])(кто|что так|что за|что значит|когда|где|почему|зачем|сколько|какой|какая|какое|какие|каков|расскажи|объясни|новост|последн|сегодня|сейчас|курс|цена|стоит|стоимость|факт|истори|биограф|сравни|лучше|отличи|правда ли|what|who|when|where|why|how|which)/i;
   const BUILD_RE = /(напиши|сделай|создай|сгенерируй|придумай|сочини|переведи|исправь|перепиши)\s.*(сайт|игр|программ|код|бот|страниц|приложени|функци|скрипт|стих|рассказ|песн|текст|письм|эссе|сочинени)/i;
   const wantsFacts = (text) => FACT_RE.test(text) && !BUILD_RE.test(text) && text.length >= 6;
+  // Ссылка для анализа: соцсеть — всегда; сайт — если просят разобрать или прислали только ссылку (как в social.py)
+  const SOCIAL_HOST_RE = /(?:^|\.)(tiktok\.com|youtube\.com|youtu\.be|t\.me|telegram\.me|instagram\.com|vk\.com|vk\.ru|vkvideo\.ru|x\.com|twitter\.com)$/i;
+  const LINK_RE = /(?:https?:\/\/[^\s<>"«»]+|(?<![\w@./])(?:(?:www|vm|vt|m)\.)?(?:tiktok\.com|youtube\.com|youtu\.be|t\.me|instagram\.com|vk\.com|x\.com|twitter\.com)\/[^\s<>"«»]+)/i;
+  const ANALYZE_RE = /(анализ|проанализ|разбер|разбор|оцени|статистик|аудит|посмотри|что скажешь|проверь|изучи|сколько\s+(просмотр|подписчик|лайк)|охват|вовлеч|\ber\b|продвиж|раскрут)/i;
+  function linkToAnalyze(text) {
+    const m = String(text || "").match(LINK_RE);
+    if (!m) return null;
+    let url = m[0].replace(/[).,;!?»]+$/, "");
+    if (!/^https?:/i.test(url)) url = "https://" + url;
+    let host = "";
+    try { host = new URL(url).hostname; } catch (e) { return null; }
+    if (SOCIAL_HOST_RE.test(host)) return BUILD_RE.test(text) ? null : url;
+    const rest = text.replace(m[0], "").replace(/[\s.,:;!?]+/g, "");
+    return !rest || ANALYZE_RE.test(text) ? url : null;
+  }
   const HARD_RE = /(реши|решить|решение|задач|уравнен|неравенств|докаж|доказат|вычисли|посчитай|вероятност|производн|интеграл|логическ|загадк|головоломк|оптимиз|сложност|алгоритм|найди ошибку|почему не работает|ошибк[аиу] в код|прове(рь|рить) (решение|код|ответ))/i;
   function isHard(text) {
     return HARD_RE.test(text) || (/\d/.test(text) && /[+\-*/^=×÷]/.test(text) && text.length > 25) || text.length > 700;
