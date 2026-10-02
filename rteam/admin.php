@@ -419,7 +419,7 @@ function ai_source_label($src) {
     if (strpos($src, "kb:") === 0) return "база знаний: " . substr($src, 3);
     $names = ["site" => "страница сайта", "web" => "интернет", "secret" => "отказ: секреты", "human" => "просьба позвать человека",
               "greeting" => "приветствие", "thanks" => "благодарность", "fallback" => "не нашёл ответа", "empty" => "пустое сообщение",
-              "repeat" => "повтор — предложил человека", "clarify" => "уточняющий вопрос"];
+              "repeat" => "повтор — предложил человека", "clarify" => "уточняющий вопрос", "confirm_close" => "переспросил, закрыть ли тикет"];
     return $names[$src] ?? $src;
 }
 
@@ -477,7 +477,7 @@ $ACTION_PERMS = [
     "add_fine" => "fines.manage", "pay_fine_manual" => "fines.manage", "del_fine" => "fines.manage", "pay_fine_online" => "",
     // почта и тикеты
     "reply_msg" => "mail.view", "del_msg" => "mail.view",
-    "reply_ticket" => "support.view", "close_ticket" => "support.view", "pin_photo" => "support.view", "ticket_ai" => "support.view",
+    "reply_ticket" => "support.view", "close_ticket" => "support.view", "pin_photo" => "support.view", "ticket_ai" => "support.view", "reopen_ticket" => "support.view",
     "save_support_ai" => "settings.manage",
     // бот
     "reply_tg_ticket" => "bot.tickets", "close_tg_ticket" => "bot.tickets",
@@ -1295,6 +1295,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
             rt_tickets_update(function (&$tickets) use ($id) { foreach ($tickets as &$t) if ((string)$t["id"] === $id) { $t["status"] = "Закрыт"; unset($t["ai_pending"]); } });
             header("Location: $back"); exit;
         }
+        // Открыть закрытый тикет снова (например, если Rai закрыл его по ошибке)
+        if ($_POST["action"] === "reopen_ticket") {
+            rt_tickets_update(function (&$tickets) use ($id, $user) {
+                foreach ($tickets as &$t) {
+                    if ((string)$t["id"] !== $id || ($t["status"] ?? "") !== "Закрыт") continue;
+                    $t["status"] = "Открыт";
+                    unset($t["closed"]);
+                    $t["replies"][] = ["text" => "Сотрудник $user снова открыл тикет.", "employee" => "Система",
+                                       "date" => date("Y-m-d H:i:s"), "is_admin" => true, "is_system" => true];
+                    break;
+                }
+            });
+            flash("Тикет снова открыт.", "success");
+            header("Location: $back"); exit;
+        }
         if ($_POST["action"] === "pin_photo") {
             rt_tickets_update(function (&$tickets) use ($id) { foreach ($tickets as &$t) if ((string)$t["id"] === $id) $t["pinned_photo"] = empty($t["pinned_photo"]); });
             header("Location: $back"); exit;
@@ -1326,6 +1341,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
             $settings["support_ai_src"] = $src === "" ? "" : rtrim($src, "/") . "/";
             $settings["support_ai_search"] = $search;
             $settings["support_ai_enabled"] = isset($_POST["support_ai_enabled"]);
+            $settings["rai_widget"] = isset($_POST["rai_widget"]);
             save_json("settings.json", $settings);
             flash($settings["support_ai_enabled"] ? "✨ ИИ поддержки включён." : "Настройки сохранены, ИИ выключен.", "success");
             header("Location: $back"); exit;
@@ -3122,6 +3138,7 @@ window.addEventListener('DOMContentLoaded', function() {
                 <form method="POST">
                     <input type="hidden" name="action" value="save_support_ai">
                     <label class="switch-row"><input type="checkbox" name="support_ai_enabled" <?= !empty($settings["support_ai_enabled"]) ? "checked" : "" ?>> ИИ отвечает в тикетах</label>
+                    <label class="switch-row" style="margin-top:10px;"><input type="checkbox" name="rai_widget" <?= ($settings["rai_widget"] ?? true) ? "checked" : "" ?>> Помощник Rai на страницах сайта (кнопка ✨: подсказывает, показывает и нажимает)</label>
                     <label class="muted" style="display:block; margin-top:12px; font-size:12.5px;">Где лежит нейросеть (папка support на GitHub)</label>
                     <input type="text" name="support_ai_src" id="aiSrc" value="<?=htmlspecialchars($settings["support_ai_src"] ?? "")?>" placeholder="<?=htmlspecialchars(RT_AI_SRC_DEFAULT)?>">
                     <div class="muted" style="font-size:11.5px; margin-top:4px;">Пусто — репозиторий rteaminfo1-source/rai. Другая ветка: замените её имя в адресе.</div>
@@ -3140,6 +3157,7 @@ window.addEventListener('DOMContentLoaded', function() {
                         <li>Клиент пишет в поддержку — первым отвечает Rai: тему вопроса узнаёт нейросеть, если не уверена — ищет на страницах сайта и в интернете.</li>
                         <li>Оплата, баны и апелляции, а также кнопка клиента «Позвать администратора» — тикет переходит к сотруднику, ИИ в нём отключается. Любой ответ сотрудника тоже забирает тикет у ИИ.</li>
                         <li>«✨ Подсказка ИИ» пишет черновик ответа — его можно поправить и отправить.</li>
+                        <li>Помощник ✨ на страницах сайта видит страницу, подсвечивает нужные кнопки, сам переходит и нажимает безопасные (никогда — «Выйти», «Удалить», «Оплатить» и отправку форм) и ведёт по шагам: карта сайта — <code>support/site.json</code>.</li>
                     </ol>
                     <div class="muted" style="font-size:12.5px; margin-top:10px;">🔒 Нейросеть получает только текст тикета. Пароли, токены и users.json ей не передаются — она их не знает и не может выдать.</div>
                 </div>
@@ -3183,6 +3201,7 @@ window.addEventListener('DOMContentLoaded', function() {
                                 <h3 style="margin:0; color:#fff;"><?=htmlspecialchars($curr_ticket['topic'])?></h3>
                                 <div style="font-size: 12px; color: #aaa;">Клиент: <b><?=htmlspecialchars($curr_ticket['client'])?></b> | Статус: <span id="header_status"><?=htmlspecialchars($curr_ticket['status'])?></span></div>
                                 <?php if ($handoff): ?><div style="font-size: 12px; color:#fcd34d; margin-top:3px;">🙋 <?= ($handoff["by"] ?? "") === "ai" ? "ИИ передал тикет администратору" . (!empty($handoff["reason"]) ? " (" . htmlspecialchars(ai_source_label($handoff["reason"])) . ")" : "") : "Клиент позвал администратора" ?> · <?=htmlspecialchars($handoff["date"] ?? "")?></div><?php endif; ?>
+                                <?php if ($t_closed && ($curr_ticket["closed"]["by"] ?? "") === "ai"): ?><div style="font-size: 12px; color:#6ee7a0; margin-top:3px;">✅ Rai закрыл тикет: клиент подтвердил, что вопрос решён · <?=htmlspecialchars($curr_ticket["closed"]["date"] ?? "")?></div><?php endif; ?>
                                 <?php if (!empty($curr_ticket["ai_error"]) && $t_ai_on): ?><div style="font-size: 12px; color:#ff9b9b; margin-top:3px;">⚠️ ИИ не ответил: <?=htmlspecialchars($curr_ticket["ai_error"]["text"] ?? "")?> (<?=htmlspecialchars($curr_ticket["ai_error"]["date"] ?? "")?>)</div><?php endif; ?>
                                 <?php if (can("bans.manage")): ?><div style="font-size: 12px; margin-top:4px;">Последний IP клиента: <?=ip_tag(author_ip($curr_ticket["last_ip"] ?? ($curr_ticket["ip"] ?? null), $curr_ticket["client"] ?? null), "Тикет #" . $curr_ticket["id"] . ": " . ($curr_ticket["topic"] ?? ""))?></div><?php endif; ?>
                             </div>
@@ -3191,6 +3210,7 @@ window.addEventListener('DOMContentLoaded', function() {
                                     <span class="ai-state <?= $t_ai_on ? "on" : "off" ?>" id="aiState"><?= $t_ai_on ? "✨ Отвечает ИИ" : "🛡 Отвечает человек" ?></span>
                                     <form method="POST"><input type="hidden" name="action" value="ticket_ai"><input type="hidden" name="id" value="<?=htmlspecialchars((string)$curr_ticket['id'])?>"><input type="hidden" name="ai" value="<?= $t_ai_on ? "0" : "1" ?>"><button class="btn sm ghost" type="submit"><?= $t_ai_on ? "🛡 Забрать у ИИ" : "✨ Вернуть ИИ" ?></button></form>
                                 <?php endif; ?>
+                                <?php if ($t_closed): ?><form method="POST"><input type="hidden" name="action" value="reopen_ticket"><input type="hidden" name="id" value="<?=htmlspecialchars((string)$curr_ticket['id'])?>"><button class="btn sm ghost" type="submit">↺ Открыть снова</button></form><?php endif; ?>
                                 <?php if (!$t_closed): ?><form method="POST" id="closeForm"><input type="hidden" name="action" value="close_ticket"><input type="hidden" name="id" value="<?=htmlspecialchars((string)$curr_ticket['id'])?>"><button class="btn sm no" type="submit">Закрыть тикет</button></form><?php endif; ?>
                             </div>
                         </div>

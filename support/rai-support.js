@@ -6,7 +6,7 @@
  *
  *   await RaiSupport.load("https://raw.githubusercontent.com/<владелец>/rai/<ветка>/support/");
  *   const r = await RaiSupport.reply("не приходит код из бота", { history, topic, mode: "client" });
- *   // r = { reply, handoff, source, confidence, intent }
+ *   // r = { reply, handoff, source, confidence, intent, close? }  close: true — клиент подтвердил, что вопрос решён: закрыть тикет
  *
  * Сеть: признаки текста (слова, начала слов, буквенные тройки, пары слов → хеш FNV-1a)
  * → скрытый слой ReLU → softmax по темам. Обучение — support/train.py, признаки — support/nn.py
@@ -130,6 +130,7 @@
   /* ============================== страницы сайта */
 
   const STOP = new Set("как что где когда кто это для или так все уже еще есть нет мне меня вас вам нас наш ваш при про над под без его она они оно мой моя мои твой если чтобы можно нужно надо очень тоже только там тут где какой какая какие почему зачем сколько".split(" "));
+  const VAGUE = new Set("сдела делат сделу это этого так там тут его еще если быть будет можно нужно надо потом дальш тепер сейча получ работ куда".split(" "));
   const stems = (t) => new Set(words(t).filter((w) => w.length > 2 && !STOP.has(w)).map((w) => w.slice(0, 5)));
 
   function htmlToText(html) {
@@ -260,7 +261,8 @@
      * opts.history — [{from: "client"|"admin"|"ai", text}], opts.topic — тема тикета,
      * opts.mode — "client" (ответ от имени Rai) или "draft" (черновик для сотрудника),
      * opts.sitePages — адреса страниц сайта для поиска, opts.searchUrl — net.php для поиска в интернете.
-     * Возвращает {reply, handoff, source, confidence, intent}; handoff — передать тикет администратору.
+     * Возвращает {reply, handoff, source, confidence, intent, close?}; handoff — передать тикет администратору,
+     * close — клиент сказал, что вопрос решён: тикет можно закрыть.
      */
     async reply(message, opts = {}) {
       if (!api.model) throw new Error("Сначала RaiSupport.load(...)");
@@ -291,11 +293,13 @@
       //    сеть понимает вместе с прошлыми сообщениями клиента
       let pred = m.predict(text, 3), used = text;
       const followUp = stems(text).size <= 2 || /^(а|и|но|еще|так|тогда|ну)\s/.test(norm);
-      if (followUp && (pred[0].p < CONFIDENT || (pred[0].id === "other" && pred[0].p < 0.9))) {
+      // «а как это сделать?», «а если не работает?» — ни одного слова по теме: тема из прошлых сообщений
+      const vague = [...stems(text)].every((w) => VAGUE.has(w));
+      if ((followUp && (pred[0].p < CONFIDENT || (pred[0].id === "other" && pred[0].p < 0.9))) || vague) {
         for (const prev of clientMessages(history).reverse()) {
           if (!prev.trim() || normalize(prev) === norm) continue;
           const p2 = m.predict(prev + " " + text, 3);
-          if (p2[0].id !== "other" && p2[0].p >= CONFIDENT && (pred[0].id === "other" || p2[0].p > pred[0].p)) {
+          if (p2[0].id !== "other" && p2[0].p >= CONFIDENT && (vague || pred[0].id === "other" || p2[0].p > pred[0].p)) {
             pred = p2; used = prev + " " + text; break;
           }
         }
@@ -314,6 +318,15 @@
       if (sure && (best.id === "greeting" || best.id === "thanks")) {
         if (!draft) return out(it.answer, best.id, best.p, false, best.id);
         return out("Здравствуйте! Чем можем помочь? Опишите, пожалуйста, вопрос подробнее.", best.id, best.p, false, best.id);
+      }
+
+      // Клиент пишет, что вопрос решён, или просит закрыть тикет — Rai закрывает его сам (close: true).
+      // Только по самому сообщению (не по догадке из прошлых) и только когда сеть уверена; иначе переспрашивает.
+      if (sure && it && it.close) {
+        if (draft) return out(answerOf(it), "nn:" + best.id, best.p, false, best.id);
+        if (best.p >= 0.6 && used === text) return Object.assign(out(it.answer, "nn:" + best.id, best.p, false, best.id), { close: true });
+        return out("Правильно понимаю, что вопрос решён и тикет можно закрыть? Напишите «да, закрывайте» — и я закрою его.",
+                   "confirm_close", best.p, false, best.id);
       }
 
       // 3. Тема сайта, в которой сеть уверена

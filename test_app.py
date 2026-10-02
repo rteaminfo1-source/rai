@@ -658,10 +658,14 @@ class SupportNNTest(unittest.TestCase):
 
     def test_model_matches_data(self):
         import hashlib
-        with open(self.nn.DATA_PATH, "rb") as f:
-            digest = hashlib.sha256(f.read()).hexdigest()
-        self.assertEqual(self.model.meta["data_sha256"], digest, "data.json изменён — переобучите: python support/train.py")
-        self.assertGreaterEqual(self.model.meta["metrics"]["val_accuracy"], 0.7)
+        h = hashlib.sha256()
+        for name in ("data.json", "questions.json"):
+            with open(os.path.join(os.path.dirname(self.nn.DATA_PATH), name), "rb") as f:
+                h.update(f.read())
+        self.assertEqual(self.model.meta["data_sha256"], h.hexdigest(),
+                         "data.json или questions.json изменены — переобучите: python support/train.py")
+        self.assertGreaterEqual(self.model.meta["metrics"]["val_accuracy"], 0.75)
+        self.assertGreaterEqual(self.model.meta["metrics"]["questions"], 5000)
 
     def test_predictions(self):
         cases = {"как подать заявку в команду?": "apply", "не приходит код из бота": "twofa", "забыл пароль": "password",
@@ -699,6 +703,17 @@ class SupportNNTest(unittest.TestCase):
     def test_browser_dialogue(self):
         out = self._node("require('./support/test_support.js')")
         self.assertIn("тестов прошли", out)
+
+    def test_site_guide(self):
+        # Помощник по сайту: команды «нажми / открой / покажи», карта сайта согласована с темами нейросети
+        out = self._node("require('./support/test_guide.js')")
+        self.assertIn("Все тесты помощника прошли", out)
+
+    def test_generated_questions(self):
+        with open(os.path.join(os.path.dirname(self.nn.DATA_PATH), "questions.json"), encoding="utf-8") as f:
+            q = json.load(f)
+        self.assertGreaterEqual(q["total"], 5000)
+        self.assertEqual(set(q["questions"]), set(self.model.ids))
 
 
 if __name__ == "__main__":

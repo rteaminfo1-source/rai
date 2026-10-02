@@ -126,8 +126,8 @@ function sup_render_list($tickets, $client, $active_id) {
 /* Ответ нейросети сохраняется в тикет. Нейросеть — на GitHub (rai-support.js и model.json)
    и работает в браузере клиента; страница только передаёт ей переписку и сохраняет ответ.
    Ответ принимается, только если тикет его ждёт (ai_pending): один ответ на каждое сообщение клиента. */
-function sup_ai_save($id, $client, $settings, $text, $handoff, $source, $n) {
-    return rt_tickets_update(function (&$tickets) use ($id, $client, $settings, $text, $handoff, $source, $n) {
+function sup_ai_save($id, $client, $settings, $text, $handoff, $source, $n, $close = false) {
+    return rt_tickets_update(function (&$tickets) use ($id, $client, $settings, $text, $handoff, $source, $n, $close) {
         $k = sup_idx($tickets, $id, $client);
         if ($k === null) return ["ok" => false, "reason" => "gone"];
         $t = &$tickets[$k];
@@ -135,7 +135,14 @@ function sup_ai_save($id, $client, $settings, $text, $handoff, $source, $n) {
         $now = date("Y-m-d H:i:s");
         $add = [["text" => $text, "photo" => null, "employee" => RT_AI_NAME, "date" => $now,
                  "is_admin" => true, "is_ai" => true, "ai_source" => $source]];
-        if ($handoff) {
+        if ($close) {
+            // Клиент написал, что вопрос решён / попросил закрыть — Rai закрывает тикет сам
+            $add[] = ["text" => "Rai закрыл тикет: клиент подтвердил, что вопрос решён.", "employee" => "Система",
+                      "date" => $now, "is_admin" => true, "is_system" => true];
+            $t["status"] = "Закрыт";
+            $t["closed"] = ["by" => "ai", "date" => $now];
+            $handoff = false;
+        } elseif ($handoff) {
             $add[] = ["text" => "ИИ передал тикет администратору. Дальше вам ответит сотрудник RTeam.", "employee" => "Система",
                       "date" => $now, "is_admin" => true, "is_system" => true];
             $t["ai"] = false;
@@ -150,9 +157,9 @@ function sup_ai_save($id, $client, $settings, $text, $handoff, $source, $n) {
         array_splice($t["replies"], $n, 0, $add);
         // Клиент успел дописать ещё — нейросеть ответит и на это
         $again = false;
-        if (!$handoff) foreach (array_slice($t["replies"], $n + count($add)) as $r) if (!($r["is_admin"] ?? true)) $again = true;
+        if (!$handoff && !$close) foreach (array_slice($t["replies"], $n + count($add)) as $r) if (!($r["is_admin"] ?? true)) $again = true;
         if ($again) { $t["ai_pending"] = time(); $t["status"] = "Открыт"; } else unset($t["ai_pending"]);
-        return ["ok" => true, "handoff" => $handoff, "again" => $again];
+        return ["ok" => true, "handoff" => $handoff, "again" => $again, "closed" => $close];
     });
 }
 
@@ -190,7 +197,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["ai_reply"])) {
     $source = preg_replace('/[^a-z0-9_:\-]/i', '', (string)($_POST["source"] ?? ""));
     if (!$client || $text === "") { echo json_encode(["ok" => false]); exit; }
     echo json_encode(sup_ai_save((string)($_POST["id"] ?? ""), $client, $settings, mb_substr($text, 0, 4000),
-                                 ($_POST["handoff"] ?? "") === "1", mb_substr($source, 0, 40), (int)($_POST["n"] ?? 0)));
+                                 ($_POST["handoff"] ?? "") === "1", mb_substr($source, 0, 40), (int)($_POST["n"] ?? 0),
+                                 ($_POST["close"] ?? "") === "1"));
     exit;
 }
 /* Нейросеть не загрузилась (GitHub недоступен и т.п.): тикет остаётся администратору */
@@ -655,7 +663,7 @@ label.lbl { display: block; font-size: 12.5px; color: var(--soft); margin: 16px 
 
                 <label class="lbl">Тема</label>
                 <div class="topics">
-                    <?php $sel = $_POST["topic"] ?? ""; foreach ($topics as $val => [$ico, $name, $hint]): ?>
+                    <?php $sel = (string)($_POST["topic"] ?? ($_GET["topic"] ?? "")); /* помощник Rai открывает форму с темой и текстом */ foreach ($topics as $val => [$ico, $name, $hint]): ?>
                     <label class="topic"><input type="radio" name="topic" value="<?=htmlspecialchars($val)?>" <?= $sel === $val ? "checked" : "" ?> required onchange="toggleTopic()">
                         <span><em><?=$ico?></em><span><b><?=htmlspecialchars($name)?></b><small><?=htmlspecialchars($hint)?></small></span></span></label>
                     <?php endforeach; ?>
@@ -666,7 +674,7 @@ label.lbl { display: block; font-size: 12.5px; color: var(--soft); margin: 16px 
                 </div>
 
                 <label class="lbl" for="desc">Сообщение</label>
-                <textarea name="description" id="desc" rows="6" maxlength="5000" placeholder="Что случилось? На какой странице? Что вы уже пробовали?" required><?=htmlspecialchars($_POST["description"] ?? "")?></textarea>
+                <textarea name="description" id="desc" rows="6" maxlength="5000" placeholder="Что случилось? На какой странице? Что вы уже пробовали?" required><?=htmlspecialchars(mb_substr((string)($_POST["description"] ?? ($_GET["text"] ?? "")), 0, 5000))?></textarea>
 
                 <label class="lbl">Скриншот (необязательно)</label>
                 <label class="drop" id="drop">
@@ -864,9 +872,10 @@ async function runAI() {
             ]);
             const fd = new FormData();
             fd.append('ai_reply', '1'); fd.append('id', ticketId); fd.append('n', st.n);
-            fd.append('text', r.reply); fd.append('handoff', r.handoff ? '1' : '0'); fd.append('source', r.source);
+            fd.append('text', r.reply); fd.append('handoff', r.handoff ? '1' : '0'); fd.append('source', r.source); fd.append('close', r.close ? '1' : '0');
             d = await (await fetch('support.php', { method: 'POST', body: fd })).json();
             if (d.handoff) toast('Rai передал вопрос администратору.', 'warn');
+            if (d.closed) toast('Тикет закрыт ✅ Спасибо за обращение!', 'ok');
         } catch (e) {
             const fd = new FormData(); fd.append('ai_fail', '1'); fd.append('id', ticketId); fd.append('error', String(e && e.message || e));
             await fetch('support.php', { method: 'POST', body: fd });

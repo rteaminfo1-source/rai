@@ -503,6 +503,18 @@ window.RaiLoader = function (src) {
 JS;
 }
 
+/* Помощник Rai на страницах сайта (кнопка ✨): rai-guide.js с GitHub. Вставляется перед </body>.
+   Включён, пока в админ-панели не снята галочка «Помощник Rai на страницах сайта». */
+function rt_rai_widget($settings, $user = null) {
+    if (!($settings["rai_widget"] ?? true)) return "";
+    $cfg = json_encode(["base" => rt_support_ai_src($settings), "user" => $user ? (string)$user : null,
+                        "searchUrl" => rt_support_ai_search($settings), "support" => "support.php"], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return '<script>(function(c){if(window.RaiGuide)return RaiGuide.init(c);fetch(c.base+"rai-guide.js",{cache:"no-cache"})'
+         . '.then(function(r){if(!r.ok)throw 0;return r.text()}).then(function(t){var s=document.createElement("script");'
+         . 's.src=URL.createObjectURL(new Blob([t],{type:"text/javascript"}));s.onload=function(){RaiGuide.init(c)};'
+         . 'document.head.appendChild(s)}).catch(function(){})})(' . $cfg . ');</script>';
+}
+
 /* ---------- Тикеты поддержки ---------- */
 
 /* Изменение tickets.json под блокировкой (support.php и admin.php): ответ клиента, ответ ИИ и ответ

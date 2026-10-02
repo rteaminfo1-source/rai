@@ -3664,5 +3664,6 @@ if (typeSelect) {
 })();
 </script>
 
+<?= rt_rai_widget($settings ?? [], $user ?? null) /* помощник Rai: кнопка ✨, нейросеть с GitHub */ ?>
 </body>
 </html>

@@ -210,5 +210,6 @@ $pending_2fa = $pending_login !== "" && isset($pending_codes[$pending_login]);
         <?php endif; ?>
     </div>
 </div>
+<?= rt_rai_widget($settings ?? [], null) /* помощник Rai: кнопка ✨, нейросеть с GitHub */ ?>
 </body>
 </html>

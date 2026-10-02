@@ -104,6 +104,19 @@ test("страницы сайта и интернет", async () => {
   assert.strictEqual((await Rai.reply("фывапролд", opts)).source, "fallback");
 });
 
+test("закрытие тикета", async () => {
+  for (const q of ["спасибо, всё решилось, можно закрывать", "закройте тикет", "вопрос решён, закрывайте", "тикет можно закрыть"]) {
+    const r = await Rai.reply(q, opts);
+    assert.strictEqual(r.close, true, `«${q}»: ${r.intent} ${r.source}`);
+    assert.ok(!r.handoff);
+  }
+  for (const q of ["спасибо", "как отменить подписку", "как подать заявку в команду", "не приходит код из бота"]) {
+    assert.ok(!(await Rai.reply(q, opts)).close, q);
+  }
+  // Черновик сотруднику тикет не закрывает
+  assert.ok(!(await Rai.reply("закройте тикет", Object.assign({ mode: "draft" }, opts))).close);
+});
+
 test("черновик для сотрудника", async () => {
   let r = await Rai.reply("меня забанили", Object.assign({ mode: "draft" }, opts));
   assert.ok(!r.handoff); assert.ok(r.reply.startsWith("Здравствуйте!")); assert.ok(!r.reply.includes("передаю"));

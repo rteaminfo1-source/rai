@@ -1,6 +1,7 @@
 """Обучение нейросети поддержки Rai с нуля: python support/train.py
 
-Берёт темы и примеры вопросов из support/data.json, дополняет их вариантами с опечатками,
+Берёт темы и примеры вопросов из support/data.json и тысячи вопросов из support/questions.json
+(их собирает generate.py), дополняет их вариантами с опечатками,
 лишними словами и пропусками слов, обучает двухслойную сеть (numpy, Adam, softmax)
 и сохраняет её в support/model.json — его вместе с rai-support.js сайт загружает с GitHub.
 
@@ -22,16 +23,19 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from nn import DATA_PATH, MODEL_PATH, indices, words  # noqa: E402
 
+QUESTIONS_PATH = os.path.join(os.path.dirname(DATA_PATH), "questions.json")
+
 DIMS = 4096
 HIDDEN = 48
-EPOCHS = 45
-BATCH = 64
+EPOCHS = 30
+BATCH = 128
 LR = 0.005
 WEIGHT_DECAY = 1e-4
 LABEL_SMOOTHING = 0.05
 FEATURE_DROPOUT = 0.15
 HIDDEN_DROPOUT = 0.2
-AUGMENT = 7
+AUGMENT = 6          # вариантов на каждый ручной пример
+AUGMENT_GEN = 2      # и на каждый вопрос из шаблонов (их и так тысячи)
 SEED = 7
 
 PREFIXES = ["здравствуйте", "привет", "подскажите", "скажите пожалуйста", "у меня вопрос", "помогите", "добрый день",
@@ -51,12 +55,12 @@ def typo(word, rng):
     return word[:i] + word[i] + word[i:]                        # лишняя буква
 
 
-def augment(text, rng, intent_id):
+def augment(text, rng, intent_id, n=None):
     """Варианты вопроса, как их пишут люди: с опечатками, вежливыми словами, без лишних слов."""
     out = [text]
     ws = words(text)
     short = intent_id in ("greeting", "thanks")
-    for _ in range(AUGMENT):
+    for _ in range(AUGMENT if n is None else n):
         w = list(ws)
         if not w:
             break
@@ -73,14 +77,28 @@ def augment(text, rng, intent_id):
     return out
 
 
-def load_data(path=DATA_PATH):
+def load_data(path=DATA_PATH, questions_path=QUESTIONS_PATH):
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
+    generated = {}
+    if questions_path and os.path.exists(questions_path):
+        with open(questions_path, encoding="utf-8") as f:
+            generated = json.load(f).get("questions", {})
+    for it in data["intents"]:
+        it["generated"] = list(generated.get(it["id"], []))
     return data, [it["id"] for it in data["intents"]]
 
 
+def _norm(t):
+    return " ".join(words(t))
+
+
 def make_samples(data, ids, rng, split=None):
-    """(обучающие, проверочные) пары (номера признаков, тема). split — доля примеров для проверки."""
+    """(обучающие, проверочные) пары (номера признаков, тема).
+
+    split — доля РУЧНЫХ примеров для проверки: точность меряется только на вопросах, написанных людьми,
+    которых сеть не видела (вопросы из шаблонов, совпавшие с ними, тоже убираются из обучения).
+    """
     train, val = [], []
     for k, it in enumerate(data["intents"]):
         ex = list(it["examples"])
@@ -88,8 +106,14 @@ def make_samples(data, ids, rng, split=None):
         n_val = int(round(len(ex) * split)) if split else 0
         for e in ex[:n_val]:
             val.append((indices(e, DIMS), k, e))
+        held = {_norm(e) for e in ex[:n_val]}
         for e in ex[n_val:]:
             for v in augment(e, rng, it["id"]):
+                train.append((indices(v, DIMS), k, v))
+        for e in it.get("generated", []):
+            if _norm(e) in held:
+                continue
+            for v in augment(e, rng, it["id"], AUGMENT_GEN):
                 train.append((indices(v, DIMS), k, v))
     return train, val
 
@@ -213,10 +237,15 @@ def main():
     params = train(tr, len(ids), rng)
     q, scale, deq = quantize(params)
     acc, _ = accuracy(deq, [(indices(e, DIMS), k, e) for k, it in enumerate(data["intents"]) for e in it["examples"]])
-    metrics.update({"train_accuracy": round(acc, 4), "train_samples": len(tr)})
+    metrics.update({"train_accuracy": round(acc, 4), "train_samples": len(tr),
+                    "questions": sum(len(it["examples"]) + len(it.get("generated", [])) for it in data["intents"])})
 
-    with open(args.data, "rb") as f:
-        data_hash = hashlib.sha256(f.read()).hexdigest()
+    h = hashlib.sha256()
+    for path in (args.data, QUESTIONS_PATH):
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                h.update(f.read())
+    data_hash = h.hexdigest()
     model = {
         "format": "rai-support-mlp-1",
         "name": "Rai Support",
@@ -224,7 +253,7 @@ def main():
         "hidden": HIDDEN,
         "data_sha256": data_hash,
         "metrics": metrics,
-        "intents": [{k: it[k] for k in ("id", "title", "answer", "draft", "handoff", "handoff_if") if k in it} for it in data["intents"]],
+        "intents": [{k: it[k] for k in ("id", "title", "answer", "draft", "handoff", "handoff_if", "close") if k in it} for it in data["intents"]],
         "w1": {"scale": [round(float(s), 8) for s in scale], "data": base64.b64encode(q.tobytes()).decode()},
         "b1": [round(float(x), 5) for x in deq[1]],
         "w2": [[round(float(x), 5) for x in row] for row in deq[2]],

@@ -740,6 +740,7 @@ function togglePass(btn) {
     }
 })();
 </script>
+<?= rt_rai_widget($settings ?? [], $me ?? null) /* помощник Rai: кнопка ✨, нейросеть с GitHub */ ?>
 </body>
 </html>
 <?php if ($is_own) unset($_SESSION["tg_link_code"]); ?>
