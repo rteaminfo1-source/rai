@@ -1,0 +1,14 @@
+# rteam.info: главная страница — index.php
+DirectoryIndex index.php index.html
+
+# https://rteam.info/ → https://rteam.info/index.php
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteCond %{THE_REQUEST} \s/+(\?\S*)?\s [NC]
+RewriteRule ^$ /index.php [R=301,L]
+</IfModule>
+
+# Файлы с паролями, кодами и настройками не отдаём из браузера
+<FilesMatch "^(users|settings|2fa_codes|2fa_pending|tg_link_codes|discord_states|tickets|bans|logs|bot_users|bot_tickets|bot_banned|bot_notes|bot_notifs)\.json$|\.lock$|^discord_config\.php$">
+    Require all denied
+</FilesMatch>
