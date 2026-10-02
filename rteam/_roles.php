@@ -610,9 +610,9 @@ function rt_discord_avatar($u) {
 }
 
 /* Запрос к Discord или к боту: [http-код, ответ JSON или null] */
-function rt_discord_http($method, $url, $form = null, $headers = []) {
+function rt_discord_http($method, $url, $form = null, $headers = [], $timeout = 15) {
     $ch = curl_init($url);
-    $opts = [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15, CURLOPT_CONNECTTIMEOUT => 6,
+    $opts = [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => 6,
              CURLOPT_HTTPHEADER => array_merge(["Accept: application/json", "User-Agent: RTeamSite (https://rteam.info, 1.0)"], $headers)];
     if ($form !== null) $opts[CURLOPT_POSTFIELDS] = is_array($form) ? http_build_query($form) : $form;
     curl_setopt_array($ch, $opts);
@@ -645,6 +645,16 @@ function rt_discord_bot_status($settings = null) {
     [$code, $res] = rt_discord_http("GET", $c["bot_url"] . "/status", null, ["X-Api-Key: " . $c["api_key"]]);
     if (is_array($res) && isset($res["ok"])) return $res + ["http" => $code];
     return ["ok" => false, "error" => $code ? "http_$code" : "no_connection", "http" => $code];
+}
+
+/* «Перезапустить бота»: бот перечитывает config.json и заново пишет начальные сообщения
+   (кнопка заявок, подсказка в канале идей, правила). Ответ: ["ok" => …, "report" => [["ok", "text"], …]] */
+function rt_discord_bot_restart($settings = null) {
+    $c = rt_discord_conf($settings);
+    if ($c["bot_url"] === "" || $c["api_key"] === "") return ["ok" => false, "error" => "not_configured"];
+    [$code, $res] = rt_discord_http("POST", $c["bot_url"] . "/restart", "{}", ["Content-Type: application/json", "X-Api-Key: " . $c["api_key"]], 60);
+    if (is_array($res) && isset($res["ok"])) return $res;
+    return ["ok" => false, "error" => $code ? "http_$code" : "no_connection"];
 }
 
 /* ---------- Код входа в админ-панель (2FA): Telegram или Discord ---------- */

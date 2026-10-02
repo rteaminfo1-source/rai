@@ -494,7 +494,7 @@ $ACTION_PERMS = [
     "edit_gold_service" => "gold.manage", "delete_gold_service" => "gold.manage", "gold_reply" => "gold.chat",
     // люди и роли
     "add_user" => "users.manage", "set_pass" => "users.manage", "del_user" => "users.manage", "unlink_tg" => "users.manage", "unlink_ds" => "users.manage", "discord_dm" => "users.manage",
-    "save_discord" => "settings.manage", "check_discord" => "settings.manage",
+    "save_discord" => "settings.manage", "check_discord" => "settings.manage", "restart_discord" => "settings.manage",
     "set_role" => "roles.manage", "add_to_team" => "roles.manage", "change_team_role" => "roles.manage", "remove_from_team" => "roles.manage",
     "save_perms" => "perms.manage", "reset_perms" => "perms.manage",
 ];
@@ -1628,6 +1628,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
         $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "settings", "msg" => "$user изменил настройки Discord."];
         save_json("logs.json", $logs);
         flash("Настройки Discord сохранены.", "success");
+        header("Location: admin.php?tab=discord"); exit;
+    }
+    if ($_POST["action"] === "restart_discord") {
+        $r = rt_discord_bot_restart($settings);
+        if (isset($r["report"])) {
+            $rep = ["🔄 Бот перезапущен: config.json перечитан, начальные сообщения написаны заново."];
+            foreach ($r["report"] as $chk) $rep[] = (!empty($chk["ok"]) ? "✅ " : "❌ ") . ($chk["text"] ?? "");
+        } else {
+            $rep = ["❌ Бот не ответил (" . ($r["error"] ?? "ошибка") . "). Проверьте адрес и ключ бота или перезапустите его в Plesk → Node.js → Restart App."];
+        }
+        $_SESSION["discord_report"] = $rep;
+        $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "settings", "msg" => "$user перезапустил Discord-бота."];
+        save_json("logs.json", $logs);
         header("Location: admin.php?tab=discord"); exit;
     }
     if ($_POST["action"] === "check_discord") {
@@ -3109,9 +3122,11 @@ window.addEventListener('DOMContentLoaded', function() {
                 <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
                     <button class="btn primary" type="submit">Сохранить</button>
                     <button class="btn ghost" type="submit" form="dsCheck">Проверить всё</button>
+                    <button class="btn ghost" type="submit" form="dsRestart" <?=rt_discord_bot_ready($settings) ? "" : "disabled"?>>🔄 Перезапустить бота</button>
                 </div>
             </form>
             <form method="POST" action="?tab=discord" id="dsCheck"><input type="hidden" name="action" value="check_discord"></form>
+            <form method="POST" action="?tab=discord" id="dsRestart" onsubmit="return confirm('Перезапустить бота? Он перечитает config.json и заново напишет начальные сообщения: кнопку заявок, подсказку в канале идей и правила (старые удалит).');"><input type="hidden" name="action" value="restart_discord"></form>
             <div class="muted" style="font-size:12px; margin-top:10px;">Пустые поля берутся из файла <code>discord_config.php</code> рядом с сайтом. Секреты здесь не показываются.</div>
         </div>
         <div class="card">
@@ -3120,6 +3135,7 @@ window.addEventListener('DOMContentLoaded', function() {
                 <li><b>Вход через Discord</b> — кнопки на страницах входа и регистрации. Нет аккаунта — создаётся новый (логин из ника Discord). Сотрудникам с привязанным Telegram после входа через Discord нужен ещё код из Telegram.</li>
                 <li><b>Привязка</b> — кабинет → «Привязки» → «Привязать Discord». Если привязаны и Telegram, и Discord, сотрудник выбирает, куда приходит код входа; на странице кода можно прислать его в другое место.</li>
                 <li><b>ЛС от бота</b>: коды входа, ответы поддержки в тикетах, сообщения администрации («Пользователи» → «Управлять» → «Написать в Discord»). Бот пишет только тем, кто есть на сервере и не закрыл ЛС.</li>
+                <li><b>«Перезапустить бота»</b> — бот перечитывает <code>config.json</code> (новые вопросы, правила, каналы), заново регистрирует команды и пишет начальные сообщения: кнопку «Подать заявку», подсказку в канале идей и правила. Старые сообщения удаляются.</li>
                 <li><b>Бот на сервере</b>: автомодерация, заявки в модераторы (кнопка → вопросы → «Отклонить» / «На обзвон» с ролью → «Принять»), идеи с 👍/👎, правила, ответы нейросети Rai в ЛС. Настройки и ID каналов — <code>discord/config.json</code>.</li>
             </ol>
         </div>

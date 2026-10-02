@@ -517,7 +517,7 @@ const deleted = (m) => waitFor(() => messages.get(m.id) && messages.get(m.id).de
     assert.ok(!dmsTo(ALICE).some((x) => /тикет/i.test(x.content)), "в ЛС нет слов про тикеты");
   });
 
-  await test("HTTP для сайта: /dm с ключом, без ключа, закрытые ЛС, /status", async () => {
+  await test("HTTP для сайта: /dm с ключом, без ключа, закрытые ЛС, /restart, /status", async () => {
     const base = `http://127.0.0.1:${process.env.PORT}`;
     const post = (p, body, key) => realFetch(base + p, { method: "POST", headers: { "Content-Type": "application/json", ...(key ? { "X-Api-Key": key } : {}) }, body: JSON.stringify(body) });
     assert.strictEqual((await (await realFetch(base + "/")).json()).online, true);
@@ -529,6 +529,17 @@ const deleted = (m) => waitFor(() => messages.get(m.id) && messages.get(m.id).de
     assert.ok(got && got.components[0].components[0].url === "https://rteam.info/");
     r = await post("/dm", { user_id: CAROL, text: "код" }, KEY);
     assert.deepStrictEqual(await r.json(), { ok: false, error: "dm_closed" });
+    // «Перезапустить бота» из админки: начальные сообщения пишутся заново, старые удаляются
+    const oldPanel = live(A.panel_channel_id).find((m) => JSON.stringify(m.components).includes("app:start"));
+    const oldInfo = live(I.input_channel_id).find((m) => embedText(m).includes("Предложите идею"));
+    assert.strictEqual((await post("/restart", {}, "wrong")).status, 403);
+    r = await post("/restart", {}, KEY);
+    const rs = await r.json();
+    assert.ok(rs.report.some((x) => x.text.startsWith("Кнопка заявок")) && rs.report.some((x) => x.text.startsWith("Подсказка в канале идей")), JSON.stringify(rs));
+    assert.ok(messages.get(oldPanel.id).deleted && messages.get(oldInfo.id).deleted);
+    assert.strictEqual(live(A.panel_channel_id).filter((m) => JSON.stringify(m.components).includes("app:start")).length, 1);
+    assert.strictEqual(live(I.input_channel_id).filter((m) => embedText(m).includes("Предложите идею")).length, 1);
+    assert.ok(live(GENERAL).filter((m) => embedText(m).includes("Правила сервера")).length === 1, "правила заново там, где их публиковали");
     r = await realFetch(base + "/status", { headers: { Authorization: "Bearer " + KEY } });
     const st = await r.json();
     assert.strictEqual(st.online, true);

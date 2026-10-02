@@ -785,7 +785,7 @@ function ideasInfoPayload() {
 }
 
 /* Сообщение бота в канале (кнопка заявок, правила): находит своё прошлое и обновляет, а не шлёт новое */
-async function ensureMessage(key, channelId, payload, isMine) {
+async function ensureMessage(key, channelId, payload, isMine, fresh = false) {
   const ch = await chan(channelId);
   if (!ch || !ch.isTextBased()) throw new Error(`канал ${channelId} не найден или бот его не видит`);
   const hash = sha1(JSON.stringify(payload));
@@ -796,6 +796,7 @@ async function ensureMessage(key, channelId, payload, isMine) {
     const list = await ch.messages.fetch({ limit: 50 }).catch(() => null);
     msg = list ? list.find((x) => x.author && x.author.id === client.user.id && isMine(x)) || null : null;
   }
+  if (msg && fresh) { await msg.delete().catch(() => {}); msg = null; } // перезапуск из админки: сообщение заново, внизу канала
   if (msg && (!st || st.hash !== hash || st.id !== msg.id)) await msg.edit(payload);
   if (!msg) msg = await ch.send(payload);
   data.messages[key] = { channel: ch.id, id: msg.id, hash };
@@ -803,11 +804,11 @@ async function ensureMessage(key, channelId, payload, isMine) {
   return msg;
 }
 const hasButton = (x, id) => (x.components || []).some((r) => (r.components || []).some((c) => c.customId === id));
-const ensurePanel = () => ensureMessage("panel", A().panel_channel_id, panelPayload(), (x) => hasButton(x, "app:start"));
-const ensureRules = (channelId) => ensureMessage("rules", channelId || cfg.rules.channel_id, rulesPayload(),
-  (x) => x.embeds && x.embeds[0] && x.embeds[0].title === cut(cfg.rules.title, 256));
-const ensureIdeasInfo = () => ensureMessage("ideas_info", I().input_channel_id, ideasInfoPayload(),
-  (x) => x.embeds && x.embeds[0] && x.embeds[0].title === "💡 Предложите идею");
+const ensurePanel = (fresh) => ensureMessage("panel", A().panel_channel_id, panelPayload(), (x) => hasButton(x, "app:start"), fresh);
+const ensureRules = (channelId, fresh) => ensureMessage("rules", channelId || cfg.rules.channel_id, rulesPayload(),
+  (x) => x.embeds && x.embeds[0] && x.embeds[0].title === cut(cfg.rules.title, 256), fresh);
+const ensureIdeasInfo = (fresh) => ensureMessage("ideas_info", I().input_channel_id, ideasInfoPayload(),
+  (x) => x.embeds && x.embeds[0] && x.embeds[0].title === "💡 Предложите идею", fresh);
 
 /* ============================== нейросеть Rai в ЛС */
 
@@ -1157,14 +1158,31 @@ async function onEdit(old, m) {
   if (v) return applyVerdict(m, v);
 }
 
-async function setupGuild() {
+/* Команды и начальные сообщения бота (кнопка заявок, правила, подсказка в канале идей).
+   fresh — удалить старые и написать заново (кнопка «Перезапустить бота» в админ-панели). Возвращает отчёт. */
+async function setupGuild(fresh = false) {
+  const out = [], ok = (text) => out.push({ ok: true, text }), bad = (text) => { out.push({ ok: false, text }); log("❌", text); };
   const g = guild();
-  if (!g) { log(`❌ Бот не добавлен на сервер ${cfg.guild_id}. Пригласите его: ${inviteUrl()}`); return; }
-  await g.commands.set(commandList()).then(() => log("✅ Команды зарегистрированы")).catch((e) => log("❌ Команды:", e.message));
-  if (A().enabled) await ensurePanel().catch((e) => log("❌ Кнопка заявок:", e.message));
-  if (isId(cfg.rules.channel_id)) await ensureRules().catch((e) => log("❌ Правила:", e.message));
-  if (I().enabled && I().info_message) await ensureIdeasInfo().catch((e) => log("❌ Канал идей:", e.message));
-  for (const x of await diagnose()) if (!x.ok) log("⚠️", x.text);
+  if (!g) { bad(`Бот не добавлен на сервер ${cfg.guild_id}. Пригласите его: ${inviteUrl()}`); return out; }
+  await g.commands.set(commandList()).then(() => { ok("Команды зарегистрированы"); log("✅ Команды зарегистрированы"); }).catch((e) => bad("Команды: " + e.message));
+  const step = async (what, fn) => { try { const m = await fn(); ok(`${what}: ${m.url}`); } catch (e) { bad(`${what}: ${e.message}`); } };
+  if (A().enabled) await step("Кнопка заявок", () => ensurePanel(fresh));
+  if (isId(cfg.rules.channel_id)) await step("Правила", () => ensureRules(null, fresh));
+  else if (fresh && data.messages.rules && data.messages.rules.channel) await step("Правила", () => ensureRules(data.messages.rules.channel, true));
+  if (I().enabled && I().info_message) await step("Подсказка в канале идей", () => ensureIdeasInfo(fresh));
+  for (const x of await diagnose()) if (!x.ok) { out.push(x); log("⚠️", x.text); }
+  return out;
+}
+/* Перезапуск из админ-панели: перечитать config.json, заново зарегистрировать команды и написать начальные сообщения */
+async function restartBot() {
+  cfg = loadConfig();
+  if (cfg.token) rest.setToken(cfg.token);
+  if (!client || !client.isReady()) {
+    if (mode === "offline" && cfg.token) { await goActive(); return [{ ok: !!(client && client.isReady()), text: client && client.isReady() ? "Бот подключился к Discord" : "Бот не подключился: " + lastError }]; }
+    return [{ ok: false, text: mode === "standby" ? "Эта копия в резерве — повторите через минуту" : "Бот не подключён к Discord: " + (lastError || mode) }];
+  }
+  log("🔄 Перезапуск из админ-панели");
+  return [{ ok: true, text: "config.json перечитан" }, ...await setupGuild(true)];
 }
 async function onReady() {
   lastError = "";
@@ -1251,9 +1269,14 @@ async function handleHttp(req, res) {
   if (req.method === "GET" && (p === "/" || p === "/health")) {
     return sendJson(res, 200, { ok: true, service: "rteam-discord-bot", online: !!(client && client.isReady()), mode });
   }
-  if (p !== "/dm" && p !== "/status") return sendJson(res, 404, { ok: false, error: "not_found" });
+  if (p !== "/dm" && p !== "/status" && p !== "/restart") return sendJson(res, 404, { ok: false, error: "not_found" });
   if (!cfg.api_key) return sendJson(res, 503, { ok: false, error: "api_key_not_set" });
   if (!authorized(req)) return sendJson(res, 403, { ok: false, error: "forbidden" });
+  if (p === "/restart") {
+    if (req.method !== "POST") return sendJson(res, 405, { ok: false, error: "method" });
+    const report = await restartBot().catch((e) => [{ ok: false, text: e.message }]);
+    return sendJson(res, 200, { ok: report.every((x) => x.ok), report });
+  }
   if (p === "/status") {
     const report = { ok: true, mode, online: !!(client && client.isReady()), bot: client && client.user ? client.user.tag : null,
       guild: guild() ? guild().name : null, invite_url: inviteUrl(), last_error: lastError || null, rai: !!rai.lib, checks: [] };
