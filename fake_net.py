@@ -52,6 +52,19 @@ IMAGES = {"query": {"pages": {
 QUOTE_EXTRACT = ("== Цитаты ==\nЗемля — колыбель разума, но нельзя вечно жить в колыбели.\n"
                  "— Константин Циолковский, письмо, 1911\n")
 
+VILLAGES = {
+    "малиновк": [
+        {"name": "Малиновка", "latitude": 51.31, "longitude": 45.12, "country": "Россия", "country_code": "RU",
+         "admin1": "Саратовская область", "population": 1200, "feature_code": "PPL"},
+        {"name": "Малиновка", "latitude": 53.85, "longitude": 27.47, "country": "Беларусь", "country_code": "BY",
+         "admin1": "Минская область", "admin2": "Минский район", "feature_code": "PPL"}],
+    "жданович": [
+        {"name": "Ждановичи", "latitude": 53.95, "longitude": 27.42, "country": "Беларусь", "country_code": "BY",
+         "admin1": "Минская область", "feature_code": "PPL"}],
+}
+NOMINATIM = {"энергетиков": [{"lat": "53.13", "lon": "29.21", "name": "Энергетиков",
+                               "address": {"country": "Беларусь", "state": "Могилёвская область", "country_code": "by"}}]}
+
 calls = []
 
 
@@ -60,11 +73,18 @@ def fetch_text(address, timeout=10):
     q = urllib.parse.parse_qs(urllib.parse.urlparse(address).query)
     if "geocoding-api" in address:
         name = q.get("name", [""])[0].lower()
+        country = q.get("countryCode", [""])[0]
+        for prefix, places in VILLAGES.items():
+            if name.startswith(prefix):
+                return json.dumps({"results": [p for p in places if not country or p["country_code"] == country]})
         if name.startswith("москв"):
             return json.dumps(GEO)
         if name.startswith("казан"):
             return json.dumps(KAZAN)
         return json.dumps({})
+    if "nominatim.openstreetmap.org" in address:
+        term = q.get("q", [""])[0].lower()
+        return json.dumps(next((v for k, v in NOMINATIM.items() if term.startswith(k)), []))
     if "api.open-meteo.com" in address:
         return json.dumps(FORECAST)
     if "er-api" in address:

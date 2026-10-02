@@ -19,6 +19,7 @@ const NET_HOSTS = [
     '/^geocoding-api\.open-meteo\.com$/', '/^api\.open-meteo\.com$/',                // погода
     '/^open\.er-api\.com$/', '/^www\.cbr-xml-daily\.ru$/',                           // курсы валют
     '/^api\.mymemory\.translated\.net$/',                                            // перевод
+    '/^nominatim\.openstreetmap\.org$/',                                             // сёла и посёлки (OpenStreetMap)
     '/^[a-z]{2,3}\.wikipedia\.org$/', '/^[a-z]{2,3}\.wikiquote\.org$/',              // тексты для ответов и презентаций
     '/^commons\.wikimedia\.org$/', '/^upload\.wikimedia\.org$/',                     // картинки для презентаций
 ];

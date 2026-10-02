@@ -386,6 +386,35 @@ class OnlineTest(unittest.TestCase):
                 self.assertIn("rai.rteam.info", self.ask("https://www.tiktok.com/@user/video/1", SUN)["answer"])
         self.assertFalse(self.ask("привет")["offline"])
 
+    def test_weather_any_place(self):
+        # город без предлога, в любом порядке, с деревнями и районами
+        for q, where in (("погода минск", "Минск, Беларусь"), ("Минск погода", "Минск, Беларусь"),
+                         ("температура гомель завтра", "Гомель, Беларусь"),
+                         ("погода в деревне Малиновка Минского района", "Малиновка, Минская область, Беларусь"),
+                         ("погода в Ждановичах", "Ждановичи, Минская область, Беларусь"),
+                         ("погода в посёлке Энергетиков Бобруйск", "Энергетиков, Могилёвская область, Беларусь")):
+            self.assertIn("## Погода: " + where, self.ask(q, sid="p" + q)["answer"], q)
+        # одноимённые сёла: говорим, какое показали, и как уточнить
+        answer = self.ask("погода Малиновка", sid="amb")["answer"]
+        self.assertIn("несколько", answer)
+        self.assertIn("Минская область", answer)
+        # после «погода минск» — сначала Беларусь; «а в …?» — продолжение
+        self.ask("погода минск", sid="home")
+        self.assertIn("Малиновка, Минская область", self.ask("а в Малиновке?", sid="home")["answer"])
+        # место не указано — честно говорим, для какого города погода
+        self.assertIn("Место не указано", self.ask("какая погода сегодня", sid="none")["answer"])
+
+    def test_memes(self):
+        import memes
+        self.assertIn("Маргрит ван Бревоорт", self.ask("что за мем ждун", SUN)["answer"])
+        self.assertEqual(self.ask("откуда мем шлепа", SUN)["intent"], "meme")
+        self.assertIn("Скуф", self.ask("что значит скуф", SUN)["answer"])
+        self.assertIn("Мемы 2025 года", self.ask("мемы 2025", SUN)["answer"])
+        self.assertNotEqual(self.ask("что такое сигма", SUN)["intent"], "meme")   # без слова «мем» — не мем
+        self.assertEqual(self.ask("что за мем сигма", SUN)["intent"], "meme")
+        self.assertEqual(memes.topic("что за мем бобр курва"), "бобр курва мем")    # нет в базе — ищем в интернете
+        self.assertGreaterEqual(len(memes.MEMES), 50)
+
     def test_cities_offline(self):
         import cities
         for phrase, name in (("Минске", "Минск"), ("Нижнем Новгороде", "Нижний Новгород"), ("Ростове-на-Дону", "Ростов-на-Дону"),

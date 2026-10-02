@@ -21,6 +21,7 @@ import codelib
 import creative
 import net
 import nlp
+import memes
 import online
 import proglangs
 import skills
@@ -310,6 +311,22 @@ class Brain:
                         "Умею: закат, рассвет, ночь, космос, горы, море, лес, город, пустыню, зиму, "
                         "сердце, цветок и логотипы."), "image"
             return f"Готово: **{image['title']}**. Картинку можно скачать в PNG или SVG.", "image"
+
+        # ---- мемы: своя база, а новых — ищем в интернете
+        if memes.is_meme_request(text) and not codeai.is_build_request(text) and not creative.is_slides_request(text):
+            known = memes.answer(text)
+            if known:
+                return known, "meme"
+            query = memes.topic(text)
+            if query and "web" in version.skills:
+                try:
+                    found = self._web(query, attachments, raise_errors=True)
+                except net.NetError as e:
+                    return net.explain(e, "найти этот мем в интернете") + " В моей базе его пока нет.", "meme"
+                if found:
+                    return found[0], "meme"
+            return ("Этого мема пока нет в моей базе. Спросите иначе («что за мем …» с точным названием) "
+                    "или включите нейросеть — она поищет и объяснит."), "meme"
 
         # ---- «сделай сайт / игру / приложение» — это код, даже если в просьбе есть «погода» или «валюты»
         building = codeai.is_build_request(text)

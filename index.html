@@ -646,7 +646,7 @@
   if (params.get("py")) CFG.pyBase = params.get("py");
 
   const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "creative.py",
-                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "brain.py", "knowledge.json", "glossary.json"];
+                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -2006,7 +2006,7 @@ def rai_code(action, code, lang, prompt):
   // Справка из базы знаний Rai — для тем, где там точные сведения (программирование, команда Rteam)
   const KB_FACTS = new Set(["python", "python_hello", "python_loops", "python_functions", "python_lists", "variable", "php", "html", "css",
     "javascript", "sql", "git", "api", "json", "http_errors", "hosting", "flask", "ai", "algorithm", "debug", "learn_programming", "security",
-    "compare_python_php", "rteam", "creator", "contact", "join_team", "who_are_you", "abilities", "proglang"]);
+    "compare_python_php", "rteam", "creator", "contact", "join_team", "who_are_you", "abilities", "proglang", "meme"]);
   function kbFacts(data) {
     const intents = [].concat(data.intent || []);
     return data.answer && intents.some((i) => KB_FACTS.has(i)) ? data.answer.slice(0, 1800) : "";

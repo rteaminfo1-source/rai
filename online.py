@@ -53,14 +53,69 @@ def is_weather_request(text: str) -> bool:
     return bool(re.search(r"погод|температур|будет ли|идет ли|идёт ли|холодно|жарко|тепло|прогноз погод", low))
 
 
+# Слова вокруг названия места: «какая погода завтра в …», «будет ли дождь в …»
+_PLACE_STOP = set("""
+какая какой какое какие каков какова как что сколько ли будет будут есть был была было идет идёт пойдет пойдёт
+погода погоду погоды погоде прогноз прогноза прогнозу температура температуру температуры градус градуса градусов
+по цельсию дождь дождя дожди снег снега снегопад ветер ветра солнце солнечно холодно жарко тепло прохладно мороз
+морозно зонт зонтик одеваться одеться надеть одеть куртку осадки осадков влажность давление
+сейчас сегодня завтра послезавтра утром утро днём днем вечером вечер ночью ночь неделю неделе неделя выходные
+выходных дня дней день часа часов
+в во на для по из с со к о об про у при над под около возле рядом города городе город городу
+а и или но же ну там тут здесь у нас меня вас тебя мне нам вам
+скажи скажите покажи покажите узнай узнать подскажи подскажите хочу знать нужна нужен нужно пожалуйста плиз спасибо
+привет рай rai можешь можно дай дайте глянь посмотри
+""".split())
+_PLACE_KIND = re.compile(r"^(деревн\w*|дер|д|сел\w*|с|посел\w*|посёл\w*|пос|п|пгт|агрогород\w*|аг|хутор\w*|станиц\w*|ст|"
+                         r"аул\w*|кишлак\w*|мкр|микрорайон\w*|городок|городке|курорт\w*)$", re.I)
+_ADMIN_WORD = re.compile(r"^(област\w*|обл|район\w*|р-н|рн|край|краю|края|республик\w*|округ\w*)$", re.I)
+_COUNTRIES = {"беларус": "BY", "белорусс": "BY", "росси": "RU", "рф": "RU", "украин": "UA", "казахстан": "KZ", "узбекистан": "UZ",
+              "кыргызстан": "KG", "киргиз": "KG", "таджикистан": "TJ", "армени": "AM", "грузи": "GE", "азербайджан": "AZ",
+              "молдов": "MD", "латви": "LV", "литв": "LT", "эстони": "EE", "польш": "PL", "германи": "DE", "турци": "TR",
+              "сша": "US", "франци": "FR", "итали": "IT", "испани": "ES", "китай": "CN", "китае": "CN", "япони": "JP"}
+
+
+def parse_place(text: str):
+    """Место из вопроса о погоде: {"place", "kind", "admin", "country"} или None.
+
+    «погода Минск», «Минск погода», «погода в деревне Малиновка Минского района завтра», «дождь в Ждановичах, Беларусь».
+    """
+    words = re.findall(r"[A-Za-zА-Яа-яЁё0-9]+(?:-[A-Za-zА-Яа-яЁё0-9]+)*\.?", text or "")
+    place, admin, country, kind = [], None, None, None
+    for i, raw in enumerate(words):
+        w = raw.rstrip(".")
+        low = w.lower()
+        code = next((c for k, c in _COUNTRIES.items() if low.startswith(k)), None)
+        if code:
+            country = code
+        elif _ADMIN_WORD.match(low):
+            if place and not admin:
+                admin = place.pop()  # «Минского района» — прилагательное перед словом «район»
+        elif _PLACE_KIND.match(low) and (raw.endswith(".") or len(low) > 2 or i + 1 < len(words)):
+            kind = kind or low
+        elif low in _PLACE_STOP or low.isdigit() or _WEATHER_RE.fullmatch(low):
+            if place and admin is None and low not in ("в", "во", "на", "у", "и", "а"):
+                continue
+        else:
+            place.append(w)
+    if not place:
+        return None
+    phrase = " ".join(place[:4])
+    # «посёлок Энергетиков Бобруйск»: последнее слово — известный город, это подсказка, где искать
+    if len(place) >= 2 and not cities.find(phrase) and cities.find(place[-1]) and not admin:
+        admin, phrase = cities.find(place[-1])["name"], " ".join(place[:-1][:3])
+    return {"place": phrase, "kind": kind, "admin": admin, "country": country}
+
+
 def _city_candidates(phrase: str):
-    """«Москве» -> «Москве», «Москва», «Москв»… Open-Meteo ищет по началу названия."""
+    """«Москве» -> «Москве», «Москва», «Москв»… «Ждановичах» -> «Ждановичи». Open-Meteo ищет по началу названия."""
     phrase = phrase.strip(" -")
     words = phrase.split()
     cands = [phrase]
     if len(words) == 1:
         w = words[0]
-        for old, new in (("е", "а"), ("и", "ь"), ("и", "а"), ("е", ""), ("у", "а"), ("и", "я")):
+        for old, new in (("ах", "и"), ("ах", "ы"), ("ях", "и"), ("е", "а"), ("и", "ь"), ("и", "а"), ("е", ""), ("у", "а"),
+                         ("и", "я"), ("ом", ""), ("ой", "ая"), ("ом", "о"), ("е", "о")):
             if w.lower().endswith(old) and len(w) > 3:
                 cands.append(w[: -len(old)] + new)
         cands.append(nlp.stem(w.lower()))
@@ -81,40 +136,120 @@ def _city_candidates(phrase: str):
     for c in cands:
         if c and c.lower() not in [o.lower() for o in out]:
             out.append(c)
-    return out[:5]
+    return out[:7]
 
 
-def geocode(phrase: str):
-    """Координаты города: сначала свой справочник крупных городов (без запроса в интернет), потом Open-Meteo."""
-    known = cities.find(phrase)
-    if known:
-        return known
-    for cand in _city_candidates(phrase):
-        known = cities.find(cand)
-        if known:
-            return known
-    for cand in _city_candidates(phrase):
-        data = net.fetch_json(net.url("https://geocoding-api.open-meteo.com/v1/search",
-                                      name=cand, count=1, language="ru", format="json"), ttl=86400)
-        results = data.get("results") or []
-        if results:
-            return results[0]
+def _norm(s):
+    return (s or "").lower().replace("ё", "е").strip()
+
+
+def _score(result, cand, admin=None, country=None, home=None):
+    """Насколько найденное место похоже на то, о чём спросили (home — страна, о которой спрашивали раньше)."""
+    score = 0.0
+    if home and not country and (result.get("country_code") or "").upper() == home:
+        score += 3
+    name = _norm(result.get("name"))
+    if name == _norm(cand):
+        score += 4
+    elif name.startswith(_norm(cand)):
+        score += 1
+    if country and (result.get("country_code") or "").upper() == country:
+        score += 6
+    if admin:
+        stem = nlp.stem(_norm(admin))[:5]
+        if any(stem and stem in _norm(result.get(k)) for k in ("admin1", "admin2", "admin3", "admin4")):
+            score += 5
+    pop = result.get("population") or 0
+    score += min(3, len(str(int(pop))) / 2) if pop else 0
+    if result.get("feature_code") in ("PPLC", "PPLA"):
+        score += 1
+    return score
+
+
+def _nominatim(query: str, country=None):
+    """Запасной поиск места по OpenStreetMap — там есть почти все деревни и посёлки."""
+    params = {"q": query, "format": "jsonv2", "limit": 5, "accept-language": "ru", "addressdetails": 1}
+    if country:
+        params["countrycodes"] = country.lower()
+    data = net.fetch_json(net.url("https://nominatim.openstreetmap.org/search", **params), ttl=86400)
+    for r in data if isinstance(data, list) else []:
+        if r.get("lat") and r.get("lon"):
+            a = r.get("address") or {}
+            name = (r.get("name") or query).strip()
+            region = a.get("county") or a.get("state_district") or a.get("state") or ""
+            return {"name": name, "latitude": float(r["lat"]), "longitude": float(r["lon"]), "country": a.get("country", ""),
+                    "admin1": region, "country_code": (a.get("country_code") or "").upper()}
     return None
+
+
+def geocode(phrase: str, admin=None, country=None, home=None):
+    """Координаты места: свой справочник крупных городов (без запроса), потом Open-Meteo (города, сёла, посёлки
+    по всему миру — выбираем лучшее совпадение с учётом района и страны), потом OpenStreetMap."""
+    if not admin and not country:
+        for cand in [phrase] + _city_candidates(phrase):
+            known = cities.find(cand)
+            if known:
+                return known
+    best, best_score, same = None, -1.0, []
+    for cand in _city_candidates(phrase):
+        params = {"name": cand, "count": 10, "language": "ru", "format": "json"}
+        if country:
+            params["countryCode"] = country
+        data = net.fetch_json(net.url("https://geocoding-api.open-meteo.com/v1/search", **params), ttl=86400)
+        results = data.get("results") or []
+        for r in results:
+            sc = _score(r, cand, admin, country, home)
+            if sc > best_score:
+                best, best_score = r, sc
+        # одноимённые места в разных областях — скажем, какое выбрали
+        same = [r for r in results if _norm(r.get("name")) == _norm(cand)]
+        if best and best_score >= 4 + (5 if admin else 0):
+            break  # точное совпадение (и с районом, если его назвали) — дальше не ищем
+    if best and (best_score >= 4 or not admin):
+        if not admin and len({(r.get("admin1"), r.get("country_code")) for r in same}) > 1:
+            best = dict(best, others=[", ".join(x for x in (r.get("admin1"), r.get("country")) if x)
+                                      for r in same if r is not best and r.get("admin1") != best.get("admin1")][:4])
+        return best
+    try:
+        found = _nominatim(" ".join(x for x in (phrase, admin) if x), country)
+    except net.NetError:
+        found = None
+    if not found:
+        for cand in _city_candidates(phrase)[1:3]:
+            try:
+                found = _nominatim(" ".join(x for x in (cand, admin) if x), country)
+            except net.NetError:
+                found = None
+            if found:
+                break
+    return found or best
+
+
+_FOLLOW_UP = re.compile(r"^\s*(?:а|и|ну|ещё|еще)?\s*(?:в|во|на|для)\s+[A-Za-zА-Яа-яЁё.-]+(?:\s+[A-Za-zА-Яа-яЁё.-]+){0,3}\s*\??\s*$", re.I)
 
 
 def weather(text: str, session: dict, default_city: str = "Москва"):
     """Вернуть (ответ, вложения) или None, если это не вопрос о погоде."""
-    if not is_weather_request(text):
+    follow_up = bool(session.get("weather_last") and _FOLLOW_UP.match(text or ""))  # «а в Малиновке?» после погоды
+    if not is_weather_request(text) and not follow_up:
+        session.pop("weather_last", None)
         return None
-    m = _CITY_RE.search(text)
-    city_phrase = m.group(1).strip() if m else None
-    if city_phrase and re.fullmatch(r"(сегодня|завтра|неделю|выходные|улице|дворе)", city_phrase, re.I):
-        city_phrase = None
-    city_phrase = city_phrase or session.get("city") or default_city
+    session["weather_last"] = True
+    asked = parse_place(text)
+    note = ""
+    if asked:
+        city_phrase = asked["place"]
+    elif session.get("city"):
+        city_phrase = session["city"]
+    else:
+        city_phrase = default_city
+        note = (f"\n\n*Место не указано, поэтому это погода для города {default_city}. Спросите, например: «погода Минск» "
+                "или «погода в деревне Малиновка Минского района».*")
     try:
-        place = geocode(city_phrase)
+        place = geocode(city_phrase, asked and asked.get("admin"), asked and asked.get("country"), session.get("country"))
         if not place:
-            return f"Не нашёл город «{city_phrase}». Напишите, например: «погода в Казани».", []
+            return (f"Не нашёл место «{city_phrase}». Уточните район или область: «погода {city_phrase} Минский район» "
+                    "или напишите название полностью."), []
         data = net.fetch_json(net.url(
             "https://api.open-meteo.com/v1/forecast",
             latitude=place["latitude"], longitude=place["longitude"], timezone="auto", forecast_days=4,
@@ -126,13 +261,21 @@ def weather(text: str, session: dict, default_city: str = "Москва"):
         return net.explain(e, "узнать погоду"), []
 
     session["city"] = place.get("name", city_phrase)
+    code_country = (place.get("country_code") or "").upper() or {"Беларусь": "BY", "Россия": "RU", "Украина": "UA", "Казахстан": "KZ"}.get(place.get("country"))
+    if code_country:
+        session["country"] = code_country  # одноимённые сёла дальше ищем сначала в этой стране
+    if place.get("others"):
+        note += (f"\n\n*Мест с названием «{place.get('name')}» несколько — показываю: {place.get('admin1') or place.get('country')}. "
+                 f"Есть ещё: {'; '.join(place['others'])}. Уточните район или область, например: «погода {place.get('name')} Минский район».*")
     cur = data.get("current", {})
     code = int(cur.get("weather_code", 0))
     desc, kind = WEATHER_CODES.get(code, ("без осадков", "cloudy"))
     temp = cur.get("temperature_2m")
     feels = cur.get("apparent_temperature")
     name = place.get("name", city_phrase)
-    where = ", ".join(x for x in (name, place.get("country")) if x)
+    region = place.get("admin1") if place.get("admin1") and _norm(place.get("admin1")) != _norm(name) and \
+        not cities.find(name) else ""
+    where = ", ".join(x for x in (name, region, place.get("country")) if x)
 
     def t(v):
         return f"{'+' if v is not None and round(v) > 0 else ''}{round(v)}°" if v is not None else "—"
@@ -156,7 +299,7 @@ def weather(text: str, session: dict, default_city: str = "Москва"):
                 f"**{t(daily['temperature_2m_max'][i])}** | {'' if prob is None else str(prob) + '%'} |"
             )
     card = creative.weather_card(name, t(temp), desc, kind, bool(cur.get("is_day", 1)), f"ощущается как {t(feels)}")
-    return "\n".join(lines), [card]
+    return "\n".join(lines) + note, [card]
 
 
 # ================================================================== валюты
