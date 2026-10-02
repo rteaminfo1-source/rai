@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -14,10 +15,34 @@ _cache = {}
 # Посредник на хостинге (rai.rteam.info/net.php). Страница задаёт его сама, если он доступен:
 # тогда браузер ходит в интернет через свой сайт, и чужие сервисы не блокируются (CORS, фильтры).
 PROXY = ""
+# net.php рядом со страницей — запасная попытка, если посредник ещё не нашёлся (медленный хостинг)
+SAME_ORIGIN = ""
+# Страница открыта там, где интернет закрыт (окно просмотра Claude): не ждём сбоев, сразу объясняем
+SANDBOX = False
+# Сбои сети за текущий ответ: страница по ним решает, может ли помочь нейросеть (перевод, знания)
+PROBLEMS = []
+HOME = "https://rai.rteam.info"
 
 
 class NetError(Exception):
-    """Не получилось получить данные из интернета."""
+    """Не получилось получить данные из интернета. offline — связи нет совсем (а не сервис ответил ошибкой)."""
+
+    def __init__(self, message="", offline=False):
+        super().__init__(message)
+        self.offline = offline
+        PROBLEMS.append(message)
+
+
+def explain(error, what: str) -> str:
+    """Понятное сообщение о сбое сети для человека — без технических подробностей."""
+    if SANDBOX:
+        return (f"Не получилось {what}: в этом окне просмотра интернет закрыт. Откройте Rai на сайте "
+                f"[rai.rteam.info]({HOME}) — там погода, курсы, перевод, поиск и анализ ссылок работают через свой сервер.")
+    if getattr(error, "offline", False):
+        tip = "" if PROXY else (" Если Rai открыт на вашем сайте, проверьте, что на хостинге есть файл **net.php** "
+                                "(через него Rai ходит в интернет).")
+        return f"Не получилось {what}: нет связи с интернетом или сервис сейчас недоступен. Попробуйте ещё раз через минуту.{tip}"
+    return f"Не получилось {what}: сервис ответил ошибкой ({error}). Попробуйте ещё раз чуть позже."
 
 
 def url(base: str, **params) -> str:
@@ -25,37 +50,61 @@ def url(base: str, **params) -> str:
 
 
 def fetch_text(address: str, timeout: float = 10) -> str:
+    if IN_BROWSER:
+        return _browser_get(address)
     try:
-        if IN_BROWSER:
-            return _browser_get(address)
         req = urllib.request.Request(address, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8")
-    except Exception as e:  # сеть, DNS, таймаут, CORS в браузере
-        raise NetError(str(e) or e.__class__.__name__) from e
+    except urllib.error.HTTPError as e:  # сервис ответил, но с ошибкой
+        raise NetError(f"ответ {e.code}") from e
+    except Exception as e:  # сеть, DNS, таймаут
+        raise NetError(str(e) or e.__class__.__name__, offline=True) from e
+
+
+class _Status(Exception):
+    """Сервер ответил, но не 200."""
 
 
 def _xhr(address: str) -> str:
     """Синхронный запрос браузера: Python в Pyodide не умеет открывать сокеты сам."""
+    if SANDBOX:
+        raise NetError("интернет закрыт", offline=True)
     from js import XMLHttpRequest
     req = XMLHttpRequest.new()
     req.open("GET", address, False)
-    req.send(None)
+    try:
+        req.send(None)
+    except Exception as e:  # noqa: BLE001 — нет связи, CORS, политика безопасности страницы
+        raise NetError("нет связи", offline=True) from e
     if req.status != 200:
-        raise NetError(f"ответ {req.status}")
+        message = f"ответ {req.status}"
+        try:
+            message = json.loads(str(req.responseText)).get("error") or message
+        except (ValueError, AttributeError):
+            pass
+        raise NetError(message)
     return str(req.responseText)
 
 
+def _via(proxy: str, address: str) -> str:
+    return proxy + ("&" if "?" in proxy else "?") + "url=" + urllib.parse.quote(address, safe="")
+
+
 def _browser_get(address: str) -> str:
-    """Сначала через посредник на хостинге, если он есть, потом напрямую."""
-    tries = ([PROXY + ("&" if "?" in PROXY else "?") + "url=" + urllib.parse.quote(address, safe="")] if PROXY else []) + [address]
-    errors = []
+    """Сначала через посредник на хостинге, потом напрямую, потом — через net.php рядом со страницей."""
+    tries = ([_via(PROXY, address)] if PROXY else []) + [address]
+    if not PROXY and SAME_ORIGIN:
+        tries.append(_via(SAME_ORIGIN, address))
+    errors, offline = [], True
     for target in tries:
         try:
             return _xhr(target)
-        except Exception as e:  # noqa: BLE001 — пробуем следующий путь
-            errors.append(str(e) or e.__class__.__name__)
-    raise NetError("; ".join(errors))
+        except NetError as e:
+            errors.append(str(e))
+            offline = offline and e.offline
+            PROBLEMS.pop() if PROBLEMS else None  # копим одну итоговую ошибку, а не каждую попытку
+    raise NetError("; ".join(errors), offline=offline)
 
 
 # На сервере (app.py) поиск идёт через net.php хостинга, если задано RAI_SEARCH_URL=https://rai.rteam.info/net.php
@@ -67,7 +116,7 @@ def search(query: str, limit: int = 6):
 
     Без посредника возвращает [] — тогда Rai ищет только в Википедии.
     """
-    base = PROXY or SEARCH_URL
+    base = PROXY or SEARCH_URL or SAME_ORIGIN
     if not base:
         return []
     address = base + ("&" if "?" in base else "?") + urllib.parse.urlencode({"search": query[:300], "n": limit})
@@ -87,9 +136,9 @@ def search(query: str, limit: int = 6):
 
 def social(url: str) -> dict:
     """Данные для анализа по ссылке (TikTok, YouTube, Telegram, Instagram, VK, X, сайты) — через посредник на хостинге."""
-    base = PROXY or SEARCH_URL
+    base = PROXY or SEARCH_URL or SAME_ORIGIN
     if not base:
-        raise NetError("нет посредника net.php")
+        raise NetError("нет посредника net.php", offline=True)
     address = base + ("&" if "?" in base else "?") + urllib.parse.urlencode({"social": url[:2000]})
     text = _xhr(address) if IN_BROWSER else fetch_text(address, timeout=40)
     try:

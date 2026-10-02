@@ -368,13 +368,34 @@ class OnlineTest(unittest.TestCase):
 
     def test_no_internet(self):
         def down(*a, **k):
-            raise net.NetError("offline")
+            raise net.NetError("NetworkError: Failed to execute 'send' on 'XMLHttpRequest'", offline=True)
         with mock.patch.object(net, "fetch_text", down):
-            self.assertIn("нет связи", self.ask("погода в Казани")["answer"])
+            r = self.ask("погода в Казани")
+            self.assertIn("нет связи", r["answer"])
+            self.assertNotIn("XMLHttpRequest", r["answer"])  # без технических подробностей
+            self.assertTrue(r["offline"])                     # страница может отдать вопрос нейросети
+            self.assertIn("net.php", r["answer"])             # подсказка: посредник на хостинге
             self.assertIn("нет связи", self.ask("курс доллара")["answer"])
+            self.assertIn("не получилось перевести", self.ask("переведи на английский: доброе утро")["answer"].lower())
             answer = self.ask("что такое квазар", SUN)["answer"]
             self.assertIn("запомни, что квазар", answer)
             self.assertIn("не получилось", answer)
+            # окно просмотра, где интернет закрыт: сразу объясняем, куда идти
+            with mock.patch.object(net, "SANDBOX", True):
+                self.assertIn("rai.rteam.info", self.ask("погода в Минске")["answer"])
+                self.assertIn("rai.rteam.info", self.ask("https://www.tiktok.com/@user/video/1", SUN)["answer"])
+        self.assertFalse(self.ask("привет")["offline"])
+
+    def test_cities_offline(self):
+        import cities
+        for phrase, name in (("Минске", "Минск"), ("Нижнем Новгороде", "Нижний Новгород"), ("Ростове-на-Дону", "Ростов-на-Дону"),
+                             ("Питере", "Санкт-Петербург"), ("Уфе", "Уфа"), ("Перми", "Пермь"), ("Орле", "Орёл"), ("Бресте", "Брест")):
+            self.assertEqual(cities.find(phrase)["name"], name, phrase)
+        self.assertIsNone(cities.find("Березино"))
+        fake_net.calls.clear()
+        r = self.ask("какая погода в минске?")
+        self.assertIn("Минск, Беларусь", r["answer"])
+        self.assertFalse(any("geocoding" in c for c in fake_net.calls))  # город из справочника — без лишнего запроса
 
     def test_programming_languages(self):
         self.assertIn("```go", self.ask("hello world на go")["answer"])

@@ -12,6 +12,7 @@ from datetime import date
 
 import urllib.parse
 
+import cities
 import creative
 import net
 import nlp
@@ -84,6 +85,14 @@ def _city_candidates(phrase: str):
 
 
 def geocode(phrase: str):
+    """Координаты города: сначала свой справочник крупных городов (без запроса в интернет), потом Open-Meteo."""
+    known = cities.find(phrase)
+    if known:
+        return known
+    for cand in _city_candidates(phrase):
+        known = cities.find(cand)
+        if known:
+            return known
     for cand in _city_candidates(phrase):
         data = net.fetch_json(net.url("https://geocoding-api.open-meteo.com/v1/search",
                                       name=cand, count=1, language="ru", format="json"), ttl=86400)
@@ -114,7 +123,7 @@ def weather(text: str, session: dict, default_city: str = "Москва"):
             daily="weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
         ), ttl=600)
     except net.NetError as e:
-        return f"Не удалось узнать погоду: нет связи с сервисом погоды ({e}).", []
+        return net.explain(e, "узнать погоду"), []
 
     session["city"] = place.get("name", city_phrase)
     cur = data.get("current", {})
@@ -257,7 +266,7 @@ def currency(text: str):
     try:
         table, updated = rates()
     except net.NetError as e:
-        return f"Не удалось получить курсы валют: нет связи ({e})."
+        return net.explain(e, "получить курсы валют")
     found = [code for _, code in _find_currencies(text)]
     low = text.lower()
     if not found or re.search(r"курс\w*\s+валют", low) and len(found) < 2:
@@ -445,7 +454,7 @@ def translate(text: str):
                 return f"Сервис перевода ответил: {data.get('responseDetails', 'ошибка')}."
             out.append(data.get("responseData", {}).get("translatedText", ""))
     except net.NetError as e:
-        return f"Не удалось перевести: нет связи с сервисом перевода ({e})."
+        return net.explain(e, "перевести")
     result = " ".join(x for x in out if x).strip()
     return (f"**{LANGS.get(src, (None, src))[1].capitalize()} → {LANGS.get(dst, (None, dst))[1]}:**\n\n"
             f"> {body}\n\n{result}")

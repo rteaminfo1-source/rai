@@ -194,11 +194,26 @@
       return await loading;
     } catch (e) {
       engine = null; current = null; backend = null;
-      emit({state: "error", progress: 0, text: (e && e.message) || String(e)});
-      throw e;
+      const why = friendly(e);
+      emit({state: "error", progress: 0, text: why});
+      throw new Error(why);
     } finally {
       loading = null;
     }
+  }
+
+  /** Понятная причина, почему нейросеть не запустилась. */
+  function friendly(e) {
+    const m = (e && e.message) || String(e);
+    if (window.RAI_SANDBOX) return "В этом окне просмотра интернет закрыт, поэтому модель не скачать. Откройте Rai на сайте rai.rteam.info — там нейросеть работает.";
+    if (/failed to fetch|networkerror|network error|load failed|err_|fetch/i.test(m)) {
+      return "Не удалось скачать модель: нет связи с сервером моделей. Проверьте интернет и нажмите «Включить» ещё раз.";
+    }
+    if (/out of memory|oom|device (was )?lost|allocat|exceed.*(limit|memory)|maxBufferSize/i.test(m)) {
+      return "Видеокарте не хватило памяти для этой модели — выберите модель поменьше (Лайт или Стандарт).";
+    }
+    if (/quota|storage/i.test(m)) return "В браузере не хватило места для модели — освободите место на диске или выберите модель поменьше.";
+    return m;
   }
 
   async function disable(keepChoice) {
@@ -211,7 +226,7 @@
   /** Сам включить нейросеть при открытии страницы (кроме режима экономии трафика и телефона без видеокарты или по мобильной сети). */
   async function auto() {
     const choice = saved();
-    if (choice === "off") return null;
+    if (choice === "off" || window.RAI_SANDBOX) return null;  // в окне просмотра модель всё равно не скачать
     if (choice && MODELS[choice]) return enable(choice).catch(() => null);
     if (saveData()) return null;
     const {key, gpu} = await pick();

@@ -243,6 +243,7 @@ class Brain:
         elif version.multi and not _REMEMBER_RE.match(message) and not codeai.extract_code(message)[0]:
             parts = [p.strip() for p in re.split(r"(?<=\?)\s+|\n+", message) if p.strip()] or [message]
 
+        net.PROBLEMS.clear()
         answers, intents, attachments = [], [], []
         for part in parts[:5]:
             text, intent = self._answer_one(version, part, session, attachments)
@@ -259,6 +260,7 @@ class Brain:
             "version_name": version.name,
             "intent": intents[0] if len(intents) == 1 else intents,
             "attachments": attachments,
+            "offline": bool(net.PROBLEMS),  # был сбой сети — страница может отдать вопрос нейросети
         }
 
     def _answer_one(self, version: Version, text: str, session: dict, attachments: list):
@@ -404,7 +406,8 @@ class Brain:
             try:
                 found = self._web(self._subject(text) or text, attachments, raise_errors=True)
             except net.NetError:
-                found, note = None, "\n\n*Поискать в интернете не получилось: нет связи.*"
+                found, note = None, ("\n\n*Поиск в интернете в этом окне недоступен — на сайте [rai.rteam.info](https://rai.rteam.info) он работает.*"
+                                     if net.SANDBOX else "\n\n*Поискать в интернете не получилось: нет связи.*")
             if found:
                 return found
         return self._fallback(version, results, text) + note, None
@@ -444,7 +447,7 @@ class Brain:
         except net.NetError as e:
             if raise_errors:
                 raise
-            return f"Поискать в интернете не получилось: нет связи ({e}).", "web"
+            return net.explain(e, "поискать в интернете"), "web"
         if not found:
             return None
         reply, extra = found
@@ -613,8 +616,10 @@ class Brain:
             try:
                 data = social.fetch(url)
             except net.NetError as e:
-                return (f"Не получилось открыть ссылку {url}: {e}.\n\nАнализ по ссылке работает на сайте **rai.rteam.info** — "
-                        "там есть свой сервер (net.php), который читает TikTok, YouTube, Telegram, Instagram, VK и любые сайты.")
+                if net.SANDBOX or not (net.PROXY or net.SEARCH_URL or net.SAME_ORIGIN):
+                    return (f"Чтобы разобрать {url}, нужен свой сервер Rai: анализ по ссылке работает на сайте "
+                            "[rai.rteam.info](https://rai.rteam.info) — там net.php читает TikTok, YouTube, Telegram, Instagram, VK и любые сайты.")
+                return net.explain(e, "открыть ссылку") + "\n\nПроверьте, что ссылка открывается без входа в аккаунт."
         if data.get("error"):
             return (f"Не получилось открыть ссылку {url}: {data['error']}.\n\nПроверьте, что ссылка открывается без входа в аккаунт "
                     "(закрытые профили и приватные видео посмотреть нельзя).")
