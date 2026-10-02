@@ -641,5 +641,95 @@ class ScreenTest(unittest.TestCase):
         self.assertEqual(self.brain.answer(self.q, long, "s")["intent"], "screen")
 
 
+class HostingTest(unittest.TestCase):
+    """Пакет для хостинга и PHP: свой сервер нейросети (ai.php) и посредник для интернета (net.php)."""
+
+    def test_package(self):
+        import make_hosting
+        with tempfile.TemporaryDirectory() as out:
+            with mock.patch.dict(os.environ, {"GOOGLE_CLIENT_SECRET": "", "SSO_SECRET": ""}):
+                make_hosting.build(out)
+            rai = os.path.join(out, "rai.rteam.info")
+            for name in ("index.html", "ai.php", "net.php", "login.php", "config.php"):
+                self.assertTrue(os.path.isfile(os.path.join(rai, name)), name)
+            for root, _, files in os.walk(out):
+                for f in files:  # на хостинге только PHP и HTML (+ необязательные настройки сервера)
+                    self.assertTrue(f.endswith((".php", ".html")) or f in (".htaccess", "web.config", "ПРОЧТИ.txt"), f)
+            with open(os.path.join(rai, "index.html"), encoding="utf-8") as fh:
+                page = fh.read()
+            self.assertIn("ai.php", page)
+            self.assertIn("window.RaiNeuro", page)
+
+    @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
+    def test_php_servers(self):
+        import http.server
+        import socket
+        import subprocess
+        import threading
+        import time
+        import urllib.request
+        base = os.path.dirname(os.path.abspath(__file__))
+        for name in os.listdir(os.path.join(base, "hosting", "rai")):
+            if name.endswith(".php"):
+                r = subprocess.run(["php", "-l", os.path.join(base, "hosting", "rai", name)], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+        def free_port():
+            with socket.socket() as sk:
+                sk.bind(("127.0.0.1", 0))
+                return sk.getsockname()[1]
+        with tempfile.TemporaryDirectory() as up, tempfile.TemporaryDirectory() as site:
+            lib = os.path.join(up, "npm", "@mlc-ai", "web-llm@0.2.85", "lib")
+            os.makedirs(lib)
+            with open(os.path.join(lib, "index.js"), "w") as fh:
+                fh.write("export const ok = 1;\n" * 1000)
+            with open(os.path.join(up, "page.html"), "w", encoding="utf-8") as fh:
+                fh.write("<html><head><title>Радио</title><script>var secret=1</script></head><body><nav>меню меню меню меню меню меню</nav>"
+                         "<p>Радио изобрели Попов и Маркони в 1895 году.</p></body></html>")
+            class Quiet(http.server.SimpleHTTPRequestHandler):
+                def __init__(self, *a, **k):
+                    super().__init__(*a, directory=up, **k)
+
+                def log_message(self, *a):
+                    pass
+            upstream = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Quiet)
+            threading.Thread(target=upstream.serve_forever, daemon=True).start()
+            uport = upstream.server_address[1]
+            for name in ("ai.php", "net.php"):
+                with open(os.path.join(base, "hosting", "rai", name), encoding="utf-8") as src, open(os.path.join(site, name), "w", encoding="utf-8") as dst:
+                    dst.write(src.read())
+            port = free_port()
+            env = dict(os.environ, AI_UPSTREAM_NPM=f"http://127.0.0.1:{uport}/npm/", AI_TEST_HTTP="1", NET_TEST_LOCAL="1")
+            php = subprocess.Popen(["php", "-S", f"127.0.0.1:{port}", "-t", site], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                url = f"http://127.0.0.1:{port}/"
+                for _ in range(50):
+                    try:
+                        urllib.request.urlopen(url + "ai.php/ping", timeout=1)
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+                self.assertTrue(json.loads(urllib.request.urlopen(url + "ai.php/ping").read())["path_info"])
+                first = urllib.request.urlopen(url + "ai.php/npm/@mlc-ai/web-llm@0.2.85/lib/index.js")
+                self.assertEqual(first.headers["X-Rai-AI"], "fetched")
+                self.assertTrue(first.read().startswith(b"export const ok"))
+                second = urllib.request.urlopen(url + "ai.php/npm/@mlc-ai/web-llm@0.2.85/lib/index.js")
+                self.assertEqual(second.headers["X-Rai-AI"], "stored")       # копия на своём сайте
+                self.assertIn("javascript", second.headers["Content-Type"])
+                for bad in ("ai.php/npm/evil@1.0/x.js", "ai.php/hf/someone/model/resolve/main/x.bin"):
+                    with self.assertRaises(urllib.error.HTTPError) as err:
+                        urllib.request.urlopen(url + bad)
+                    self.assertEqual(err.exception.code, 403)
+                page = json.loads(urllib.request.urlopen(url + "net.php?read=" + urllib.parse.quote(f"http://127.0.0.1:{uport}/page.html")).read())
+                self.assertEqual(page["title"], "Радио")
+                self.assertIn("Попов и Маркони", page["text"])
+                self.assertNotIn("secret", page["text"])
+            finally:
+                php.terminate()
+                php.wait()
+                upstream.shutdown()
+                upstream.server_close()
+
+
 if __name__ == "__main__":
     unittest.main()

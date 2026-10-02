@@ -5,6 +5,8 @@
  *
  *   net.php?url=https://api.open-meteo.com/v1/forecast?...   — ответ сервиса как есть
  *   net.php?search=кто изобрёл радио&n=6                     — поиск в интернете: {"results": [{title, url, snippet}]}
+ *   net.php?social=https://www.tiktok.com/@user/video/1 — данные для анализа видео, аккаунта, канала, страницы
+ *   net.php?read=https://сайт/страница                       — прочитать страницу: {"url", "title", "text"} (для нейросети)
  *   net.php?ping=1                                           — проверка, что посредник работает
  *
  * Поиск: Google (если заданы GOOGLE_CSE_KEY и GOOGLE_CSE_CX — ключ Programmable Search Engine), иначе DuckDuckGo,
@@ -28,6 +30,14 @@ const NET_MAX_BYTES = 8 * 1024 * 1024;
 const NET_PER_MINUTE = 150;               // запросов в минуту с одного адреса
 const NET_GUARD = "<?php http_response_code(404); exit; ?>\n";
 define('NET_CACHE', __DIR__ . '/data/cache');
+
+if (!function_exists('mb_strlen')) {  // на случай хостинга без mbstring
+    function mb_strlen($s) { return preg_match_all('/./us', (string)$s); }
+    function mb_substr($s, $start, $len = null) {
+        preg_match_all('/./us', (string)$s, $m);
+        return implode('', array_slice($m[0], $start, $len));
+    }
+}
 
 header('Access-Control-Allow-Origin: *');
 header('X-Content-Type-Options: nosniff');
@@ -182,6 +192,137 @@ if (isset($_GET['ping'])) {
     echo json_encode(['ok' => true, 'service' => 'rai-net']);
     exit;
 }
+// ====================================================================== чтение страницы
+/** Публичный ли адрес (не локальная сеть, не сам хостинг) — чтобы через посредник нельзя было заглянуть внутрь. */
+function net_public_ip($ip) {
+    if (getenv('NET_TEST_LOCAL')) return true;  // только для проверки на своём компьютере
+    return (bool)filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+}
+
+/** Скачать страницу любого сайта (только публичные адреса, http/https, до 3 МБ) и достать из неё текст. */
+function net_read_page($address, $opts = []) {
+    if (getenv('NET_TEST_SOCIAL') && preg_match('#^https?://#', $address) && strpos($address, '127.0.0.1') === false) {
+        // проверка на своём компьютере: соцсети подменяются файлами-образцами
+        $address = getenv('NET_TEST_SOCIAL') . preg_replace(['#^https?://#', '#\?.*$#'], '', $address);
+    }
+    for ($hop = 0; $hop < 4; $hop++) {
+        $p = parse_url($address);
+        $scheme = strtolower($p['scheme'] ?? '');
+        $host = strtolower($p['host'] ?? '');
+        $port = (int)($p['port'] ?? ($scheme === 'https' ? 443 : 80));
+        if (!in_array($scheme, ['http', 'https'], true) || $host === '' || isset($p['user']) || (!in_array($port, [80, 443], true) && !getenv('NET_TEST_LOCAL'))) {
+            throw new RuntimeException('Такой адрес открыть нельзя', 400);
+        }
+        $ips = filter_var($host, FILTER_VALIDATE_IP) ? [$host] : (gethostbynamel($host) ?: []);
+        if (!$ips) throw new RuntimeException('Сайт не найден', 404);
+        foreach ($ips as $ip) {
+            if (!net_public_ip($ip)) throw new RuntimeException('Этот адрес закрыт', 403);
+        }
+        $body = '';
+        $ch = curl_init($address);
+        curl_setopt_array($ch, [
+            CURLOPT_RESOLVE => ["$host:$port:" . $ips[0]],  // ровно тот адрес, что проверили
+            CURLOPT_FOLLOWLOCATION => false, CURLOPT_TIMEOUT => 12, CURLOPT_CONNECTTIMEOUT => 6,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS, CURLOPT_ENCODING => '',
+            CURLOPT_USERAGENT => $opts['ua'] ?? 'Mozilla/5.0 (compatible; RaiBot/1.0; +https://rai.rteam.info)',
+            CURLOPT_HTTPHEADER => array_merge(['Accept: text/html,application/xhtml+xml,application/json;q=0.9,text/plain;q=0.8',
+                                               'Accept-Language: ' . ($opts['lang'] ?? 'ru,en;q=0.8')], $opts['headers'] ?? []),
+            CURLOPT_WRITEFUNCTION => function ($c, $chunk) use (&$body) {
+                $body .= $chunk;
+                return strlen($body) > 3 * 1024 * 1024 ? 0 : strlen($chunk);
+            },
+        ]);
+        curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $type = strtolower((string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE));
+        $location = (string)curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+        curl_close($ch);
+        if ($code >= 300 && $code < 400 && $location !== '') { $address = $location; continue; }
+        if ($code !== 200) throw new RuntimeException("Сайт ответил $code", 502);
+        if ($type && !preg_match('#text/html|text/plain|application/xhtml' . (!empty($opts['json']) ? '|json' : '') . '#', $type)) {
+            throw new RuntimeException('Это не страница с текстом', 415);
+        }
+        return [$address, $type, $body];
+    }
+    throw new RuntimeException('Слишком много перенаправлений', 502);
+}
+
+/** HTML → заголовок и чистый текст (без меню, скриптов и рекламы), в UTF-8. */
+function net_page_text($html, $type) {
+    $charset = '';
+    if (preg_match('/charset=([\w-]+)/i', $type, $m)) $charset = $m[1];
+    elseif (preg_match('/<meta[^>]+charset=["\']?([\w-]+)/i', substr($html, 0, 4000), $m)) $charset = $m[1];
+    // перекодируем, только если текст и правда не UTF-8 (бывает, что в заголовке написана неправда)
+    if ($charset && strtolower($charset) !== 'utf-8' && function_exists('mb_convert_encoding') && !mb_check_encoding($html, 'UTF-8')) {
+        $html = @mb_convert_encoding($html, 'UTF-8', $charset) ?: $html;
+    }
+    $title = preg_match('#<title[^>]*>(.*?)</title>#is', $html, $m) ? net_clean($m[1]) : '';
+    $html = preg_replace('#<(script|style|noscript|svg|nav|footer|header|form|aside|iframe|template)\b.*?</\1>#is', ' ', $html);
+    $html = preg_replace('#<!--.*?-->#s', ' ', $html);
+    $main = preg_match('#<(article|main)\b[^>]*>(.*?)</\1>#is', $html, $m) && strlen($m[2]) > 800 ? $m[2] : $html;
+    $main = preg_replace('#<(br|/p|/div|/li|/h[1-6]|/tr|/section|/blockquote)\b[^>]*>#i', "\n", $main);
+    $text = html_entity_decode(strip_tags($main), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $lines = [];
+    foreach (preg_split('/\n+/', $text) as $line) {
+        $line = trim(preg_replace('/[ \t\x{00a0}]+/u', ' ', $line));
+        if (mb_strlen($line) >= 18) $lines[] = $line;  // пункты меню и кнопки короче
+    }
+    return [$title, implode("\n", $lines)];
+}
+
+if (isset($_GET['read'])) {
+    $address = trim((string)$_GET['read']);
+    if (strlen($address) > 2000) net_fail(400, 'Слишком длинный адрес');
+    if (!is_dir(NET_CACHE)) @mkdir(NET_CACHE, 0775, true);
+    $key = NET_CACHE . '/r-' . sha1($address) . '.php';
+    header('Content-Type: application/json; charset=utf-8');
+    if (is_file($key) && filemtime($key) > time() - 3600) {
+        header('X-Rai-Cache: hit');
+        echo substr((string)@file_get_contents($key), strlen(NET_GUARD));
+        exit;
+    }
+    net_rate_limit();
+    try {
+        [$final, $type, $html] = net_read_page($address);
+    } catch (RuntimeException $e) {
+        net_fail($e->getCode() ?: 502, $e->getMessage());
+    }
+    [$title, $text] = net_page_text($html, $type);
+    $json = json_encode(['url' => $final, 'title' => $title, 'text' => mb_substr($text, 0, 30000)],
+                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    @file_put_contents($key, NET_GUARD . $json, LOCK_EX);
+    header('Cache-Control: public, max-age=3600');
+    echo $json;
+    exit;
+}
+
+// ====================================================================== анализ соцсетей и сайтов по ссылке
+if (isset($_GET['social'])) {
+    require __DIR__ . '/social.php';
+    $address = trim((string)$_GET['social']);
+    if (!preg_match('#^https?://#i', $address)) $address = 'https://' . $address;
+    if (strlen($address) > 2000) net_fail(400, 'Слишком длинный адрес');
+    if (!is_dir(NET_CACHE)) @mkdir(NET_CACHE, 0775, true);
+    $key = NET_CACHE . '/s-' . sha1('social|' . $address) . '.php';
+    header('Content-Type: application/json; charset=utf-8');
+    if (is_file($key) && filemtime($key) > time() - 900 && !getenv('NET_TEST_SOCIAL')) {
+        header('X-Rai-Cache: hit');
+        echo substr((string)@file_get_contents($key), strlen(NET_GUARD));
+        exit;
+    }
+    net_rate_limit();
+    try {
+        $data = social_analyze($address);
+    } catch (RuntimeException $e) {
+        net_fail($e->getCode() ?: 502, $e->getMessage());
+    }
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    @file_put_contents($key, NET_GUARD . $json, LOCK_EX);
+    header('Cache-Control: no-store');
+    echo $json;
+    exit;
+}
+
 if (isset($_GET['search'])) {
     $q = trim(preg_replace('/\s+/u', ' ', (string)$_GET['search']));
     $n = max(1, min(10, (int)($_GET['n'] ?? 6)));

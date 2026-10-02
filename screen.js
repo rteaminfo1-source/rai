@@ -151,7 +151,10 @@
     const problems = [];
     // RAI_OCR_LOCAL = false — рядом со страницей нет папки ocr/ (хостинг только с PHP и HTML), сразу CDN
     const sources = SOURCES().filter((src) => window.RAI_OCR_LOCAL !== false || /^https:\/\/cdn\./.test(src.lib));
-    for (const src of (H.ocrBase ? [H.ocrBase] : []).concat(sources)) {
+    // свой сайт (ai.php хранит копию распознавания) — раньше CDN
+    const mine = window.RAI_OCR_MIRROR ? [window.RAI_OCR_MIRROR] : [];
+    const ordered = sources.filter((x) => !/^https:\/\/cdn\./.test(x.lib)).concat(mine, sources.filter((x) => /^https:\/\/cdn\./.test(x.lib)));
+    for (const src of (H.ocrBase ? [H.ocrBase] : []).concat(ordered)) {
       try {
         if (!window.Tesseract) await loadScript(src.lib + "tesseract.min.js");
         const opts = {workerPath: src.lib + "worker.min.js", corePath: src.core, cacheMethod: "none",

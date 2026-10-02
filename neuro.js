@@ -1,47 +1,72 @@
-/* Rai Нейро — открытая нейросеть прямо в браузере. Без API и ключей: модель один раз загружается в браузер
+/* Rai Нейро — своя нейросеть Rai прямо в браузере. Без API и ключей: модель один раз загружается в браузер
    (сама, в фоне) и дальше работает на компьютере посетителя, сообщения никуда не уходят.
-   - Есть видеокарта с WebGPU — WebLLM и модели Qwen3.5 (быстро).
-   - Нет WebGPU — wllama (llama.cpp на WebAssembly) и модель поменьше на процессоре (медленнее, но работает везде).
+   - Есть видеокарта с WebGPU — WebLLM (быстро). Нет — wllama (llama.cpp на WebAssembly) на процессоре.
+   - Модели, библиотеки и программы для видеокарты берутся С ВАШЕГО САЙТА (ai.php на rai.rteam.info хранит копии);
+     если своего сервера нет — с исходных серверов (jsdelivr, Hugging Face, GitHub).
+   - В основе — открытые модели Qwen3.5 (лицензия Apache 2.0), под именем Rai Нейро.
    Страница подключает этот файл; всё управление — через window.RaiNeuro. */
 (function () {
   "use strict";
 
-  const GPU_LIB = "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm";
-  const CPU_LIB = "https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.1/esm/index.js";
-  const CPU_WASM = "https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.1/esm/wasm/wllama.wasm";
+  const WEBLLM = "0.2.85", WLLAMA = "3.6.1";
+  const UP = {
+    gpuLib: `https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@${WEBLLM}/lib/index.js`,  // один файл, без зависимостей
+    cpuLib: `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WLLAMA}/esm/index.js`,
+    cpuWasm: `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WLLAMA}/esm/wasm/wllama.wasm`
+  };
   const STORE = "rai_neuro";
-  // gpu: модели из официального списка WebLLM (f16 быстрее, f32 — для видеокарт без half-float);
-  // cpu: те же по уровню модели в формате GGUF для процессора (Hugging Face, открытые веса Qwen).
+  // gpu: модели WebLLM (f16 быстрее, f32 — для видеокарт без half-float);
+  // cpu: модели в формате GGUF для процессора (открытые веса Qwen).
+  const HF = "https://huggingface.co/";
   const MODELS = {
-    fast: {name: "Быстрая", label: "Qwen3.5 0.8B", size: "≈ 0,6 ГБ", memory: "2 ГБ",
+    fast: {name: "Лайт", label: "Rai Нейро Лайт", base: "Qwen3.5 0.8B", size: "≈ 0,6 ГБ", memory: "1,7 ГБ",
            f16: "Qwen3.5-0.8B-q4f16_1-MLC", f32: "Qwen3.5-0.8B-q4f32_1-MLC",
-           cpu: {repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF", file: "qwen2.5-0.5b-instruct-q4_k_m.gguf", label: "Qwen2.5 0.5B", size: "≈ 0,4 ГБ"}},
-    normal: {name: "Умная", label: "Qwen3.5 2B", size: "≈ 1,4 ГБ", memory: "2,6 ГБ",
+           cpu: {url: HF + "Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf", base: "Qwen2.5 0.5B", size: "≈ 0,4 ГБ"}},
+    normal: {name: "Стандарт", label: "Rai Нейро", base: "Qwen3.5 2B", size: "≈ 1,4 ГБ", memory: "2,3 ГБ",
              f16: "Qwen3.5-2B-q4f16_1-MLC", f32: "Qwen3.5-2B-q4f32_1-MLC",
-             cpu: {repo: "Qwen/Qwen2.5-1.5B-Instruct-GGUF", file: "qwen2.5-1.5b-instruct-q4_k_m.gguf", label: "Qwen2.5 1.5B", size: "≈ 1,1 ГБ"}},
-    strong: {name: "Очень умная", label: "Qwen3.5 4B", size: "≈ 2,6 ГБ", memory: "4,7 ГБ",
+             cpu: {url: HF + "Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf", base: "Qwen2.5 1.5B", size: "≈ 1,1 ГБ"}},
+    strong: {name: "Про", label: "Rai Нейро Про", base: "Qwen3.5 4B", size: "≈ 2,6 ГБ", memory: "3,9 ГБ",
              f16: "Qwen3.5-4B-q4f16_1-MLC", f32: "Qwen3.5-4B-q4f32_1-MLC",
-             cpu: {repo: "Qwen/Qwen2.5-3B-Instruct-GGUF", file: "qwen2.5-3b-instruct-q4_k_m.gguf", label: "Qwen2.5 3B", size: "≈ 2 ГБ"}},
-    max: {name: "Максимум", label: "Qwen3.5 9B", size: "≈ 5,5 ГБ", memory: "7,5 ГБ",
+             cpu: {url: HF + "Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf", base: "Qwen2.5 3B", size: "≈ 2 ГБ"}},
+    max: {name: "Макс", label: "Rai Нейро Макс", base: "Qwen3.5 9B", size: "≈ 5,5 ГБ", memory: "6,5 ГБ",
           f16: "Qwen3.5-9B-q4f16_1-MLC", f32: "Qwen3.5-9B-q4f32_1-MLC"},
-    coder: {name: "Программист", label: "Qwen2.5-Coder 7B", size: "≈ 4,5 ГБ", memory: "5 ГБ",
+    coder: {name: "Код", label: "Rai Нейро Код", base: "Qwen2.5-Coder 7B", size: "≈ 4,5 ГБ", memory: "5,1 ГБ",
             f16: "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC", f32: "Qwen2.5-Coder-7B-Instruct-q4f32_1-MLC"}
   };
 
-  const SYSTEM = [
-    "Ты — Rai, умный ИИ-ассистент команды Rteam. Отвечай на языке пользователя (по умолчанию по-русски), понятно, точно и по делу.",
-    "Думай шаг за шагом, но пиши только итог. Оформляй ответы в Markdown: заголовки, списки, таблицы, **жирный**.",
-    "Если в сообщении есть «Сведения из интернета» — опирайся на них, это свежие данные, и ставь ссылки на источники в виде [название](адрес).",
-    "Если просят программу, сайт, страницу или игру — пиши полный рабочий код целиком в одном блоке ```язык, без сокращений, «…» и заглушек.",
-    "Сайты, страницы и браузерные игры делай одним файлом index.html: CSS и JavaScript внутри, без внешних библиотек, современный красивый дизайн, адаптивный под телефон.",
-    "После кода коротко объясни, как им пользоваться. Не выдумывай факты: если не знаешь и в сведениях этого нет — честно скажи."
-  ].join(" ");
+  const SYSTEM = `Ты — Rai, собственная нейросеть команды Rteam (сайт rai.rteam.info). Ты умный, внимательный и честный помощник.
+Отвечаешь на языке пользователя (по умолчанию — по-русски), грамотно и естественно.
 
-  const CODE_SYSTEM = [
-    "Ты — Rai Code, помощник программиста. Отвечай по-русски.",
-    "Когда пишешь или исправляешь код — верни ВЕСЬ файл целиком в одном блоке ```язык, без сокращений и заглушек, затем 1–3 предложения о том, что сделано.",
-    "Веб-страницы и игры — одним файлом index.html (CSS и JS внутри, без внешних библиотек)."
-  ].join(" ");
+Как отвечать:
+- Сначала пойми, что именно спрашивают. На простой вопрос — коротко (1–3 предложения), на сложный — развёрнуто и по порядку.
+- Объясняй простыми словами, приводи примеры. В задачах — решение по шагам и чёткий итог: **Ответ: …**
+- Оформляй в Markdown: заголовки ##, списки, таблицы для сравнений, **жирный** для главного.
+- Считай аккуратно; всё сложнее устного счёта проверяй кодом.
+- Факты: если в сообщении есть «Сведения из интернета» — опирайся на них и ставь ссылки [название](адрес).
+  Никогда не выдумывай ссылки, цифры, цитаты и даты; не уверен — найди или честно скажи, что не знаешь.
+- Код: полный рабочий файл целиком в одном блоке \`\`\`язык, без «…» и заглушек. Сайты и браузерные игры — одним файлом
+  index.html (CSS и JavaScript внутри, без внешних библиотек), современный адаптивный дизайн. После кода — как запустить.
+- Помни весь разговор и то, что знаешь о пользователе; обращайся по имени, если знаешь его.
+- Ты — Rai. Если спросят, на чём ты основан: на открытой модели Qwen3.5, работаешь прямо в браузере пользователя.
+- Не помогай с тем, что может навредить людям.`;
+
+  const CODE_SYSTEM = `Ты — Rai Code, сильный программист-помощник. Отвечаешь по-русски.
+- Когда пишешь или исправляешь код — верни ВЕСЬ файл целиком в одном блоке \`\`\`язык, без сокращений и заглушек,
+  затем 1–3 предложения о том, что сделано.
+- Пиши чистый, рабочий код с понятными именами; обрабатывай ошибки ввода; не используй несуществующие функции.
+- Веб-страницы и игры — одним файлом index.html (CSS и JS внутри, без внешних библиотек).`;
+
+  // Свой сервер нейросети (ai.php на сайте): страница сообщает его адрес через useMirror()
+  let mirror = null;  // {root: "https://сайт/ai.php", pathInfo: true/false}
+  const SOURCES = [["https://cdn.jsdelivr.net/npm/", "npm/"], [HF, "hf/"], ["https://raw.githubusercontent.com/", "gh/"]];
+  /** Адрес файла на своём сайте (или исходный, если своего сервера нет). */
+  function own(url) {
+    if (!mirror) return url;
+    for (const [from, to] of SOURCES) {
+      if (url.startsWith(from)) return mirror.pathInfo ? mirror.root + "/" + to + url.slice(from.length) : mirror.root + "?p=" + to + url.slice(from.length);
+    }
+    return url;
+  }
 
   let engine = null, backend = null, worker = null, loading = null, current = null, abort = null;
   const listeners = new Set();
@@ -58,7 +83,10 @@
     try { adapter = await navigator.gpu.requestAdapter(); } catch (e) { adapter = null; }
     if (!adapter) return {ok: false, why: "WebGPU есть, но видеокарта недоступна — нейросеть будет работать на процессоре."};
     const limits = adapter.limits || {};
-    return {ok: true, f16: !!(adapter.features && adapter.features.has("shader-f16")), buffer: limits.maxBufferSize || 0};
+    let info = adapter.info || null;
+    if (!info && adapter.requestAdapterInfo) { try { info = await adapter.requestAdapterInfo(); } catch (e) { info = null; } }
+    const name = ((info && (info.vendor + " " + (info.architecture || "") + " " + (info.description || ""))) || "").toLowerCase();
+    return {ok: true, f16: !!(adapter.features && adapter.features.has("shader-f16")), buffer: limits.maxBufferSize || 0, name: name};
   }
 
   function saved() {
@@ -70,12 +98,18 @@
   const mobile = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
   const saveData = () => !!(navigator.connection && navigator.connection.saveData);
 
-  /** Какую модель взять самому: по памяти устройства и видеокарте. */
+  /**
+   * Какую модель взять самому — самую умную, которая потянет устройство:
+   * отдельная видеокарта (NVIDIA, AMD) или Apple M с 8+ ГБ — «Про» (4B), встроенная — «Стандарт» (2B), телефон — «Лайт».
+   */
   async function pick() {
-    const gpu = window.RAI_NEURO_TEST ? {ok: true, f16: true, buffer: 4e9} : await gpuInfo();
+    const gpu = window.RAI_NEURO_TEST ? Object.assign({ok: true, f16: true, buffer: 4e9, name: ""}, window.RAI_NEURO_TEST.gpu || {}) : await gpuInfo();
     const ram = navigator.deviceMemory || 4;
     if (!gpu.ok) return {key: ram >= 8 && !mobile() ? "normal" : "fast", gpu: gpu};
-    if (mobile() || ram < 8) return {key: "fast", gpu: gpu};
+    if (mobile() || ram < 4) return {key: "fast", gpu: gpu};
+    const discrete = /nvidia|geforce|rtx|radeon|amd|ati\b|rdna|ampere|ada|lovelace|turing|blackwell/.test(gpu.name || "");
+    const apple = /apple|metal-3|m[1-9]\b/.test(gpu.name || "");
+    if ((discrete || apple) && ram >= 8 && gpu.buffer >= 1e9) return {key: "strong", gpu: gpu};
     return {key: "normal", gpu: gpu};
   }
 
@@ -85,6 +119,7 @@
     if (engine && current === key) return engine;
     if (loading) return loading;
     loading = (async () => {
+      let from = "upstream";
       emit({state: "loading", text: "Проверяю видеокарту…", progress: 0, model: key});
       const gpu = window.RAI_NEURO_TEST ? {ok: !window.RAI_NEURO_TEST.cpu, f16: true} : await gpuInfo();
       const model = MODELS[key];
@@ -95,12 +130,32 @@
         const id = gpu.f16 ? model.f16 : model.f32;
         const progress = (r) => onProgress(typeof r.progress === "number" ? r.progress : 0, r.text && /cache|кэш/i.test(r.text));
         if (window.RAI_NEURO_TEST) {
-          engine = await window.RAI_NEURO_TEST.create(id, progress);
+          engine = await window.RAI_NEURO_TEST.create(id, progress, own(HF + "mlc-ai/" + id));
+          from = mirror ? "site" : "upstream";
         } else {
-          const webllm = await import(GPU_LIB);
-          const src = `import * as w from "${GPU_LIB}"; const h = new w.WebWorkerMLCEngineHandler(); self.onmessage = (m) => h.onmessage(m);`;
-          worker = new Worker(URL.createObjectURL(new Blob([src], {type: "text/javascript"})), {type: "module"});
-          engine = await webllm.CreateWebWorkerMLCEngine(worker, id, {initProgressCallback: progress}, {context_window_size: 8192});
+          // Библиотека: сначала со своего сайта, если не вышло — с CDN
+          let lib = own(UP.gpuLib), webllm;
+          try { webllm = await import(lib); } catch (e) { if (lib === UP.gpuLib) throw e; lib = UP.gpuLib; webllm = await import(lib); }
+          const start = async (appConfig) => {
+            const src = `import * as w from "${lib}"; const h = new w.WebWorkerMLCEngineHandler(); self.onmessage = (m) => h.onmessage(m);`;
+            worker = new Worker(URL.createObjectURL(new Blob([src], {type: "text/javascript"})), {type: "module"});
+            const cfg = {initProgressCallback: progress};
+            if (appConfig) cfg.appConfig = appConfig;
+            return webllm.CreateWebWorkerMLCEngine(worker, id, cfg, {context_window_size: 8192});
+          };
+          // Модель и её программа для видеокарты — со своего сайта (ai.php), иначе — с Hugging Face и GitHub
+          const rec = (webllm.prebuiltAppConfig.model_list || []).find((r) => r.model_id === id);
+          const mine = rec && mirror && mirror.pathInfo ? {model_list: [Object.assign({}, rec, {model: own(rec.model), model_lib: own(rec.model_lib)})]} : null;
+          try {
+            engine = await start(mine);
+            from = mine ? "site" : "upstream";
+          } catch (e) {
+            if (!mine) throw e;
+            if (worker) worker.terminate();
+            emit({text: "С вашего сайта модель не загрузилась — беру с исходного сервера…"});
+            engine = await start(null);
+            from = "upstream";
+          }
         }
         backend = "gpu";
         current = key;
@@ -110,12 +165,16 @@
         const cpu = model.cpu || MODELS.normal.cpu;
         emit({text: "Видеокарты нет — запускаю нейросеть на процессоре…"});
         if (window.RAI_NEURO_TEST) {
-          engine = await window.RAI_NEURO_TEST.create(cpu.file, (r) => onProgress(r.progress || 0));
+          engine = await window.RAI_NEURO_TEST.create(cpu.url.split("/").pop(), (r) => onProgress(r.progress || 0), own(cpu.url));
+          from = mirror ? "site" : "upstream";
         } else {
-          const {Wllama} = await import(CPU_LIB);
-          const w = new Wllama({default: CPU_WASM}, {logger: {debug() {}, log() {}, warn: console.warn, error: console.error}});
-          await w.loadModelFromHF({repo: cpu.repo, file: cpu.file},
-            {n_ctx: 4096, progressCallback: ({loaded, total}) => onProgress(total ? loaded / total : 0)});
+          let lib = own(UP.cpuLib), mod;
+          try { mod = await import(lib); } catch (e) { if (lib === UP.cpuLib) throw e; lib = UP.cpuLib; mod = await import(lib); }
+          const w = new mod.Wllama({default: lib === UP.cpuLib ? UP.cpuWasm : own(UP.cpuWasm)},
+                                   {logger: {debug() {}, log() {}, warn: console.warn, error: console.error}});
+          const load = (url) => w.loadModelFromUrl(url, {n_ctx: 4096, progressCallback: ({loaded, total}) => onProgress(total ? loaded / total : 0)});
+          try { await load(own(cpu.url)); from = mirror ? "site" : "upstream"; }
+          catch (e) { if (own(cpu.url) === cpu.url) throw e; await load(cpu.url); from = "upstream"; }
           engine = {
             wllama: w,
             unload: () => w.exit(),
@@ -124,10 +183,11 @@
         }
         backend = "cpu";
         current = model.cpu ? key : "normal";
-        emit({label: cpu.label + " · процессор"});
+        emit({label: MODELS[current].label + " · процессор"});
       }
       remember(key);
-      emit({state: "ready", progress: 1, text: "Нейросеть: " + status.label, model: key, backend: backend});
+      emit({state: "ready", progress: 1, model: key, backend: backend, from: from,
+            text: status.label + " — " + (from === "site" ? "загружена с вашего сайта" : "загружена с исходного сервера")});
       return engine;
     })();
     try {
@@ -186,8 +246,9 @@
     lastThought = "";
     try {
       const stream = await engine.chat.completions.create({
-        messages: [{role: "system", content: (opts && opts.system) || SYSTEM}].concat(messages),
-        stream: true, temperature: (opts && opts.temperature) ?? (thinking ? 0.6 : 0.5), top_p: 0.9,
+        messages: [{role: "system", content: (opts && opts.system) || SYSTEM}].concat(messages.map((m) => ({role: m.role, content: m.content}))),
+        // рекомендованные для Qwen3.5 настройки: с размышлением 0.6/0.95, без — 0.7/0.8 (код — точнее, 0.2)
+        stream: true, temperature: (opts && opts.temperature) ?? (thinking ? 0.6 : 0.7), top_p: thinking ? 0.95 : 0.8,
         max_tokens: ((opts && opts.maxTokens) || 3000) + (thinking ? 3000 : 0),
         extra_body: {enable_thinking: thinking}
       });
@@ -223,6 +284,9 @@
   }
 
   window.RaiNeuro = {
+    useMirror: (m) => { mirror = m && m.root ? {root: m.root.replace(/\/+$/, ""), pathInfo: !!m.pathInfo} : null; },
+    mirror: () => mirror,
+    own: own,
     MODELS: MODELS,
     SYSTEM: SYSTEM,
     CODE_SYSTEM: CODE_SYSTEM,

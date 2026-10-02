@@ -593,7 +593,7 @@
         <button id="screenBtn" class="round side" type="button" aria-label="Снимок или запись экрана" aria-haspopup="menu" title="Снимок или запись экрана"><svg class="i"><use href="#i-screen"/></svg></button>
         <label for="input" hidden>Сообщение для Rai</label>
         <textarea id="input" rows="1" placeholder="Спросите Rai…"></textarea>
-        <button id="thinkBtn" class="round side" type="button" aria-pressed="false" aria-label="Думать глубже" title="Думать глубже: нейросеть сначала рассуждает и проверяет себя (дольше, но умнее)" hidden><svg class="i"><use href="#i-think"/></svg></button>
+        <button id="thinkBtn" class="round side" type="button" aria-pressed="false" aria-label="Думать глубже" title="Всегда думать глубже: нейросеть сначала рассуждает и проверяет себя (сложные задачи она и так обдумывает сама)" hidden><svg class="i"><use href="#i-think"/></svg></button>
         <button id="mic" class="round" type="button" aria-label="Голосовой ввод" title="Голосовой ввод"><svg class="i"><use href="#i-mic"/></svg></button>
         <button id="send" class="round" type="submit" aria-label="Отправить" title="Отправить (Enter)"><svg class="i"><use href="#i-send"/></svg></button>
       </form>
@@ -609,11 +609,12 @@
   <div class="neuro-card">
     <div class="neuro-head"><h2 id="neuroTitle">Нейросеть в браузере</h2>
       <button class="icon-btn" type="button" id="neuroClose" aria-label="Закрыть"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-    <p>С нейросетью Rai <b>сам пишет код</b> — сайты, игры, программы на любом языке — и отвечает на любые вопросы,
-      а перед ответом <b>ищет свежие сведения в интернете</b> и ставит ссылки. Это открытые модели <b>Qwen3.5</b>: работают прямо
-      на вашем компьютере, без API и ключей, ваши сообщения никуда не уходят. Ничего устанавливать не нужно — на компьютере
-      нейросеть включается сама и загружается в фоне один раз, дальше берётся из кэша браузера. Нет видеокарты — работает на процессоре.</p>
+    <p><b>Rai Нейро</b> — своя нейросеть Rai. Отвечает на любые вопросы, сама <b>ищет в интернете</b> и читает найденные страницы,
+      <b>считает и проверяет кодом</b>, пишет сайты, игры и программы, помнит вас. Работает прямо на вашем компьютере —
+      без API и ключей, сообщения никуда не уходят. Ничего устанавливать не нужно: включается сама и загружается один раз,
+      дальше — из кэша браузера. Нет видеокарты — работает на процессоре. В основе — открытые модели Qwen3.5 (Apache 2.0).</p>
     <div class="neuro-models" id="neuroModels" role="radiogroup" aria-label="Модель"></div>
+    <p class="neuro-note" id="neuroWhere"></p>
     <div class="neuro-progress" id="neuroProgress" hidden><div id="neuroBar"></div></div>
     <div class="neuro-mem" id="memBox" hidden><b>Что нейросеть помнит о вас</b><ul id="memList"></ul>
       <button class="btn" type="button" id="memClear">Забыть всё</button></div>
@@ -1553,7 +1554,10 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
   // Загрузить Pyodide: пробуем источники по очереди, каждый с ограничением по времени.
   async function loadPython(onStep) {
     const sources = [];
-    for (const src of [CFG.pyodide].concat(window.RAI_PYODIDE_SOURCES)) {
+    const mirror = await mirrorReady;
+    // Python со своего сайта (ai.php хранит копию), если есть свой сервер нейросети
+    const mine = mirror && mirror.pathInfo ? [mirror.root + "/npm/pyodide@314.0.7/"] : [];
+    for (const src of [CFG.pyodide].concat(mine, window.RAI_PYODIDE_SOURCES)) {
       if (src && !sources.includes(src)) sources.push(src);
     }
     const problems = [];
@@ -1592,6 +1596,37 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     return "";
   }
   const proxyReady = findProxy().then((p) => { window.RAI_NET_PROXY = p; return p; });
+
+  // Свой сервер нейросети (ai.php): модели, библиотеки, Python и распознавание текста — с вашего сайта
+  const HOME_AI = "https://rai.rteam.info/ai.php";
+  async function findMirror() {
+    if (typeof window.RAI_AI === "object") return window.RAI_AI;
+    const tries = [];
+    if (/^https?:$/.test(location.protocol)) tries.push(new URL("ai.php", location.href).href);
+    if (!tries.includes(HOME_AI)) tries.push(HOME_AI);
+    for (const root of tries) {
+      for (const [address, pathInfo] of [[root + "/ping", true], [root + "?ping=1", false]]) {
+        try {
+          const r = await withTimeout(fetch(address, {cache: "no-store"}), 3000);
+          const j = r.ok ? await r.json() : null;
+          if (j && j.service === "rai-ai" && j.curl !== false) return {root: root, pathInfo: pathInfo && j.path_info === true};
+        } catch (e) { /* нет своего сервера по этому адресу */ }
+      }
+    }
+    return null;
+  }
+  const mirrorReady = findMirror().then((m) => {
+    window.RAI_AI = m;
+    if (m && window.RaiNeuro) window.RaiNeuro.useMirror(m);
+    // PowerPoint и распознавание текста — тоже со своего сайта
+    const own = (path) => m.pathInfo ? m.root + "/" + path : m.root + "?p=" + path;
+    if (m) {
+      window.RAI_PPTX_URL = window.RAI_PPTX_URL || own("npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js");
+      if (m.pathInfo) window.RAI_OCR_MIRROR = {lib: own("npm/tesseract.js@5.1.1/dist/"), core: own("npm/tesseract.js-core@5.1.1/"),
+        files: {rus: own("npm/@tesseract.js-data/rus/4.0.0_best_int/rus.traineddata.gz"), eng: own("npm/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz")}};
+    }
+    return m;
+  }).catch(() => null);
 
   async function browserEngine() {
     const t0 = Date.now();
@@ -1768,22 +1803,26 @@ def rai_code(action, code, lang, prompt):
           sendAsStop(false);
           sendBtn.disabled = true;
         }
-        if (data.neuro) data.version_name = "Нейросеть " + (window.RaiNeuro.status().label || "") + " + Rai";
+        if (data.neuro) data.version_name = (window.RaiNeuro.status().label || "Rai Нейро") + " + Rai";
       }
       if (neuro && (!data || !isToolAnswer(data))) {
         // Сначала — свежие сведения: что Rai уже нашёл в интернете, или поиск по вопросу
         let facts = {text: "", sources: []};
-        if (!shots.length) {
-          if (data && ["web", "glossary"].includes(data.intent) && data.answer) {
-            facts = {text: data.answer.slice(0, 2600), sources: linksOf(data.answer)};
-          } else if (engine.context) {
-            pending.querySelector(".bubble").textContent = "Ищу в интернете…";
-            try { facts = await engine.context(text); } catch (e) { facts = {text: "", sources: []}; }
-          }
+        const intent = data ? [].concat(data.intent || []) : [];
+        if (!shots.length && (wantsFacts(text) || intent.includes("web"))) {
+          // Поиск + чтение найденных страниц (богаче, чем короткие ответы поисковика)
+          pending.querySelector(".bubble").textContent = "Ищу в интернете и читаю найденные страницы…";
+          facts = await webContext(text, engine);
+          if (!facts.text && intent.includes("web") && data.answer) facts = {text: data.answer.slice(0, 2600), sources: linksOf(data.answer)};
         }
-        const prompt = shots.length ? `${text}\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""`
-          : facts.text ? `${text}\n\nСведения из интернета (свежие, используй их и ставь ссылки):\n"""\n${facts.text}\n"""` : text;
-        reply = await neuroAnswer(pending, history, prompt, t0, facts.sources, {thinking: thinkOn()});
+        let kb = data ? kbFacts(data) : "";
+        if (!kb && intent.includes("glossary") && data.answer) kb = data.answer.slice(0, 1500);  // словарь Rai
+        let prompt = text;
+        if (shots.length) prompt += `\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""`;
+        if (kb) prompt += `\n\nСправка из базы знаний Rai (точные сведения):\n"""\n${kb}\n"""`;
+        if (facts.text) prompt += `\n\nСведения из интернета (свежие, используй их и ставь ссылки):\n"""\n${facts.text}\n"""`;
+        // Сложная задача (математика, логика, ошибки в коде) — нейросеть сначала думает; кнопка «лампочка» — думать всегда
+        reply = await neuroAnswer(pending, history, prompt, t0, facts.sources, {thinking: thinkOn() || isHard(text), question: text});
         const photos = ((data && data.attachments) || []).filter((a) => a.type === "photo");
         if (photos.length) reply.attachments = photos.concat(reply.attachments || []);
       } else {
@@ -1846,11 +1885,85 @@ def rai_code(action, code, lang, prompt):
   }
   const AGENT_TOOLS = [
     "У тебя есть инструменты. Чтобы воспользоваться, напиши команду ОТДЕЛЬНОЙ строкой и остановись — я выполню её и пришлю результат:",
-    "ПОИСК: запрос — найти свежие сведения в интернете (новости, факты, цены, люди, события, всё, в чём не уверен);",
-    "```run-python — блок кода Python, который я выполню и пришлю вывод print (для расчётов, проверки, работы с данными; закрой блок ```);",
+    "ПОИСК: запрос — найти свежие сведения в интернете и прочитать найденные страницы (новости, факты, цены, люди, события — всё, в чём не уверен);",
+    "ОТКРОЙ: https://адрес — прочитать страницу по ссылке (если пользователь дал ссылку или нужна подробность из найденного);",
+    "```run-python — блок кода Python, который я выполню и пришлю вывод print (расчёты, проверка ответа, работа с данными; закрой блок ```);",
     "ЗАПОМНИ: факт — навсегда запомнить важное о пользователе (имя, предпочтения, цели), если он сам это сообщил.",
     "Не выдумывай результаты команд. Когда сведений достаточно — сразу отвечай пользователю обычным текстом, без команд."
   ].join("\n");
+
+  // ---------------------------------------------------------------- свежие сведения для нейросети (в фоне — страница не замирает)
+  const STOP = new Set(("что как кто где когда почему зачем какой какая какое какие каков это такое такой такая расскажи объясни " +
+    "мне про для или его она они был была было есть быть сейчас сегодня можно нужно чем чего кого очень the what who how why when where").split(" "));
+  function keyWords(text) {
+    const words = String(text || "").toLowerCase().replace(/ё/g, "е").match(/[a-zа-я0-9]{3,}/g) || [];
+    return [...new Set(words.filter((w) => !STOP.has(w)).map((w) => w.length > 5 ? w.slice(0, w.length - 2) : w))];
+  }
+  function overlap(words, text) {
+    const t = String(text || "").toLowerCase().replace(/ё/g, "е");
+    return words.filter((w) => t.includes(w)).length;
+  }
+  const FACT_RE = /(?<![а-яёa-z])(кто|что так|что за|что значит|когда|где|почему|зачем|сколько|какой|какая|какое|какие|каков|расскажи|объясни|новост|последн|сегодня|сейчас|курс|цена|стоит|стоимость|факт|истори|биограф|сравни|лучше|отличи|правда ли|what|who|when|where|why|how|which)/i;
+  const BUILD_RE = /(напиши|сделай|создай|сгенерируй|придумай|сочини|переведи|исправь|перепиши)\s.*(сайт|игр|программ|код|бот|страниц|приложени|функци|скрипт|стих|рассказ|песн|текст|письм|эссе|сочинени)/i;
+  const wantsFacts = (text) => FACT_RE.test(text) && !BUILD_RE.test(text) && text.length >= 6;
+  const HARD_RE = /(реши|решить|решение|задач|уравнен|неравенств|докаж|доказат|вычисли|посчитай|вероятност|производн|интеграл|логическ|загадк|головоломк|оптимиз|сложност|алгоритм|найди ошибку|почему не работает|ошибк[аиу] в код|прове(рь|рить) (решение|код|ответ))/i;
+  function isHard(text) {
+    return HARD_RE.test(text) || (/\d/.test(text) && /[+\-*/^=×÷]/.test(text) && text.length > 25) || text.length > 700;
+  }
+  // Справка из базы знаний Rai — для тем, где там точные сведения (программирование, команда Rteam)
+  const KB_FACTS = new Set(["python", "python_hello", "python_loops", "python_functions", "python_lists", "variable", "php", "html", "css",
+    "javascript", "sql", "git", "api", "json", "http_errors", "hosting", "flask", "ai", "algorithm", "debug", "learn_programming", "security",
+    "compare_python_php", "rteam", "creator", "contact", "join_team", "who_are_you", "abilities", "proglang"]);
+  function kbFacts(data) {
+    const intents = [].concat(data.intent || []);
+    return data.answer && intents.some((i) => KB_FACTS.has(i)) ? data.answer.slice(0, 1800) : "";
+  }
+  async function viaProxy(params, ms) {
+    const proxy = await proxyReady;
+    if (!proxy) return null;
+    const r = await withTimeout(fetch(proxy + "?" + new URLSearchParams(params)), ms || 15000);
+    return r.ok ? r.json() : null;
+  }
+  /** Прочитать страницу и взять из неё куски по теме вопроса. */
+  async function readPage(url, words, limit) {
+    let page = null;
+    try { page = await viaProxy({read: url}, 15000); } catch (e) { page = null; }
+    if (!page || !page.text) return null;
+    const paras = page.text.split("\n").map((t, i) => ({t: t, i: i, s: overlap(words, t)}));
+    const best = paras.filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 8).sort((a, b) => a.i - b.i);
+    let text = "";
+    for (const x of best.length ? best : paras.slice(0, 8)) {
+      if (text.length + x.t.length > (limit || 1500)) break;
+      text += x.t + "\n";
+    }
+    return {title: page.title || url, url: page.url || url, text: text.trim()};
+  }
+  /**
+   * Свежие сведения по вопросу: поиск (Google / DuckDuckGo через свой сайт) + чтение двух лучших страниц.
+   * Без посредника на хостинге — Википедия через движок Rai.
+   */
+  async function webContext(query, engine) {
+    const words = keyWords(query);
+    let found = null;
+    try { found = await viaProxy({search: query.slice(0, 300), n: 8}, 15000); } catch (e) { found = null; }
+    const results = ((found && found.results) || []).filter((r) => overlap(words, r.title + " " + (r.snippet || "")) >= Math.max(1, Math.ceil(words.length / 3)));
+    if (!results.length) {
+      return engine && engine.context ? engine.context(query, true).catch(() => ({text: "", sources: []})) : {text: "", sources: []};
+    }
+    const pages = (await Promise.all(results.slice(0, 2).map((r) => readPage(r.url, words, 1500)))).filter(Boolean);
+    const parts = [], sources = [];
+    for (const p of pages) {
+      if (!p.text) continue;
+      parts.push(`[${p.title}](${p.url}):\n${p.text}`);
+      sources.push({title: p.title, url: p.url});
+    }
+    for (const r of results.slice(0, 6)) {
+      if (sources.some((x) => x.url === r.url)) continue;
+      parts.push(`[${r.title}](${r.url}): ${r.snippet || ""}`);
+      sources.push({title: r.title, url: r.url});
+    }
+    return {text: parts.join("\n\n").slice(0, 4200), sources: sources.slice(0, 6)};
+  }
   function agentSystem(thinking) {
     const now = new Date();
     const facts = memory();
@@ -1860,10 +1973,12 @@ def rai_code(action, code, lang, prompt):
       "\n\n" + AGENT_TOOLS + (thinking ? "\nЗадача сложная: подумай как следует, проверь себя (можно кодом) и только потом отвечай." : "");
   }
   function agentCommand(text) {
-    const run = text.match(/```run-python[^\n]*\n([\s\S]*?)(?:```|$)/);
+    const run = text.match(/```(?:run-python|python-run|run_python)[^\n]*\n([\s\S]*?)(?:```|$)/i);
     if (run && run[1].trim()) return {kind: "python", code: run[1].replace(/\s+$/, ""), cut: run.index};
-    const search = text.match(/^[ \t>*_-]*ПОИСК:\s*(.{2,200})$/m);
-    if (search) return {kind: "search", query: search[1].replace(/[*_`]+/g, "").trim(), cut: search.index};
+    const open = text.match(/^[ \t>*_-]*(?:ОТКРОЙ|Открой|OPEN)\s*[:：—-]\s*<?(https?:\/\/[^\s>]+)>?\s*$/m);
+    if (open) return {kind: "open", url: open[1].replace(/[).,]+$/, ""), cut: open.index};
+    const search = text.match(/^[ \t>*_-]*(?:ПОИСК|Поиск|SEARCH|Search)\s*[:：—-]\s*(.{2,200})$/m);
+    if (search) return {kind: "search", query: search[1].replace(/[*_`"«»]+/g, "").trim(), cut: search.index};
     return null;
   }
   function takeMemories(text, trace) {
@@ -1872,11 +1987,16 @@ def rai_code(action, code, lang, prompt):
       return "";
     }).trim();
   }
-  async function runTool(cmd, engine) {
+  async function runTool(cmd, engine, question) {
     if (cmd.kind === "search") {
-      const res = engine.context ? await engine.context(cmd.query, true).catch(() => ({text: "", sources: []})) : {text: "", sources: []};
+      const res = await webContext(cmd.query, engine);
       return {text: res.text ? "Результаты поиска «" + cmd.query + "»:\n" + res.text : "Поиск «" + cmd.query + "» ничего не нашёл (или нет связи с интернетом).",
               sources: res.sources || []};
+    }
+    if (cmd.kind === "open") {
+      const page = await readPage(cmd.url, keyWords(question + " " + cmd.url), 3500);
+      return page && page.text ? {text: `Страница [${page.title}](${page.url}):\n${page.text}`, sources: [{title: page.title, url: page.url}]}
+        : {text: "Страницу " + cmd.url + " открыть не удалось.", sources: []};
     }
     if (!window.RaiCode || !window.RaiCode.runSnippet) return {text: "Запуск кода недоступен."};
     const r = await window.RaiCode.runSnippet("python", cmd.code, pyodideSources(), 60000);
@@ -1889,9 +2009,9 @@ def rai_code(action, code, lang, prompt):
     pending.classList.remove("pending");
     bubble.classList.add("md");
     const engine = await enginePromise;
-    // Память разговора: последние сообщения, но не больше ~7000 символов
+    // Память разговора: последние сообщения, но не больше ~5000 символов (окно модели — 8192 токена)
     const msgs = [];
-    let budget = 7000;
+    let budget = 5000;
     for (const m of history.slice(-16).reverse()) {
       const c = String(m.content || "").slice(0, 2500);
       if ((budget -= c.length) < 0) break;
@@ -1908,26 +2028,32 @@ def rai_code(action, code, lang, prompt):
     sendAsStop(true);
     let text = "";
     try {
-      for (let step = 0; step < 4; step++) {
+      const question = opts.question || prompt.split("\n\n")[0];
+      const MAX_STEPS = 6;
+      for (let step = 0; step < MAX_STEPS; step++) {
         const raw = await N.chat(msgs, (full) => {
           const cmd = agentCommand(full);
           show(cmd ? full.slice(0, cmd.cut) : full.replace(/^[ \t>*_-]*ЗАПОМНИ:.*$/gm, ""));
         }, {system: agentSystem(thinking), thinking: thinking && step === 0,
             onThink: (t) => show("> 🧠 *Думаю…*\n>\n> " + t.slice(-600).replace(/\n+/g, "\n> "))});
         if (thinking && step === 0 && N.lastThought()) trace.unshift({kind: "think", text: N.lastThought()});
-        const cmd = step < 3 ? agentCommand(raw) : null;
+        const cmd = step < MAX_STEPS - 1 ? agentCommand(raw) : null;
         if (!cmd || !N.ready()) { text = raw; break; }
         const before = takeMemories(raw.slice(0, cmd.cut), trace);
-        show((before ? before + "\n\n" : "") + (cmd.kind === "search" ? "🔎 *Ищу в интернете: " + cmd.query + "…*" : "▶ *Выполняю код…*"));
-        const result = await runTool(cmd, engine);
-        if (cmd.kind === "search") {
-          trace.push({kind: "search", query: cmd.query, found: (result.sources || []).map((x) => x.title)});
+        show((before ? before + "\n\n" : "") + (cmd.kind === "search" ? "🔎 *Ищу в интернете: " + cmd.query + "…*"
+          : cmd.kind === "open" ? "📄 *Читаю страницу " + cmd.url + "…*" : "▶ *Выполняю код…*"));
+        const result = await runTool(cmd, engine, question);
+        if (cmd.kind === "search" || cmd.kind === "open") {
+          trace.push({kind: cmd.kind, query: cmd.kind === "open" ? cmd.url : cmd.query, found: (result.sources || []).map((x) => x.title)});
           for (const x of result.sources || []) if (!allSources.some((y) => y.url === x.url)) allSources.push(x);
         } else {
           trace.push({kind: "python", code: cmd.code, output: result.run ? result.run.output : "", error: result.run ? result.run.error : result.text});
         }
-        msgs.push({role: "assistant", content: raw.slice(0, cmd.cut) + (cmd.kind === "search" ? "ПОИСК: " + cmd.query : "```run-python\n" + cmd.code + "\n```")});
-        msgs.push({role: "user", content: "Результат команды:\n" + result.text.slice(0, 5000) +
+        // Старые результаты команд укорачиваем — чтобы разговор помещался в память модели
+        for (const m of msgs) if (m.tool && m.content.length > 600) m.content = m.content.slice(0, 600) + "\n…(сокращено)";
+        msgs.push({role: "assistant", content: raw.slice(0, cmd.cut) +
+          (cmd.kind === "search" ? "ПОИСК: " + cmd.query : cmd.kind === "open" ? "ОТКРОЙ: " + cmd.url : "```run-python\n" + cmd.code + "\n```")});
+        msgs.push({role: "user", tool: true, content: "Результат команды:\n" + result.text.slice(0, 3800) +
           "\n\nПродолжай: если нужно — ещё команда, иначе — ответ пользователю."});
       }
     } finally {
@@ -1951,17 +2077,17 @@ def rai_code(action, code, lang, prompt):
     }
     if (trace.length) attachments.unshift({type: "trace", steps: trace});
     return {role: "rai", text: text.trim() || "Нейросеть не ответила — попробуйте ещё раз.", attachments: attachments, neuro: true,
-            meta: "Нейросеть " + (N.status().label || "") + (thinking ? " · думала" : "") + " · " + secs + " с"};
+            meta: (N.status().label || "Rai Нейро") + (thinking ? " · думала" : "") + " · " + secs + " с"};
   }
   // Как нейросеть пришла к ответу: ход мыслей, поиски, запуски кода, что запомнила
   function renderTrace(a) {
     const box = document.createElement("details");
     box.className = "trace";
-    const names = {think: "🧠 Ход мыслей", search: "🔎 Поиск", python: "▶ Код", memory: "📌 Запомнила"};
+    const names = {think: "🧠 Ход мыслей", search: "🔎 Поиск", open: "📄 Прочитала страницу", python: "▶ Код", memory: "📌 Запомнила"};
     box.innerHTML = `<summary>Как нейросеть отвечала · ${a.steps.length} ${a.steps.length === 1 ? "шаг" : a.steps.length < 5 ? "шага" : "шагов"}</summary>` +
       a.steps.map((s) => `<div class="step"><b>${names[s.kind] || esc(s.kind)}</b>` + (
         s.kind === "think" ? `<div class="md">${renderMarkdown(s.text || "")}</div>` :
-        s.kind === "search" ? ` ${esc(s.query || "")}` + ((s.found || []).length ? `<ul>${s.found.slice(0, 5).map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : " — ничего не нашлось") :
+        s.kind === "search" || s.kind === "open" ? ` ${esc(s.query || "")}` + ((s.found || []).length ? `<ul>${s.found.slice(0, 5).map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : " — ничего не нашлось") :
         s.kind === "python" ? `<pre><code>${hl(s.code || "", "python")}</code></pre>` +
           `<pre class="out${s.error ? " err" : ""}">${esc((s.output || "").trim() || "(пусто)")}${s.error ? "\n" + esc(s.error) : ""}</pre>` :
         ` ${esc(s.text || "")}`) + `</div>`).join("");
@@ -2120,8 +2246,12 @@ def rai_code(action, code, lang, prompt):
     const cpu = N.backend() === "cpu";
     box.innerHTML = Object.entries(N.MODELS).filter(([, m]) => !cpu || m.cpu).map(([key, m]) =>
       `<label><input type="radio" name="neuroModel" value="${key}"${key === chosen ? " checked" : ""}>` +
-      `<b>${esc(m.name)}${key === "normal" ? " ✦" : ""}</b><span>${esc(cpu ? m.cpu.label : m.label)}</span>` +
+      `<b>${esc(m.label)}${key === "strong" ? " ✦" : ""}</b><span>основа: ${esc(cpu ? m.cpu.base : m.base)}</span>` +
       `<span>${cpu ? "загрузка " + esc(m.cpu.size) + " · на процессоре" : "загрузка " + esc(m.size) + " · видеопамять " + esc(m.memory)}</span></label>`).join("");
+    const mirror = N.mirror();
+    $("neuroWhere").textContent = mirror ? "Модели и библиотеки хранятся на вашем сайте (" + new URL(mirror.root).host + ") — " +
+      (mirror.pathInfo ? "первый посетитель скачивает их туда, дальше всё грузится оттуда." : "библиотеки — с сайта, сами модели — с Hugging Face (адреса ai.php/… на хостинге не включены).")
+      : "Своего сервера нейросети (ai.php) рядом нет — модели загружаются с Hugging Face.";
   }
   function initNeuro() {
     const N = window.RaiNeuro;
@@ -2148,9 +2278,9 @@ def rai_code(action, code, lang, prompt):
     });
     $("neuroOff").addEventListener("click", () => { N.disable(); toast("Нейросеть выключена — отвечает движок Rai"); });
     initThink();
+    mirrorReady.then(() => N.auto());
     $("memClear").addEventListener("click", () => { setMemory([]); renderMemory(); toast("Нейросеть всё забыла"); });
-    // Нейросеть включается сама: модель подбирается под компьютер и грузится в фоне (один раз, дальше — из кэша)
-    N.auto();
+    // Нейросеть включается сама (после поиска своего сервера): модель подбирается под компьютер и грузится в фоне
   }
 
   // «Ещё вариант»: нейросеть отвечает на тот же вопрос заново
@@ -2175,7 +2305,7 @@ def rai_code(action, code, lang, prompt):
       const on = !thinkOn();
       b.setAttribute("aria-pressed", String(on));
       try { localStorage.setItem("rai_think", on ? "1" : "0"); } catch (e) { /* не страшно */ }
-      toast(on ? "Нейросеть будет думать глубже: дольше, но умнее" : "Обычный режим: отвечает сразу");
+      toast(on ? "Нейросеть будет думать перед каждым ответом: дольше, но умнее" : "Авто: думает над сложными задачами, на простое отвечает сразу");
     });
   }
 
