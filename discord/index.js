@@ -72,6 +72,11 @@ const DEFAULTS = {
     warn_expire_days: 30,
   },
   dm: { enabled: true, rai: true },
+  panel: { role_ids: [], channel_id: "", announce_channels: [], call_voice_channel_ids: [] },
+  levels: {
+    enabled: true, xp_min: 15, xp_max: 25, cooldown_seconds: 60, voice_xp_per_minute: 10, voice_min_members: 2,
+    announce: true, announce_channel_id: "", voice_announce_channel_id: "", ignore_channel_ids: [], roles: {},
+  },
 };
 
 function loadConfig() {
@@ -79,7 +84,7 @@ function loadConfig() {
   const c = readJson(file, null);
   if (!c) throw new Error(`Нет файла ${file} (или в нём ошибка JSON)`);
   const out = Object.assign({}, DEFAULTS, c);
-  for (const k of ["applications", "ideas", "rules", "automod", "dm"]) out[k] = Object.assign({}, DEFAULTS[k], c[k] || {});
+  for (const k of ["applications", "ideas", "rules", "automod", "dm", "panel", "levels"]) out[k] = Object.assign({}, DEFAULTS[k], c[k] || {});
   out.automod.rules = Object.assign({}, DEFAULTS.automod.rules, (c.automod || {}).rules || {});
   const s = readJson(path.join(DIR, "secret.json"), {}) || {};
   out.token = String(process.env.DISCORD_TOKEN || s.token || "").trim();
@@ -94,10 +99,10 @@ function idFromToken(t) {
 }
 
 let cfg = loadConfig();
-const A = () => cfg.applications, I = () => cfg.ideas, AM = () => cfg.automod;
+const A = () => cfg.applications, I = () => cfg.ideas, AM = () => cfg.automod, PN = () => cfg.panel, LV = () => cfg.levels;
 
 const DATA_FILE = path.join(DIR, "data.json");
-const EMPTY_DATA = () => ({ apps: {}, app_seq: 0, drafts: {}, warnings: {}, ideas: {}, idea_seq: 0, messages: {} });
+const EMPTY_DATA = () => ({ apps: {}, app_seq: 0, drafts: {}, warnings: {}, ideas: {}, idea_seq: 0, messages: {}, levels: {}, days: {} });
 let data = loadData();
 function loadData() { return Object.assign(EMPTY_DATA(), readJson(DATA_FILE, {}) || {}); }
 let saveTimer = null;
@@ -138,10 +143,11 @@ const PERM_NAMES = {
   AttachFiles: "Прикреплять файлы", ReadMessageHistory: "Читать историю сообщений", ManageMessages: "Управлять сообщениями",
   AddReactions: "Добавлять реакции", ManageRoles: "Управлять ролями",
   ModerateMembers: "Отправлять участников подумать о своём поведении (тайм-аут)",
+  MoveMembers: "Перемещать участников", MentionEveryone: "Упоминание @everyone, @here и всех ролей",
 };
 const permName = (flag) => PERM_NAMES[Object.keys(P).find((k) => P[k] === flag)] || String(flag);
 const INVITE_PERMS = [P.ViewChannel, P.SendMessages, P.SendMessagesInThreads, P.EmbedLinks, P.AttachFiles, P.ReadMessageHistory,
-  P.AddReactions, P.UseExternalEmojis, P.ManageMessages, P.ManageRoles, P.ModerateMembers].reduce((a, b) => a | b, 0n);
+  P.AddReactions, P.UseExternalEmojis, P.ManageMessages, P.ManageRoles, P.ModerateMembers, P.MoveMembers, P.MentionEveryone].reduce((a, b) => a | b, 0n);
 const inviteUrl = () => `https://discord.com/oauth2/authorize?client_id=${cfg.client_id}&scope=bot+applications.commands` +
   `&permissions=${INVITE_PERMS}${isId(cfg.guild_id) ? `&guild_id=${cfg.guild_id}&disable_guild_select=true` : ""}`;
 
@@ -197,7 +203,9 @@ function memberRoleIds(m) {
 const isStaff = (i) => hasPerm(i, P.Administrator) || hasPerm(i, P.ManageGuild) ||
   ids(cfg.staff_role_ids).some((r) => memberRoleIds(i.member).includes(r));
 const isReviewer = (i) => isStaff(i) || hasPerm(i, P.ManageRoles) ||
-  ids(A().reviewer_role_ids).some((r) => memberRoleIds(i.member).includes(r));
+  ids([...A().reviewer_role_ids, ...PN().role_ids]).some((r) => memberRoleIds(i.member).includes(r));
+// Админ-панель бота (/админ): администраторы сервера и роли из panel.role_ids
+const isPanel = (i) => hasPerm(i, P.Administrator) || ids(PN().role_ids).some((r) => memberRoleIds(i.member).includes(r));
 function canModerate(mod, target) {
   const g = target.guild;
   if (target.id === g.ownerId || target.user.bot) return false;
@@ -474,7 +482,10 @@ function statusLine(app) {
   const d = app.decided || {};
   switch (app.status) {
     case "pending": return "🕓 Ждёт решения";
-    case "call": return `📞 На обзвоне — вызвал(а) <@${app.call.by}> ${ts(app.call.t)}`;
+    case "call": {
+      const last = (app.summons || [])[(app.summons || []).length - 1];
+      return `📞 На обзвоне — вызвал(а) <@${app.call.by}> ${ts(app.call.t)}` + (last ? `\n🔊 Позван(а) в <#${last.vc}> ${ts(last.t)}` : "");
+    }
     case "accepted": return `✅ Принят(а) — <@${d.by}> ${ts(d.t)}`;
     case "rejected": return `❌ Отклонена — <@${d.by}> ${ts(d.t)}${d.reason ? `\nПричина: ${cut(d.reason, 500)}` : ""}`;
     case "left": return "🚪 Кандидат вышел с сервера";
@@ -622,6 +633,87 @@ const roleError = (e, roleId) => {
 };
 const already = (i, app) => i.reply({ content: `Заявка #${app.id} уже обработана: ${statusLine(app)}`, flags: EPH, allowedMentions: { parse: [] } });
 
+/* Решения по заявке — общие для кнопок в канале рассмотрения и для админ-панели (/админ).
+   Каждое возвращает {ok, error?} и само обновляет сообщение с заявкой. */
+async function refreshReview(app) {
+  if (!app.review) return;
+  const ch = await chan(app.review.channel);
+  const msg = ch ? await ch.messages.fetch(app.review.message).catch(() => null) : null;
+  if (msg) await msg.edit(reviewPayload(app)).catch((e) => log("⚠️ Заявка не обновлена:", e.message));
+}
+async function fetchCandidate(app, by) {
+  const g = guild();
+  const member = g ? await g.members.fetch(app.user_id).catch(() => null) : null;
+  if (!member) {
+    app.status = "left"; app.decided = { by, t: now() }; save();
+    await refreshReview(app);
+  }
+  return member;
+}
+async function appCall(app, by, byTag) {
+  const member = await fetchCandidate(app, by);
+  if (!member) return { ok: false, error: "Кандидат уже вышел с сервера — заявка закрыта." };
+  const roleId = A().call_role_id;
+  if (isId(roleId)) {
+    try { await member.roles.add(roleId, `Заявка #${app.id}: на обзвон (${byTag})`); } catch (e) {
+      return { ok: false, error: `❌ Не удалось выдать роль: ${roleError(e, roleId)}` };
+    }
+  }
+  app.status = "call"; app.call = { by, t: now() }; save();
+  await refreshReview(app);
+  const role = isId(roleId) && guild().roles.cache.get(roleId);
+  await dmUser(app.user_id, { embeds: [{
+    color: COLORS.yellow, title: "📞 Вы прошли на обзвон!",
+    description: `Ваша заявка #${app.id} («${A().title}») одобрена для обзвона.` + (role ? ` Вам выдана роль **${role.name}**.` : "") +
+      "\nОжидайте — администратор позовёт вас в голосовой канал.",
+  }] });
+  modLog({ color: COLORS.yellow, title: `📞 Заявка #${app.id}: на обзвон`, description: `<@${app.user_id}> — решение <@${by}>` });
+  return { ok: true };
+}
+async function appAccept(app, by, byTag) {
+  const member = await fetchCandidate(app, by);
+  if (!member) return { ok: false, error: "Кандидат уже вышел с сервера — заявка закрыта." };
+  const acc = A().accept_role_id, call = A().call_role_id;
+  if (isId(acc)) {
+    try { await member.roles.add(acc, `Заявка #${app.id}: принят (${byTag})`); } catch (e) {
+      return { ok: false, error: `❌ Не удалось выдать роль: ${roleError(e, acc)}` };
+    }
+    if (isId(call) && A().remove_call_role_on_accept && call !== acc) await member.roles.remove(call, `Заявка #${app.id}: принят`).catch(() => {});
+  }
+  app.status = "accepted"; app.decided = { by, t: now() }; save();
+  await refreshReview(app);
+  const role = isId(acc) && guild().roles.cache.get(acc);
+  await dmUser(app.user_id, { embeds: [{
+    color: COLORS.green, title: "🎉 Поздравляем, вы приняты!",
+    description: `Ваша заявка #${app.id} («${A().title}») одобрена.` + (role ? ` Вам выдана роль **${role.name}**.` : "") +
+      " Добро пожаловать в команду модераторов RTeam!",
+  }] });
+  modLog({ color: COLORS.green, title: `✅ Заявка #${app.id}: принят`, description: `<@${app.user_id}> — решение <@${by}>` });
+  return { ok: true };
+}
+async function appReject(app, by, reason) {
+  const hadCall = app.status === "call";
+  app.status = "rejected"; app.decided = { by, t: now(), reason }; save();
+  if (hadCall && isId(A().call_role_id)) {
+    const member = guild() ? await guild().members.fetch(app.user_id).catch(() => null) : null;
+    if (member) await member.roles.remove(A().call_role_id, `Заявка #${app.id}: отклонена`).catch(() => {});
+  }
+  await refreshReview(app);
+  const h = Number(A().cooldown_hours) || 0;
+  await dmUser(app.user_id, { embeds: [{
+    color: COLORS.red, title: "Заявка отклонена",
+    description: `К сожалению, ваша заявка #${app.id} («${A().title}») отклонена.` + (reason ? `\n\n**Причина:** ${cut(reason, 1000)}` : "") +
+      (h ? `\n\nПодать новую заявку можно через ${h} ${plural(h, "час", "часа", "часов")}.` : ""),
+  }] });
+  modLog({ color: COLORS.red, title: `❌ Заявка #${app.id}: отклонена`, description: `<@${app.user_id}> — решение <@${by}>${reason ? `\nПричина: ${cut(reason, 500)}` : ""}` });
+  return { ok: true };
+}
+const rejectModal = (customId, id) => ({
+  custom_id: customId, title: cut(`Отклонить заявку #${id}`, 45),
+  components: [row({ type: 4, custom_id: "reason", label: "Причина (кандидат увидит её в ЛС)", style: 2, required: false, max_length: 500 })],
+});
+const modalText = (i, id) => { try { return String(i.fields.getTextInputValue(id) || "").trim(); } catch (e) { return ""; } };
+
 async function reviewButton(i, action, id) {
   if (!isReviewer(i)) return i.reply({ content: "Решать заявки может только администрация.", flags: EPH });
   const app = data.apps[id];
@@ -629,54 +721,15 @@ async function reviewButton(i, action, id) {
   if (busy.has(id)) return i.reply({ content: "Эту заявку сейчас обрабатывает другой администратор.", flags: EPH });
   if (action === "rej") {
     if (app.status !== "pending" && app.status !== "call") return already(i, app);
-    return i.showModal({
-      custom_id: `app:rejm:${id}`, title: cut(`Отклонить заявку #${id}`, 45),
-      components: [row({ type: 4, custom_id: "reason", label: "Причина (кандидат увидит её в ЛС)", style: 2, required: false, max_length: 500 })],
-    });
+    return i.showModal(rejectModal(`app:rejm:${id}`, id));
   }
   if (action === "call" && app.status !== "pending") return already(i, app);
   if (action === "acc" && app.status !== "call") return already(i, app);
   busy.add(id);
   try {
     await i.deferUpdate();
-    const member = await i.guild.members.fetch(app.user_id).catch(() => null);
-    if (!member) {
-      app.status = "left"; app.decided = { by: i.user.id, t: now() }; save();
-      await i.editReply(reviewPayload(app));
-      return i.followUp({ content: "Кандидат уже вышел с сервера — заявка закрыта.", flags: EPH });
-    }
-    if (action === "call") {
-      const roleId = A().call_role_id;
-      if (isId(roleId)) {
-        try { await member.roles.add(roleId, `Заявка #${id}: на обзвон (${i.user.tag})`); } catch (e) {
-          return i.followUp({ content: `❌ Не удалось выдать роль: ${roleError(e, roleId)}`, flags: EPH });
-        }
-      }
-      app.status = "call"; app.call = { by: i.user.id, t: now() }; save();
-      await i.editReply(reviewPayload(app));
-      const role = isId(roleId) && i.guild.roles.cache.get(roleId);
-      await dmUser(app.user_id, { embeds: [{
-        color: COLORS.yellow, title: "📞 Вы прошли на обзвон!",
-        description: `Ваша заявка #${id} («${A().title}») одобрена для обзвона.` + (role ? ` Вам выдана роль **${role.name}**.` : "") +
-          "\nОжидайте — администратор позовёт вас в голосовой канал.",
-      }] });
-      modLog({ color: COLORS.yellow, title: `📞 Заявка #${id}: на обзвон`, description: `<@${app.user_id}> — решение <@${i.user.id}>` });
-    } else if (action === "acc") {
-      const acc = A().accept_role_id, call = A().call_role_id;
-      if (isId(acc)) {
-        try { await member.roles.add(acc, `Заявка #${id}: принят (${i.user.tag})`); } catch (e) {
-          return i.followUp({ content: `❌ Не удалось выдать роль: ${roleError(e, acc)}`, flags: EPH });
-        }
-        if (isId(call) && A().remove_call_role_on_accept && call !== acc) await member.roles.remove(call, `Заявка #${id}: принят`).catch(() => {});
-      }
-      app.status = "accepted"; app.decided = { by: i.user.id, t: now() }; save();
-      await i.editReply(reviewPayload(app));
-      await dmUser(app.user_id, { embeds: [{
-        color: COLORS.green, title: "🎉 Поздравляем, вы приняты!",
-        description: `Ваша заявка #${id} («${A().title}») одобрена. Добро пожаловать в команду модераторов RTeam!`,
-      }] });
-      modLog({ color: COLORS.green, title: `✅ Заявка #${id}: принят`, description: `<@${app.user_id}> — решение <@${i.user.id}>` });
-    }
+    const r = action === "call" ? await appCall(app, i.user.id, i.user.tag) : await appAccept(app, i.user.id, i.user.tag);
+    if (!r.ok) return i.followUp({ content: r.error, flags: EPH });
   } finally { busy.delete(id); }
 }
 
@@ -689,22 +742,7 @@ async function onRejectModal(i, id) {
   busy.add(id);
   try {
     await i.deferUpdate();
-    let reason = "";
-    try { reason = String(i.fields.getTextInputValue("reason") || "").trim(); } catch (e) { reason = ""; }
-    const hadCall = app.status === "call";
-    app.status = "rejected"; app.decided = { by: i.user.id, t: now(), reason }; save();
-    if (hadCall && isId(A().call_role_id)) {
-      const member = await i.guild.members.fetch(app.user_id).catch(() => null);
-      if (member) await member.roles.remove(A().call_role_id, `Заявка #${id}: отклонена`).catch(() => {});
-    }
-    await i.editReply(reviewPayload(app));
-    const h = Number(A().cooldown_hours) || 0;
-    await dmUser(app.user_id, { embeds: [{
-      color: COLORS.red, title: "Заявка отклонена",
-      description: `К сожалению, ваша заявка #${id} («${A().title}») отклонена.` + (reason ? `\n\n**Причина:** ${cut(reason, 1000)}` : "") +
-        (h ? `\n\nПодать новую заявку можно через ${h} ${plural(h, "час", "часа", "часов")}.` : ""),
-    }] });
-    modLog({ color: COLORS.red, title: `❌ Заявка #${id}: отклонена`, description: `<@${app.user_id}> — решение <@${i.user.id}>${reason ? `\nПричина: ${cut(reason, 500)}` : ""}` });
+    await appReject(app, i.user.id, modalText(i, "reason"));
   } finally { busy.delete(id); }
 }
 
@@ -766,6 +804,328 @@ async function onReaction(reaction, user) {
   if (name !== like && name !== dislike) return;
   const other = name === like ? dislike : like;
   await rest.delete(Routes.channelMessageUserReaction(msg.channelId, msg.id, encodeURIComponent(other), user.id)).catch(() => {});
+}
+
+/* ============================== уровни и активность
+   XP за сообщения (раз в минуту, 15–25 XP) и за время в голосовых каналах (10 XP в минуту, если в канале
+   не меньше двух человек и вы не выключили звук). Уровень L → L+1 стоит 5·L² + 50·L + 100 XP. */
+
+const xpNeed = (l) => 5 * l * l + 50 * l + 100;
+function levelOf(xp) {
+  let level = 0, rest = Math.max(0, Math.floor(xp || 0));
+  while (rest >= xpNeed(level)) { rest -= xpNeed(level); level++; }
+  return { level, into: rest, need: xpNeed(level) };
+}
+const dayKey = (t = now()) => new Date(t + 3 * 3600e3).toISOString().slice(0, 10); // сутки по Москве
+function bumpDay(uid, msgs, voice) {
+  const k = dayKey();
+  const d = (data.days[k] = data.days[k] || { m: 0, v: 0, u: {} });
+  d.m += msgs; d.v += voice; d.u[uid] = (d.u[uid] || 0) + msgs + voice;
+  const keys = Object.keys(data.days).sort();
+  while (keys.length > 31) delete data.days[keys.shift()];
+}
+/* Добавить активность. Возвращает новый уровень, если он вырос, иначе 0 */
+function addActivity(uid, xp, msgs, voice) {
+  const st = (data.levels[uid] = data.levels[uid] || { xp: 0, msgs: 0, voice: 0 });
+  const before = levelOf(st.xp).level;
+  st.xp += xp; st.msgs += msgs; st.voice += voice; st.t = now();
+  bumpDay(uid, msgs, voice);
+  save();
+  const after = levelOf(st.xp).level;
+  return after > before ? after : 0;
+}
+const xpAt = new Map();
+async function messageXp(m) {
+  const L = LV();
+  if (!L.enabled || ids(L.ignore_channel_ids).includes(m.channelId)) return;
+  let xp = 0;
+  if (now() - (xpAt.get(m.author.id) || 0) >= (Number(L.cooldown_seconds) || 0) * 1000) {
+    xpAt.set(m.author.id, now());
+    const lo = Number(L.xp_min) || 0, hi = Math.max(lo, Number(L.xp_max) || 0);
+    xp = lo + Math.floor(Math.random() * (hi - lo + 1));
+  }
+  const up = addActivity(m.author.id, xp, 1, 0);
+  if (up) await levelUp(m.author.id, up, m.channel);
+}
+async function levelUp(uid, level, channel) {
+  const L = LV(), g = guild();
+  const rewards = Object.entries(L.roles || {}).filter(([lv, rid]) => Number(lv) <= level && isId(rid)).map(([, rid]) => rid);
+  const got = [];
+  if (rewards.length && g) {
+    const mem = await g.members.fetch(uid).catch(() => null);
+    for (const rid of rewards) {
+      if (!mem || mem.roles.cache.has(rid)) continue;
+      try { await mem.roles.add(rid, `Уровень ${level}`); got.push(rid); } catch (e) { log("⚠️ Роль за уровень:", roleError(e, rid)); }
+    }
+  }
+  if (!L.announce) return;
+  const ch = (isId(L.announce_channel_id) && await chan(L.announce_channel_id)) || channel;
+  if (!ch) return;
+  await ch.send({ content: `🎉 <@${uid}> достигает **${level} уровня**!` + (got.length ? ` Новая роль: ${got.map((r) => `<@&${r}>`).join(", ")}` : ""),
+    allowedMentions: { users: [uid] } }).catch(() => {});
+}
+/* Раз в минуту: XP всем, кто сидит в голосовых каналах (не в AFK, не один, со звуком) */
+function voiceTick() {
+  const L = LV(), g = guild();
+  if (!L.enabled || !g || !client || !client.isReady()) return;
+  const byCh = new Map();
+  for (const vs of g.voiceStates.cache.values()) {
+    if (!vs.channelId || vs.channelId === g.afkChannelId) continue;
+    const u = client.users.cache.get(vs.id);
+    if (u && u.bot) continue;
+    if (!byCh.has(vs.channelId)) byCh.set(vs.channelId, []);
+    byCh.get(vs.channelId).push(vs);
+  }
+  for (const list of byCh.values()) {
+    if (list.length < Math.max(1, Number(L.voice_min_members) || 1)) continue;
+    for (const vs of list) {
+      if (vs.selfDeaf || vs.serverDeaf) continue;
+      const up = addActivity(vs.id, Number(L.voice_xp_per_minute) || 0, 0, 1);
+      if (up) chan(L.voice_announce_channel_id).then((ch) => ch && levelUp(vs.id, up, ch)).catch(() => {});
+    }
+  }
+}
+const ranked = () => Object.entries(data.levels).sort((a, b) => b[1].xp - a[1].xp || b[1].msgs - a[1].msgs);
+const num = (x) => String(Math.round(Number(x) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const fmtVoice = (min) => (min >= 60 ? `${Math.floor(min / 60)} ч ${min % 60} мин` : `${min} мин`);
+const bar = (a, b, n = 12) => { const f = Math.max(0, Math.min(n, Math.round((b ? a / b : 0) * n))); return "▰".repeat(f) + "▱".repeat(n - f); };
+function levelEmbed(user, member) {
+  const st = data.levels[user.id] || { xp: 0, msgs: 0, voice: 0 };
+  const lv = levelOf(st.xp);
+  const place = ranked().findIndex(([id]) => id === user.id);
+  return {
+    color: COLORS.blurple, author: { name: cut((member && member.displayName) || user.globalName || user.username, 256), icon_url: user.displayAvatarURL ? user.displayAvatarURL({ size: 64 }) : undefined },
+    title: `⭐ Уровень ${lv.level}`, description: `${bar(lv.into, lv.need)}  **${num(lv.into)}** / ${num(lv.need)} XP до ${lv.level + 1} уровня`,
+    fields: [
+      { name: "Место", value: place >= 0 ? `#${place + 1}` : "—", inline: true },
+      { name: "Всего XP", value: num(st.xp), inline: true },
+      { name: "Сообщений", value: num(st.msgs), inline: true },
+      { name: "В голосе", value: fmtVoice(st.voice || 0), inline: true },
+    ],
+  };
+}
+function topEmbed(n = 10) {
+  const list = ranked().slice(0, n);
+  const medal = ["🥇", "🥈", "🥉"];
+  const lines = list.map(([id, st], k) => `${medal[k] || `**${k + 1}.**`} <@${id}> — ${levelOf(st.xp).level} ур. · ${num(st.xp)} XP · 💬 ${num(st.msgs)} · 🎙 ${fmtVoice(st.voice || 0)}`);
+  return { color: COLORS.gold, title: "🏆 Топ активности", description: lines.join("\n") || "Пока никого — пишите в чат и заходите в голосовые каналы!" };
+}
+function activityStats(days) {
+  const keys = Object.keys(data.days).sort().slice(-days);
+  const users = new Set();
+  let m = 0, v = 0;
+  for (const k of keys) { const d = data.days[k]; m += d.m; v += d.v; Object.keys(d.u).forEach((u) => users.add(u)); }
+  return { m, v, u: users.size };
+}
+
+/* ============================== админ-панель (/админ)
+   Открывают администраторы сервера и роли из panel.role_ids. Объявления в каналы из panel.announce_channels,
+   список кандидатов на обзвоне: позвать в голосовой канал (panel.call_voice_channel_ids), «Прошёл» / «Не прошёл». */
+
+const annDrafts = new Map();
+const back = (id = "adm:home", label = "Назад") => button(2, label, id, "⬅️");
+function panelHome(note) {
+  const apps = Object.values(data.apps);
+  const pending = apps.filter((a) => a.status === "pending").length, calls = apps.filter((a) => a.status === "call").length;
+  const today = activityStats(1), week = activityStats(7);
+  const anns = (PN().announce_channels || []).filter((c) => isId(c.id)).slice(0, 5);
+  const rows = [];
+  if (anns.length) rows.push(row(...anns.map((c, k) => button(1, cut(`Объявление: ${c.name || "канал"}`, 80), `adm:ann:${k}`, c.emoji || "📢"))));
+  rows.push(row(button(3, `Обзвон (${calls})`, "adm:calls", "📞"), button(2, "Активность", "adm:act", "📊"), button(2, "Обновить", "adm:home", "🔄")));
+  return {
+    content: note || "",
+    embeds: [{
+      color: COLORS.blurple, title: "🛠️ Админ-панель RTeam",
+      description: [
+        `📝 Заявок ждут решения: **${pending}**`,
+        `📞 На обзвоне: **${calls}**`,
+        `📊 Сегодня: ${num(today.m)} сообщ. · ${fmtVoice(today.v)} в голосе · активных ${today.u}`,
+        `📈 За 7 дней: ${num(week.m)} сообщ. · ${fmtVoice(week.v)} в голосе · активных ${week.u}`,
+        "", "Объявление — бот опубликует его от своего имени. Обзвон — все, кого отправили на обзвон: позвать в голосовой канал и принять решение.",
+      ].join("\n"),
+    }],
+    components: rows,
+    allowedMentions: { parse: [] },
+  };
+}
+const annChannel = (k) => (PN().announce_channels || []).filter((c) => isId(c.id))[Number(k)] || null;
+function annEmbed(d, user) {
+  const e = { color: COLORS.blurple, description: cut(d.text, 4000), footer: { text: `Объявление RTeam · ${user.globalName || user.username}` }, timestamp: new Date().toISOString() };
+  if (d.title) e.title = cut(d.title, 256);
+  if (d.image) e.image = { url: d.image };
+  return e;
+}
+function annModal(k, d) {
+  const c = annChannel(k);
+  const field = (custom_id, label, style, max, required, value, placeholder) => {
+    const f = { type: 4, custom_id, label, style, max_length: max, required };
+    if (value) f.value = cut(value, max);
+    if (placeholder) f.placeholder = placeholder;
+    return row(f);
+  };
+  return {
+    custom_id: `adm:annm:${k}`, title: cut(`Объявление: ${c ? c.name : "канал"}`, 45),
+    components: [
+      field("title", "Заголовок (необязательно)", 1, 256, false, d && d.title),
+      field("text", "Текст объявления", 2, 4000, true, d && d.text),
+      field("image", "Картинка — ссылка https://… (необязательно)", 1, 500, false, d && d.image, "https://…"),
+    ],
+  };
+}
+function callsList() {
+  return Object.values(data.apps).filter((a) => a.status === "call").sort((a, b) => (a.call ? a.call.t : 0) - (b.call ? b.call.t : 0));
+}
+function callsView(note) {
+  const list = callsList();
+  const lines = list.slice(0, 25).map((a) => {
+    const last = (a.summons || [])[(a.summons || []).length - 1];
+    return `**#${a.id}** <@${a.user_id}> · \`${a.user_tag}\` — на обзвоне с ${ts(a.call.t)}` + (last ? ` · звали в <#${last.vc}> ${ts(last.t)}` : "");
+  });
+  const rows = [];
+  if (list.length) {
+    rows.push(row({ type: 3, custom_id: "adm:cand", placeholder: "Выберите кандидата", min_values: 1, max_values: 1,
+      options: list.slice(0, 25).map((a) => ({ label: cut(`#${a.id} ${a.user_tag}`, 100), value: a.id, description: cut(`На обзвоне с ${new Date(a.call.t).toLocaleDateString("ru-RU")}`, 100) })) }));
+  }
+  rows.push(row(back()));
+  return {
+    content: note || "",
+    embeds: [{ color: COLORS.yellow, title: `📞 Обзвон — ${list.length}`, description: lines.join("\n") || "Сейчас никого на обзвоне. Кандидат появляется здесь, когда в канале заявок нажимают «На обзвон»." }],
+    components: rows, allowedMentions: { parse: [] },
+  };
+}
+function candView(id, note) {
+  const app = data.apps[id];
+  if (!app || app.status !== "call") return callsView(note || "Этот кандидат уже не на обзвоне.");
+  const link = app.review ? `https://discord.com/channels/${cfg.guild_id}/${app.review.channel}/${app.review.message}` : "";
+  const summons = (app.summons || []).slice(-3).map((x) => `🔊 <#${x.vc}> — позвал(а) <@${x.by}> ${ts(x.t)}`);
+  const vcs = ids(PN().call_voice_channel_ids).slice(0, 5);
+  const rows = [];
+  if (vcs.length) {
+    rows.push(row(...vcs.map((vc, k) => {
+      const c = client && client.channels.cache.get(vc);
+      return button(1, cut(`Позвать в ${c ? c.name : `канал ${k + 1}`}`, 80), `adm:sum:${id}:${k}`, "🔊");
+    })));
+  }
+  rows.push(row(button(3, "Прошёл", `adm:pass:${id}`, "✅"), button(4, "Не прошёл", `adm:fail:${id}`, "✖️"), back("adm:calls", "К списку")));
+  return {
+    content: note || "",
+    embeds: [{
+      color: COLORS.yellow, title: `📞 Кандидат #${app.id}`,
+      description: [`<@${app.user_id}> · \`${app.user_tag}\``, `На обзвоне с ${ts(app.call.t)} — отправил(а) <@${app.call.by}>`,
+        link ? `[Заявка с ответами](${link})` : "", ...summons].filter(Boolean).join("\n"),
+      fields: app.answers.slice(0, 4).map((x) => ({ name: cut(x.q, 256), value: cut(x.a || "—", 300) })),
+    }],
+    components: rows, allowedMentions: { parse: [] },
+  };
+}
+/* Позвать кандидата: пинг в чате голосового канала, ЛС со ссылкой и, если он уже в другом голосовом, перенос */
+async function summon(app, vcId, by) {
+  const g = guild();
+  const vc = await chan(vcId);
+  if (!g || !vc || vc.guildId !== g.id) return "❌ Голосовой канал не найден — проверьте panel.call_voice_channel_ids в config.json.";
+  const member = await fetchCandidate(app, by);
+  if (!member) return "Кандидат уже вышел с сервера — заявка закрыта.";
+  const done = [];
+  const ping = vc.isTextBased() ? await vc.send({ content: `📞 <@${app.user_id}>, вас вызывают на обзвон! Заходите в этот голосовой канал — <#${vc.id}>.`, allowedMentions: { users: [app.user_id] } }).catch(() => null) : null;
+  if (ping) done.push("пинг в чате канала");
+  const dm = await dmUser(app.user_id, {
+    embeds: [{ color: COLORS.yellow, title: "📞 Вас вызывают на обзвон", description: `Заходите в голосовой канал **${vc.name}** на сервере RTeam — вас ждёт администратор.` }],
+    components: [row(linkButton("Зайти в канал", `https://discord.com/channels/${g.id}/${vc.id}`))],
+  });
+  if (dm.ok) done.push("сообщение в ЛС");
+  const now_ = member.voice && member.voice.channelId;
+  if (now_ === vc.id) done.push("он(а) уже в канале");
+  else if (now_) {
+    try { await member.voice.setChannel(vc, `Обзвон, заявка #${app.id}`); done.push("перенёс из другого голосового"); } catch (e) { done.push("перенести не вышло — нет права «Перемещать участников»"); }
+  }
+  app.summons = [...(app.summons || []), { vc: vc.id, by, t: now() }].slice(-10);
+  save();
+  await refreshReview(app);
+  modLog({ color: COLORS.yellow, title: `🔊 Заявка #${app.id}: позван(а) на обзвон`, description: `<@${app.user_id}> в <#${vc.id}> — <@${by}>` });
+  return ping || dm.ok ? `✅ Позвал(а) <@${app.user_id}> в <#${vc.id}>: ${done.join(", ")}.` : `❌ Не получилось позвать: нет доступа к чату <#${vc.id}> и закрыты ЛС.`;
+}
+const openPanelPayload = () => ({
+  embeds: [{ color: COLORS.blurple, title: "🛠️ Админ-панель RTeam", description: "Объявления, обзвон кандидатов и активность сервера. Открыть может только администрация." }],
+  components: [row(button(1, "Открыть админ-панель", "adm:open", "🛠️"))],
+});
+const ensureAdminPanel = (channelId, fresh) => ensureMessage("admin_panel", channelId, openPanelPayload(), (x) => hasButton(x, "adm:open"), fresh);
+
+async function onPanel(i, action, a, b) {
+  if (!isPanel(i)) return i.reply({ content: "Админ-панель доступна только администрации.", flags: EPH });
+  if (action === "open") return i.reply({ ...panelHome(), flags: EPH });
+  if (action === "home") return i.update(panelHome());
+  if (action === "act") return i.update({ content: "", embeds: [topEmbed(15)], components: [row(back())], allowedMentions: { parse: [] } });
+  if (action === "calls") return i.update(callsView());
+  if (action === "cand") return i.update(candView(i.values[0]));
+  if (action === "ann") {
+    if (!annChannel(a)) return i.update(panelHome("❌ Канал для объявлений не найден в config.json."));
+    const d = annDrafts.get(i.user.id);
+    return i.showModal(annModal(a, d && d.k === String(a) ? d : null));
+  }
+  if (action === "annpub") {
+    const d = annDrafts.get(i.user.id);
+    if (!d) return i.update(panelHome("Черновик устарел — напишите объявление ещё раз."));
+    const c = annChannel(d.k);
+    const ch = c && await chan(c.id);
+    if (!ch) return i.update(panelHome("❌ Канал для объявлений не найден или бот его не видит."));
+    await i.deferUpdate();
+    const everyone = a === "1";
+    let msg;
+    try {
+      msg = await ch.send({ content: everyone ? "@everyone" : undefined, embeds: [annEmbed(d, i.user)], allowedMentions: { parse: everyone ? ["everyone"] : [] } });
+    } catch (e) { return i.editReply(panelHome(`❌ Не опубликовано: ${e.code === 50013 ? "у бота нет прав писать в этот канал" : e.message}`)); }
+    if (ch.type === 5) await msg.crosspost().catch(() => {}); // канал объявлений — сразу «Опубликовать» для подписчиков
+    annDrafts.delete(i.user.id);
+    const g = guild(), me = g && g.members.me;
+    const noPing = everyone && me && !ch.permissionsFor(me).has(P.MentionEveryone);
+    modLog({ color: COLORS.blurple, title: "📢 Объявление", description: `<@${i.user.id}> в <#${ch.id}>: ${msg.url}` });
+    return i.editReply(panelHome(`✅ Объявление опубликовано в <#${ch.id}>: ${msg.url}` + (noPing ? "\n⚠️ У бота нет права «Упоминание @everyone» — пинга не было." : "")));
+  }
+  if (action === "sum" || action === "pass" || action === "fail") {
+    const app = data.apps[a];
+    if (!app || app.status !== "call") return i.update(callsView("Этот кандидат уже не на обзвоне."));
+    if (busy.has(a)) return i.reply({ content: "Эту заявку сейчас обрабатывает другой администратор.", flags: EPH });
+    if (action === "fail") return i.showModal(rejectModal(`adm:failm:${a}`, a));
+    busy.add(a);
+    try {
+      await i.deferUpdate();
+      if (action === "sum") {
+        const vc = ids(PN().call_voice_channel_ids)[Number(b)];
+        return i.editReply(candView(a, await summon(app, vc, i.user.id)));
+      }
+      const r = await appAccept(app, i.user.id, i.user.tag);
+      const role = isId(A().accept_role_id) && guild().roles.cache.get(A().accept_role_id);
+      return i.editReply(r.ok ? callsView(`✅ <@${app.user_id}> прошёл обзвон` + (role ? ` — выдана роль «${role.name}».` : ".")) : candView(a, r.error));
+    } finally { busy.delete(a); }
+  }
+}
+async function onPanelModal(i, action, a) {
+  if (!isPanel(i)) return i.reply({ content: "Админ-панель доступна только администрации.", flags: EPH });
+  if (action === "annm") {
+    const d = { k: String(a), title: modalText(i, "title"), text: modalText(i, "text"), image: modalText(i, "image") };
+    if (d.image && !/^https:\/\/\S+$/i.test(d.image)) return i.reply({ content: "Ссылка на картинку должна начинаться с https://", flags: EPH });
+    annDrafts.set(i.user.id, d);
+    const c = annChannel(a);
+    const payload = {
+      content: `👀 Так будет выглядеть объявление в <#${c ? c.id : "?"}>. Опубликовать?`,
+      embeds: [annEmbed(d, i.user)],
+      components: [row(button(3, "Опубликовать", "adm:annpub:0", "✅"), button(1, "С пингом @everyone", "adm:annpub:1", "📣"),
+        button(2, "Изменить", `adm:ann:${a}`, "✏️"), button(2, "Отмена", "adm:home"))],
+      allowedMentions: { parse: [] },
+    };
+    return i.isFromMessage() ? i.update(payload) : i.reply({ ...payload, flags: EPH });
+  }
+  if (action === "failm") {
+    const app = data.apps[a];
+    if (!app || app.status !== "call") return i.isFromMessage() ? i.update(callsView("Этот кандидат уже не на обзвоне.")) : i.reply({ content: "Кандидат уже не на обзвоне.", flags: EPH });
+    if (busy.has(a)) return i.reply({ content: "Эту заявку сейчас обрабатывает другой администратор.", flags: EPH });
+    busy.add(a);
+    try {
+      await i.deferUpdate();
+      await appReject(app, i.user.id, modalText(i, "reason"));
+      return i.editReply(callsView(`❌ <@${app.user_id}> не прошёл обзвон — заявка отклонена, роль обзвона снята.`));
+    } finally { busy.delete(a); }
+  }
 }
 
 /* ============================== правила */
@@ -945,13 +1305,24 @@ function commandList() {
     { name: "setup", name_localizations: { ru: "настройка" }, description: "Настройка бота (для администрации)", default_member_permissions: String(P.Administrator),
       options: [opt(SUB, "panel", "заявки", "Отправить или обновить кнопку заявок в канале заявок"),
         opt(SUB, "rules", "правила", "Опубликовать или обновить правила в этом канале"),
-        opt(SUB, "check", "проверка", "Проверить права бота, каналы и роли")] },
+        opt(SUB, "check", "проверка", "Проверить права бота, каналы и роли"),
+        opt(SUB, "adminpanel", "админка", "Кнопка «Открыть админ-панель» в этом канале")] },
+    { name: "admin", name_localizations: { ru: "админ" }, description: "Админ-панель: объявления, обзвон, активность (для администрации)" },
+    { name: "level", name_localizations: { ru: "уровень" }, description: "Уровень и активность",
+      options: [opt(USER, "user", "участник", "Чей уровень (по умолчанию ваш)")] },
+    { name: "top", name_localizations: { ru: "топ" }, description: "Топ активности сервера" },
   ];
 }
 
 async function onCommand(i) {
   const name = i.commandName;
   if (name === "rules") return i.reply({ ...rulesPayload(), flags: EPH });
+  if (name === "admin") return onPanel(i, "open");
+  if (name === "level") {
+    const u = i.options.getUser("user") || i.user;
+    return i.reply({ embeds: [levelEmbed(u, i.options.getMember("user") || (u.id === i.user.id ? i.member : null))], allowedMentions: { parse: [] } });
+  }
+  if (name === "top") return i.reply({ embeds: [topEmbed(10)], allowedMentions: { parse: [] } });
   if (name === "link") {
     return i.reply({
       content: "Привяжите Discord к аккаунту rteam.info — тогда коды входа и уведомления сайта будут приходить сюда, в ЛС. " +
@@ -981,6 +1352,7 @@ async function onCommand(i) {
     await i.deferReply({ flags: EPH });
     try {
       if (sub === "panel") { const msg = await ensurePanel(); return i.editReply(`✅ Кнопка заявок на месте: ${msg.url}`); }
+      if (sub === "adminpanel") { const msg = await ensureAdminPanel(i.channelId); return i.editReply(`✅ Кнопка «Открыть админ-панель»: ${msg.url}. Открыть её смогут только администраторы и роли из panel.role_ids.`); }
       if (sub === "rules") { const msg = await ensureRules(i.channelId); return i.editReply(`✅ Правила опубликованы: ${msg.url}`); }
       const report = await diagnose();
       return i.editReply(cut(report.map((x) => `${x.ok ? "✅" : "❌"} ${x.text}`).join("\n"), 1990));
@@ -1045,7 +1417,8 @@ async function onCommand(i) {
 }
 
 async function onButton(i) {
-  const [scope, action, id] = i.customId.split(":");
+  const [scope, action, id, extra] = i.customId.split(":");
+  if (scope === "adm") return onPanel(i, action, id, extra);
   if (scope !== "app") return;
   if (action === "start") return startApplication(i);
   if (action === "next") {
@@ -1059,6 +1432,7 @@ async function onButton(i) {
 
 async function onModal(i) {
   const [scope, action, arg] = i.customId.split(":");
+  if (scope === "adm") return onPanelModal(i, action, arg);
   if (scope !== "app") return;
   if (action === "p") return onAppPage(i, Number(arg) || 0);
   if (action === "rejm") return onRejectModal(i, arg);
@@ -1100,7 +1474,15 @@ async function diagnose() {
     await need(I().input_channel_id, "Канал идей", [...base, P.ManageMessages]);
     await need(I().vote_channel_id, "Канал голосования за идеи", [...base, P.AddReactions, P.AttachFiles, ...(I().one_vote ? [P.ManageMessages] : [])]);
   }
-  if (isId(cfg.rules.channel_id)) await need(cfg.rules.channel_id, "Канал правил", base);
+  for (const c of (PN().announce_channels || []).filter((x) => isId(x.id))) {
+    await need(c.id, `Объявления «${c.name}»`, base);
+    const ch = await chan(c.id);
+    if (ch && ch.permissionsFor && !ch.permissionsFor(me).has(P.MentionEveryone)) bad(`Объявления «${c.name}»: нет права «Упоминание @everyone» — кнопка «С пингом @everyone» не будет пинговать`);
+  }
+  for (const vc of ids(PN().call_voice_channel_ids)) await need(vc, "Голосовой канал обзвона", [P.ViewChannel, P.SendMessages]);
+  if (ids(PN().call_voice_channel_ids).length && !me.permissions.has(P.MoveMembers)) bad("Обзвон: нет права «Перемещать участников» — бот будет звать сообщением, но не сможет перенести кандидата из другого голосового канала");
+  for (const rid of ids(PN().role_ids)) { const r = g.roles.cache.get(rid); if (r) ok(`Роль админ-панели: «${r.name}»`); else bad(`Роль админ-панели ${rid} не найдена на сервере`); }
+    if (isId(cfg.rules.channel_id)) await need(cfg.rules.channel_id, "Канал правил", base);
   if (isId(cfg.log_channel_id)) await need(cfg.log_channel_id, "Канал логов модерации", [P.ViewChannel, P.SendMessages, P.EmbedLinks]);
   else bad("Канал логов модерации не указан (log_channel_id) — нарушения не будут записываться");
   if (AM().enabled) {
@@ -1117,7 +1499,7 @@ async function diagnose() {
 function createClient() {
   const c = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent,
-      GatewayIntentBits.GuildMessageReactions, GatewayIntentBits.DirectMessages],
+      GatewayIntentBits.GuildMessageReactions, GatewayIntentBits.DirectMessages, GatewayIntentBits.GuildVoiceStates],
     partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
     allowedMentions: { parse: ["users"], repliedUser: false },
     ...(API_BASE ? { rest: { api: API_BASE } } : {}),
@@ -1126,7 +1508,8 @@ function createClient() {
   c.on(Events.GuildCreate, (g) => { if (g.id === cfg.guild_id) setupGuild().catch((e) => log("❌", e.message)); });
   c.on(Events.InteractionCreate, (i) => {
     if (i.guildId && i.guildId !== cfg.guild_id) return;
-    const run = i.isChatInputCommand() ? onCommand(i) : i.isButton() ? onButton(i) : i.isModalSubmit() ? onModal(i) : null;
+    const run = i.isChatInputCommand() ? onCommand(i) : i.isButton() ? onButton(i) : i.isModalSubmit() ? onModal(i)
+      : i.isStringSelectMenu() && i.customId === "adm:cand" ? onPanel(i, "cand") : null;
     if (run) run.catch(async (e) => {
       log(`❌ ${i.customId || i.commandName}:`, e.stack || e.message);
       const msg = { content: "⚠️ Что-то пошло не так. Попробуйте ещё раз или сообщите администрации.", flags: EPH };
@@ -1149,6 +1532,7 @@ async function onMessage(m) {
     if (v) return applyVerdict(m, v);
   }
   if (I().enabled && m.channelId === I().input_channel_id) return ideaFromMessage(m);
+  await messageXp(m);
 }
 async function onEdit(old, m) {
   if (m.partial || !m.guildId || m.guildId !== cfg.guild_id || !m.author || m.author.bot) return;
@@ -1170,6 +1554,8 @@ async function setupGuild(fresh = false) {
   if (isId(cfg.rules.channel_id)) await step("Правила", () => ensureRules(null, fresh));
   else if (fresh && data.messages.rules && data.messages.rules.channel) await step("Правила", () => ensureRules(data.messages.rules.channel, true));
   if (I().enabled && I().info_message) await step("Подсказка в канале идей", () => ensureIdeasInfo(fresh));
+  const adminCh = isId(PN().channel_id) ? PN().channel_id : data.messages.admin_panel && data.messages.admin_panel.channel;
+  if (adminCh && (fresh || isId(PN().channel_id))) await step("Кнопка админ-панели", () => ensureAdminPanel(adminCh, fresh));
   for (const x of await diagnose()) if (!x.ok) { out.push(x); log("⚠️", x.text); }
   return out;
 }
@@ -1313,6 +1699,7 @@ async function start() {
   timers.push(setInterval(() => lockTick().catch((e) => log("⚠️ lock:", e.message)), Number(process.env.RAI_BOT_LOCK_TICK) || 20000));
   // Plesk (Passenger) усыпляет приложение без HTTP-запросов — бот сам стучится к себе
   if (cfg.public_url) timers.push(setInterval(() => fetch(cfg.public_url + "/health").catch(() => {}), 120000));
+  timers.push(setInterval(() => { try { voiceTick(); } catch (e) { log("⚠️ Голос:", e.message); } }, Number(process.env.RAI_BOT_VOICE_TICK) || 60000));
   timers.push(setInterval(() => { // старые черновики заявок
     let changed = false;
     for (const [k, d] of Object.entries(data.drafts)) if (now() - d.t > 3600e3) { delete data.drafts[k]; changed = true; }

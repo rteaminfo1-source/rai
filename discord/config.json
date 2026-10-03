@@ -7,33 +7,74 @@
  "rai_base": "https://raw.githubusercontent.com/rteaminfo1-source/rai/claude/awesome-mendel-tzoqsf/support/",
  "log_channel_id": "",
  "staff_role_ids": [],
-
  "applications": {
-  "_info": "Заявки в модераторы. panel_channel_id — где кнопка «Подать заявку», review_channel_id — куда приходят заявки с кнопками «Отклонить» / «На обзвон», call_role_id — роль, которую получает кандидат на обзвоне, accept_role_id — роль для принятых (пусто — не выдавать).",
+  "_info": "Заявки в модераторы. panel_channel_id — где кнопка «Подать заявку», review_channel_id — куда приходят заявки с кнопками «Отклонить» / «На обзвон», call_role_id — роль, которую получает кандидат на обзвоне, accept_role_id — роль, которую получает прошедший обзвон (кнопка «Принять» или «Прошёл» в админ-панели).",
   "enabled": true,
   "panel_channel_id": "1555619815685755080",
   "review_channel_id": "1553807121680695317",
   "call_role_id": "1555620722444079114",
-  "accept_role_id": "",
+  "accept_role_id": "1553804649780215940",
   "remove_call_role_on_accept": true,
-  "reviewer_role_ids": [],
+  "reviewer_role_ids": [
+   "1555859085168087111"
+  ],
   "ping_role_ids": [],
   "cooldown_hours": 24,
   "title": "Заявка на модератора",
   "panel_title": "🛡️ Набор в модераторы RTeam",
   "panel_text": "",
   "questions": [
-   {"label": "Сколько вам лет?", "style": "short", "max": 3, "placeholder": "Например: 16"},
-   {"label": "Часовой пояс и сколько времени онлайн", "style": "short", "max": 100, "placeholder": "Например: МСК, 3–4 часа в день, вечером"},
-   {"label": "Был ли опыт модерации? Где и сколько", "style": "long", "max": 1000, "placeholder": "Серверы, сроки, чем занимались. Если опыта нет — так и напишите"},
-   {"label": "Почему хотите стать модератором RTeam?", "style": "long", "max": 1000, "min": 20},
-   {"label": "Что сделаете, если участник оскорбляет?", "style": "long", "max": 1000, "min": 20, "placeholder": "Опишите свои действия по шагам"},
-   {"label": "Какое правило сервера самое важное?", "style": "long", "max": 1000, "placeholder": "И почему"},
-   {"label": "Ваш логин на rteam.info (если есть)", "style": "short", "max": 64, "required": false},
-   {"label": "Когда сможете прийти на голосовой обзвон?", "style": "short", "max": 200, "placeholder": "Дни и время"}
+   {
+    "label": "Сколько вам лет?",
+    "style": "short",
+    "max": 3,
+    "placeholder": "Например: 16"
+   },
+   {
+    "label": "Часовой пояс и сколько времени онлайн",
+    "style": "short",
+    "max": 100,
+    "placeholder": "Например: МСК, 3–4 часа в день, вечером"
+   },
+   {
+    "label": "Был ли опыт модерации? Где и сколько",
+    "style": "long",
+    "max": 1000,
+    "placeholder": "Серверы, сроки, чем занимались. Если опыта нет — так и напишите"
+   },
+   {
+    "label": "Почему хотите стать модератором RTeam?",
+    "style": "long",
+    "max": 1000,
+    "min": 20
+   },
+   {
+    "label": "Что сделаете, если участник оскорбляет?",
+    "style": "long",
+    "max": 1000,
+    "min": 20,
+    "placeholder": "Опишите свои действия по шагам"
+   },
+   {
+    "label": "Какое правило сервера самое важное?",
+    "style": "long",
+    "max": 1000,
+    "placeholder": "И почему"
+   },
+   {
+    "label": "Ваш логин на rteam.info (если есть)",
+    "style": "short",
+    "max": 64,
+    "required": false
+   },
+   {
+    "label": "Когда сможете прийти на голосовой обзвон?",
+    "style": "short",
+    "max": 200,
+    "placeholder": "Дни и время"
+   }
   ]
  },
-
  "ideas": {
   "_info": "Сообщение в канале идей бот переносит в канал голосования и ставит 👍 и 👎. one_vote — у каждого только один голос.",
   "enabled": true,
@@ -47,7 +88,6 @@
   "one_vote": true,
   "info_message": true
  },
-
  "rules": {
   "_info": "channel_id — канал, где бот сам опубликует правила (пусто — опубликуйте командой /настройка правила в нужном канале).",
   "channel_id": "",
@@ -66,20 +106,110 @@
   ],
   "footer": "Нарушения → предупреждение. 3 предупреждения — мут 10 мин, 5 — мут 1 час, 7 — мут на сутки. Предупреждения сгорают через 30 дней."
  },
-
  "automod": {
   "_info": "Автомодерация. Администраторы и все, у кого есть право «Управлять сообщениями», не проверяются. bad_words: «слово» — слово начинается с него, «*слово» — встречается где угодно в слове, «=слово» — только целое слово. allowed_domains — разрешённые сайты, allowed_invites — коды разрешённых приглашений discord.gg.",
   "enabled": true,
   "exempt_role_ids": [],
   "exempt_channel_ids": [],
-  "rules": {"scam": true, "badwords": true, "invites": true, "links": false, "mentions": true, "flood": true, "duplicates": true, "caps": true, "emoji": true},
+  "rules": {
+   "scam": true,
+   "badwords": true,
+   "invites": true,
+   "links": false,
+   "mentions": true,
+   "flood": true,
+   "duplicates": true,
+   "caps": true,
+   "emoji": true
+  },
   "bad_words": [
-   "=бля", "бляд", "блят", "сука", "суки", "сучк", "сучар", "хуй", "хуе", "хуи", "хуя", "хую", "нахуй", "похуй", "нихуя", "дохуя", "охуе", "охуи",
-   "*пизд", "еба", "ебу", "ебн", "ебл", "заеб", "уеб", "выеб", "наеб", "проеб", "доеб", "съеб", "сьеб", "отъеб", "отьеб", "разъеб", "разьеб", "въеб", "вьеб",
-   "*долбоеб", "*долбаеб", "мудак", "мудил", "пидор", "пидар", "пидр", "=педик", "=педики", "=педиков", "гандон", "гондон", "шлюх", "шалав", "залуп", "дебил", "=чмо", "пиндос",
-   "fuck", "*fuck", "shit", "bitch", "nigg", "faggot", "cunt", "whore", "*pizd", "blyat", "blyad", "=suka", "=huy", "=hui", "nahui", "nahuy", "ebat", "eblan", "pidor", "pidar", "mudak"
+   "=бля",
+   "бляд",
+   "блят",
+   "сука",
+   "суки",
+   "сучк",
+   "сучар",
+   "хуй",
+   "хуе",
+   "хуи",
+   "хуя",
+   "хую",
+   "нахуй",
+   "похуй",
+   "нихуя",
+   "дохуя",
+   "охуе",
+   "охуи",
+   "*пизд",
+   "еба",
+   "ебу",
+   "ебн",
+   "ебл",
+   "заеб",
+   "уеб",
+   "выеб",
+   "наеб",
+   "проеб",
+   "доеб",
+   "съеб",
+   "сьеб",
+   "отъеб",
+   "отьеб",
+   "разъеб",
+   "разьеб",
+   "въеб",
+   "вьеб",
+   "*долбоеб",
+   "*долбаеб",
+   "мудак",
+   "мудил",
+   "пидор",
+   "пидар",
+   "пидр",
+   "=педик",
+   "=педики",
+   "=педиков",
+   "гандон",
+   "гондон",
+   "шлюх",
+   "шалав",
+   "залуп",
+   "дебил",
+   "=чмо",
+   "пиндос",
+   "fuck",
+   "*fuck",
+   "shit",
+   "bitch",
+   "nigg",
+   "faggot",
+   "cunt",
+   "whore",
+   "*pizd",
+   "blyat",
+   "blyad",
+   "=suka",
+   "=huy",
+   "=hui",
+   "nahui",
+   "nahuy",
+   "ebat",
+   "eblan",
+   "pidor",
+   "pidar",
+   "mudak"
   ],
-  "allowed_domains": ["rteam.info", "youtube.com", "youtu.be", "github.com", "t.me", "tenor.com", "giphy.com", "imgur.com"],
+  "allowed_domains": [
+   "rteam.info",
+   "youtube.com",
+   "youtu.be",
+   "github.com",
+   "t.me",
+   "tenor.com",
+   "giphy.com",
+   "imgur.com"
+  ],
   "allowed_invites": [],
   "max_mentions": 5,
   "caps_percent": 70,
@@ -91,13 +221,62 @@
   "duplicate_seconds": 60,
   "flood_timeout_minutes": 5,
   "scam_timeout_minutes": 60,
-  "warn_timeouts": [{"warns": 3, "minutes": 10}, {"warns": 5, "minutes": 60}, {"warns": 7, "minutes": 1440}],
+  "warn_timeouts": [
+   {
+    "warns": 3,
+    "minutes": 10
+   },
+   {
+    "warns": 5,
+    "minutes": 60
+   },
+   {
+    "warns": 7,
+    "minutes": 1440
+   }
+  ],
   "warn_expire_days": 30
  },
-
  "dm": {
   "_info": "ЛС бота: rai — отвечать на вопросы нейросетью Rai (с GitHub).",
   "enabled": true,
   "rai": true
+ },
+ "panel": {
+  "_info": "Админ-панель бота — команда /админ (или кнопка «Открыть админ-панель», её ставит /настройка админка). Открывают администраторы сервера и роли из role_ids. announce_channels — куда можно написать объявление; call_voice_channel_ids — голосовые каналы, куда бот зовёт кандидатов на обзвон. channel_id — канал, где бот сам держит кнопку «Открыть админ-панель» (пусто — не держит).",
+  "role_ids": [
+   "1555859085168087111"
+  ],
+  "channel_id": "",
+  "announce_channels": [
+   {
+    "id": "1554086741705760848",
+    "name": "Медиа",
+    "emoji": "📢"
+   },
+   {
+    "id": "1504798164421578835",
+    "name": "Общий чат",
+    "emoji": "💬"
+   }
+  ],
+  "call_voice_channel_ids": [
+   "1555649525249482752",
+   "1555649588466024569"
+  ]
+ },
+ "levels": {
+  "_info": "Уровни и активность: XP за сообщения (раз в cooldown_seconds, от xp_min до xp_max) и за минуты в голосовых каналах (voice_xp_per_minute, если в канале не меньше voice_min_members человек и звук не выключен). announce_channel_id — куда писать о новом уровне (пусто — в тот же канал), voice_announce_channel_id — куда писать о новом уровне за голос. roles — роли за уровни, например {\"5\": \"ID роли\", \"10\": \"ID роли\"}. ignore_channel_ids — где XP не начисляется.",
+  "enabled": true,
+  "xp_min": 15,
+  "xp_max": 25,
+  "cooldown_seconds": 60,
+  "voice_xp_per_minute": 10,
+  "voice_min_members": 2,
+  "announce": true,
+  "announce_channel_id": "",
+  "voice_announce_channel_id": "1504798164421578835",
+  "ignore_channel_ids": [],
+  "roles": {}
  }
 }
