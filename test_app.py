@@ -392,13 +392,17 @@ class OnlineTest(unittest.TestCase):
 
     def test_web_search_through_hosting(self):
         # без посредника на хостинге — только Википедия; с ним — ищет в интернете (Google / DuckDuckGo)
-        self.assertNotIn("example.ru", self.ask("кто изобрёл радио", SUN)["answer"])
+        self.assertNotIn("example.ru", self.ask("изобретение радио", SUN)["answer"])
         net.PROXY = "https://rai.test/net.php"
         try:
-            r = self.ask("кто изобрёл радио", SUN)
+            r = self.ask("изобретение радио", SUN)
         finally:
             net.PROXY = ""
         self.assertEqual(r["intent"], "web")
+        # на «кто изобрёл радио» Rai отвечает сам — из своего справочника, без интернета
+        own = self.ask("кто изобрёл радио", SUN)
+        self.assertEqual(own["intent"], "tool")
+        self.assertIn("Попов", own["answer"])
         self.assertIn("Попов", r["answer"])
         self.assertIn("(https://example.ru/radio)", r["answer"])
         self.assertTrue(any("net.php?search=" in c for c in fake_net.calls))
@@ -756,6 +760,143 @@ class ScreenTest(unittest.TestCase):
     def test_long_screen_text_allowed(self):
         long = "[[screen]]\n" + "Это длинный текст с экрана. " * 400
         self.assertEqual(self.brain.answer(self.q, long, "s")["intent"], "screen")
+
+
+class ToolboxTest(unittest.TestCase):
+    """100+ точных функций: математика, деньги, здоровье, время, текст, генераторы, справочник, игры."""
+
+    def setUp(self):
+        import toolbox
+        import facts  # noqa: F401
+        import games  # noqa: F401
+        self.toolbox = toolbox
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_tool(self, text):
+        return self.toolbox.run(text, {}) or ""
+
+    def test_every_tool_answers_its_example(self):
+        tools = self.toolbox.TOOLS
+        self.assertGreaterEqual(len(tools), 100)
+        for t in tools:
+            low = self.toolbox.skills._low(t["example"])
+            self.assertTrue(t["fn"](t["example"], low, {}), t["title"])
+            owner = next(u for u in tools if u["fn"](t["example"], low, {}))
+            self.assertEqual(owner["title"], t["title"], t["example"])  # пример не перехватывает другая функция
+        self.assertIn("## Мои функции: ", self.toolbox.catalog())
+
+    def test_math(self):
+        r = self.run_tool
+        self.assertIn("x₁ = 3, x₂ = 2", r("реши уравнение x^2 - 5x + 6 = 0"))
+        self.assertIn("x = 5", r("реши уравнение 3x + 7 = 22"))
+        self.assertIn("x₁ = 1/2, x₂ = -2", r("реши уравнение 2х^2 + 3х - 2 = 0"))
+        self.assertIn("действительных корней нет", r("реши уравнение x^2 + 1 = 0"))
+        self.assertIn("простое", r("97 простое число?"))
+        self.assertIn("составное", r("является ли 91 простым числом"))
+        self.assertIn("2 × 2 × 2 × 3 × 3 × 5", r("разложи 360 на множители"))
+        self.assertIn("= 12", r("нод 48 и 180"))
+        self.assertIn("= 60", r("нок чисел 12 и 15"))
+        self.assertIn("3628800", r("факториал 10"))
+        self.assertIn("= 610", r("15-е число фибоначчи"))
+        self.assertIn("= 4", r("кубический корень из 64"))
+        self.assertIn("= 10", r("log2 1024"))
+        self.assertIn("= 0,5", r("синус 30 градусов"))
+        self.assertIn("FF", r("переведи 255 в шестнадцатеричную"))
+        self.assertIn("1101", r("переведи 13 в двоичную систему"))
+        self.assertIn("MCMXCIV", r("1994 римскими цифрами"))
+        self.assertIn("= 14", r("XIV арабскими"))
+        self.assertIn("сто двадцать три тысячи четыреста пятьдесят шесть", r("123456 прописью"))
+        self.assertIn("Две тысячи двадцать один рубль 05 копеек", r("2021,05 рублей прописью"))
+        self.assertIn("78,5398", r("площадь круга радиус 5"))
+        self.assertIn("**6**", r("площадь треугольника со сторонами 3 4 5"))
+        self.assertIn("**5**", r("гипотенуза катеты 3 и 4"))
+        self.assertIn("= 3", r("медиана 1 3 2 8 5"))
+        self.assertIn("5/6", r("1/2 + 1/3 дробью"))
+        self.assertIn("≈ 2,6", r("округли 2,567 до десятых"))
+        self.assertIn("25%", r("сколько процентов 30 от 120"))
+
+    def test_money_health_time(self):
+        r = self.run_tool
+        self.assertIn("11 122,22 ₽", r("кредит 500000 под 12% на 5 лет"))
+        self.assertIn("133 100 ₽", r("вклад 100000 под 10% на 3 года"))
+        self.assertIn("1 700 ₽", r("2000 со скидкой 15%"))
+        self.assertIn("20 000 ₽", r("выделить ндс 20% из 120000"))
+        self.assertIn("87 000 ₽", r("зарплата 100000 на руки"))
+        self.assertIn("962,50 ₽", r("счёт 3500 на 4 человек чаевые 10%"))
+        self.assertIn("23,1 — норма", r("имт рост 180 вес 75"))
+        self.assertEqual(r("калькулятор ИМТ"), "")  # просьба о программе — не расчёт
+        self.assertIn("190", r("пульсовые зоны 30 лет"))
+        self.assertIn("23:15", r("во сколько лечь спать если вставать в 7:00"))
+        self.assertIn("Телец", r("знак зодиака 5 мая"))
+        self.assertIn("Крысы", r("китайский гороскоп 2008"))
+        self.assertIn("XIX", r("какой век 1812 год"))
+        self.assertIn("29 дней", r("сколько дней в феврале 2028"))
+        self.assertIn("Токио", r("который час в Токио"))
+
+    def test_text_and_generators(self):
+        r = self.run_tool
+        self.assertIn("Ivanov Petr", r("транслит Иванов Пётр"))
+        self.assertIn("привет мир", r("исправь раскладку ghbdtn vbh"))
+        self.assertIn("... --- ...", r("азбукой морзе SOS"))
+        self.assertIn("SOS", r("расшифруй морзе ... --- ..."))
+        self.assertIn("палиндром", r("шалаш палиндром?"))
+        self.assertIn("тулезх", r("зашифруй шифром цезаря привет сдвиг 3"))
+        self.assertIn("привет", r("расшифруй цезаря тулезх сдвиг 3"))
+        self.assertEqual(r("шифр цезаря на javascript"), "")  # это программа для генератора кода
+        self.assertIn("0L/RgNC40LLQtdGC", r("base64 привет"))
+        self.assertIn("5d41402abc4b2a76b9719d911017c592", r("md5 hello"))
+        self.assertIn("#FF0080", r("rgb(255, 0, 128) в hex"))
+        self.assertIn("8-я буква", r("какая по счёту буква ж"))
+
+    def test_reference(self):
+        r = self.run_tool
+        self.assertIn("Au", r("химический символ золота"))
+        self.assertIn("Толстой", r("кто написал войну и мир"))
+        self.assertIn("Леонардо", r("кто нарисовал Мону Лизу"))
+        self.assertIn("Чайковский", r("кто написал Щелкунчика"))
+        self.assertIn("Белл", r("кто изобрёл телефон"))
+        self.assertIn("1939", r("когда началась Вторая мировая война"))
+        self.assertIn("1961", r("когда полетел гагарин"))
+        self.assertIn("Эверест", r("самая высокая гора"))
+        self.assertIn("299 792 458", r("скорость света"))
+        self.assertIn("8 планет", r("сколько планет в солнечной системе"))
+        self.assertIn("иена", r("какая валюта в Японии"))
+        self.assertIn("+375", r("код страны Беларусь"))
+        self.assertIn("португальский", r("на каком языке говорят в Бразилии"))
+        self.assertIn("went", r("три формы глагола go"))
+
+    def test_games_in_chat(self):
+        v = VERSIONS["pro"]  # игры помнят ход даже в версии без памяти разговора
+        ask = lambda t: self.brain.answer(v, t, session_id="game1")
+        r = ask("загадай загадку")
+        self.assertEqual(r["intent"], "game")
+        self.assertIn("Ответ:", ask("сдаюсь")["answer"])
+        ask("давай сыграем в угадай число")
+        n = self.brain.sessions.get("play:game1")["game"]["n"]
+        self.assertIn("Угадали", ask(str(n))["answer"])
+        ask("давай викторину")
+        quiz = self.brain.sessions.get("play:game1")["game"]
+        for _ in range(5):
+            import games
+            right = games.QUIZ[quiz["order"][quiz["pos"]]][2]
+            last = ask("абвг"[right])["answer"]
+        self.assertIn("5 из 5", last)
+        ask("давай в города")
+        self.assertIn("Вам на", ask("Москва")["answer"])
+        self.assertIn("окончена", ask("стоп")["answer"])
+        self.assertEqual(ask("привет")["intent"], "greeting")  # игры больше нет — обычный разговор
+        self.assertEqual(ask("все функции")["intent"], "tools_list")
+
+    def test_no_hijack(self):
+        q = VERSIONS["pro-quasar"]
+        for text, intent in [("привет", "greeting"), ("сколько будет 2+2*2", "skill"), ("курс доллара", "currency"),
+                             ("сделай игру змейка", "code"), ("придумай стих про осень", "poem"), ("мне грустно", "support"),
+                             ("что такое фотосинтез", "glossary"), ("калькулятор ИМТ", "code")]:
+            self.assertEqual(self.brain.answer(q, text, session_id="nh")["intent"], intent, text)
 
 
 class HostingTest(unittest.TestCase):

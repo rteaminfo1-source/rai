@@ -28,6 +28,9 @@ import skills
 import social
 import syntax
 import talk
+import toolbox
+import facts  # noqa: F401 — регистрирует справочник в toolbox
+import games
 import webgen
 from versions import Version
 
@@ -59,6 +62,7 @@ _FORGET_RE = re.compile(r"^\s*забудь (?:вс[её]|об? мне)", re.I)
 _ARCHIVE_RE = re.compile(r"(сделай|собери|скачай|создай|упакуй|сохрани)\w*\s+(?:мне\s+)?(?:весь\s+)?(?:чат\s+)?(?:в\s+)?(архив|zip)|"
                          r"^\s*(архив|zip)(?:\s+чата)?\s*[.!?]*$", re.I)
 # Темы-реплики: отвечают, только когда весь вопрос про них (иначе «что посмотреть вечером» = «добрый вечер»).
+_ALL_TOOLS_RE = re.compile(r"(?:все|список|покажи)\s+(?:твои\s+|свои\s+)?(?:функци|возможност|команд)|(?:100|сто)\s+функци|какие\s+(?:у\s+тебя\s+)?(?:есть\s+)?функци", re.I)
 _SMALL_TALK = {"greeting", "how_are_you", "thanks", "bye", "ok", "compliment", "insult", "bot_feelings"}
 _DEFINE_RE = re.compile(
     r"^\s*(?:а\s+)?(?:что такое|что это(?: такое)?|кто такой|кто такая|кто такие|что значит|что означает|"
@@ -269,8 +273,11 @@ class Brain:
 
         net.PROBLEMS.clear()
         answers, intents, attachments = [], [], []
+        # игры (загадки, викторина, города…) помнят ход в любой версии — отдельное хранилище по чату
+        sid = _clean_session_id(session_id)
+        play = self.sessions.get("play:" + sid) if sid else {}
         for part in parts[:5]:
-            text, intent = self._answer_one(version, part, session, attachments)
+            text, intent = self._answer_one(version, part, session, attachments, play)
             answers.append(text)
             intents.append(intent)
 
@@ -287,10 +294,18 @@ class Brain:
             "offline": bool(net.PROBLEMS),  # был сбой сети — страница может отдать вопрос нейросети
         }
 
-    def _answer_one(self, version: Version, text: str, session: dict, attachments: list):
+    def _answer_one(self, version: Version, text: str, session: dict, attachments: list, play=None):
         # Человеку очень плохо — сначала помощь, всё остальное потом.
         if talk.is_crisis(text):
             return talk.CRISIS, "crisis"
+        # Идёт игра (загадка, «угадай число», викторина, города) — сообщение сначала ей
+        play = play if play is not None else {}
+        if games.active(play):
+            reply = games.turn(text, play)
+            if reply:
+                return reply, "game"
+        if _ALL_TOOLS_RE.search(text):
+            return toolbox.catalog(), "tools_list"
         name_match = _NAME_RE.search(text)
         if name_match:
             name = name_match.group(1).capitalize()
@@ -374,6 +389,12 @@ class Brain:
             converted = skills.converter(text)
             if converted:
                 return converted, "skill"
+
+        # ---- 100+ точных функций: математика, деньги, здоровье, время, текст, справочник, игры (toolbox, facts, games)
+        if not codeai.is_build_request(text) and not online.explicit_search(text):  # «найди …» — это интернет
+            reply, cat = toolbox.find(text, play)
+            if reply:
+                return reply, "game" if cat == games.CAT else "tool"
 
         # ---- «сделай сайт / игру / приложение» — это код, даже если в просьбе есть «погода» или «валюты»
         building = codeai.is_build_request(text)

@@ -675,7 +675,7 @@
   if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
   if (params.get("py")) CFG.pyBase = params.get("py");
 
-  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "creative.py",
+  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "creative.py",
                     "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
@@ -1964,7 +1964,7 @@ def rai_code(action, code, lang, prompt):
 
   // ---------------------------------------------------------------- нейросеть в чате
   // Ответ «из интернета» (web) нейросеть переписывает связным текстом со ссылками, остальное — точные инструменты Rai
-  const TOOL_INTENTS = new Set(["crisis", "weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory"]);
+  const TOOL_INTENTS = new Set(["crisis", "tool", "game", "tools_list", "weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory"]);
   // Имя и личные факты при включённой нейросети запоминает она сама — навсегда и для всех чатов
   const NEURO_MEMORY_INTENTS = new Set(["set_name", "get_name", "memory"]);
   function isToolAnswer(data) {

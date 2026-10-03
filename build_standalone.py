@@ -14,7 +14,7 @@ import os
 import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "creative.py",
+FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "creative.py",
          "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "brain.py", "knowledge.json", "glossary.json"]
 
 
