@@ -28,6 +28,7 @@ const {
   Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits: P, MessageFlags, REST, Routes,
 } = require("discord.js");
 
+const BOT_VERSION = "2026.10.03"; // сайт сравнивает: старая версия на сервере — «Проверить всё» подскажет обновить index.js
 const DIR = process.env.RAI_BOT_DIR || __dirname;
 const API_BASE = process.env.DISCORD_API_BASE || ""; // только для тестов: подменный Discord
 const EPH = MessageFlags.Ephemeral;
@@ -1664,9 +1665,9 @@ async function handleHttp(req, res) {
 <body><main><h1>Discord-бот RTeam</h1><p class="ok">✅ Приложение запущено — Node.js в Plesk работает.</p>
 <p class="${online && !reason ? "ok" : "bad"}">${online ? `✅ В Discord: в сети как <b>${esc(client.user.tag)}</b>${guild() ? `, сервер «${esc(guild().name)}»` : ""}` : "❌ В Discord: не в сети"}</p>
 ${reason ? `<p class="bad">Причина: ${esc(reason)}</p>` : ""}
-<p>Ключ для сайта: ${cfg.api_key ? "✅ задан" : "❌ не задан — впишите api_key в secret.json"}</p></main></body></html>`);
+<p>Ключ для сайта: ${cfg.api_key ? "✅ задан" : "❌ не задан — впишите api_key в secret.json"}</p><p>Версия бота: <code>${BOT_VERSION}</code></p></main></body></html>`);
     }
-    return sendJson(res, 200, { ok: true, service: "rteam-discord-bot", online, mode, reason });
+    return sendJson(res, 200, { ok: true, service: "rteam-discord-bot", version: BOT_VERSION, online, mode, reason });
   }
   if (p !== "/dm" && p !== "/status" && p !== "/restart") return sendJson(res, 404, { ok: false, error: "not_found" });
   if (!cfg.api_key) return sendJson(res, 503, { ok: false, error: "api_key_not_set" });
@@ -1677,7 +1678,7 @@ ${reason ? `<p class="bad">Причина: ${esc(reason)}</p>` : ""}
     return sendJson(res, 200, { ok: report.every((x) => x.ok), report });
   }
   if (p === "/status") {
-    const report = { ok: true, mode, online: !!(client && client.isReady()), bot: client && client.user ? client.user.tag : null,
+    const report = { ok: true, version: BOT_VERSION, mode, online: !!(client && client.isReady()), bot: client && client.user ? client.user.tag : null,
       guild: guild() ? guild().name : null, invite_url: inviteUrl(), last_error: lastError || null, rai: !!rai.lib, checks: [] };
     if (report.online) report.checks = await diagnose().catch((e) => [{ ok: false, text: e.message }]);
     else if (mode === "standby") report.checks = [{ ok: true, text: "Эта копия в резерве — с Discord работает другая" }];
@@ -1705,7 +1706,7 @@ let server = null, timers = [];
 async function start() {
   server = http.createServer((req, res) => handleHttp(req, res).catch((e) => { log("❌ HTTP:", e.message); sendJson(res, 500, { ok: false, error: "internal" }); }));
   const port = process.env.PORT || cfg.port || 3000;
-  server.listen(port, () => log(`🌐 HTTP на порту ${port}`));
+  server.listen(port, () => log(`🌐 HTTP на порту ${port}, версия бота ${BOT_VERSION}`));
   if (!cfg.token) { mode = "offline"; lastError = "нет токена: положите secret.json (с токеном) рядом с index.js и нажмите Restart App"; log("❌", lastError); return; }
   if (await takeLock()) await goActive();
   else { mode = "standby"; log("ℹ️ Бот уже работает в другой копии — эта в резерве"); }

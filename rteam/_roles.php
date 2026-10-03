@@ -627,6 +627,9 @@ function rt_discord_http($method, $url, $form = null, $headers = [], $timeout = 
     return [$code, is_array($json) ? $json : null, (string)$res];
 }
 
+/* Версия discord/index.js, под которую написан сайт: если на сервере бот старее, «Проверить всё» скажет обновить */
+const RT_DISCORD_BOT_VERSION = "2026.10.03";
+
 /* Ошибки curl, при которых виноват сертификат (у поддомена бота нет своего SSL) */
 const RT_CURL_SSL_ERRORS = [35, 51, 53, 54, 58, 59, 60, 64, 66, 77, 80, 82, 83, 90, 91];
 
