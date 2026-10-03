@@ -328,6 +328,24 @@
   .neuro-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .neuro-actions .btn { padding: 10px 16px; font-size: 14px; font-weight: 600; }
   .neuro-note { color: var(--muted); font-size: 12.5px !important; }
+  .neuro-models label.locked { opacity: .55; cursor: not-allowed; }
+  .neuro-models label.locked b::after { content: " 🔒"; }
+  .neuro-plan { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 13.5px; }
+  .neuro-plan .meter { flex: 1 1 120px; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+  .neuro-plan .meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--red), #ff3d81); border-radius: 99px; }
+  .neuro-plan a { color: var(--red-hi, #ff2a2a); font-weight: 600; }
+  dialog#paywall { border: 0; padding: 0; border-radius: 22px; width: min(440px, calc(100vw - 24px)); color: var(--fg);
+    background: radial-gradient(120% 90% at 100% 0%, rgba(225, 6, 0, .3), transparent 60%), radial-gradient(100% 80% at 0% 100%, rgba(139, 92, 255, .22), transparent 60%), var(--panel); }
+  dialog#paywall[open] { animation: payin .45s cubic-bezier(.2, 1.2, .3, 1); }
+  dialog#paywall::backdrop { background: rgba(0, 0, 0, .7); backdrop-filter: blur(4px); }
+  @keyframes payin { from { opacity: 0; transform: translateY(18px) scale(.96); } }
+  .paywall { padding: 26px; display: flex; flex-direction: column; gap: 14px; text-align: center; }
+  .paywall .pw-ico { width: 64px; height: 64px; margin: 0 auto; border-radius: 20px; display: grid; place-items: center; font-size: 30px;
+    background: linear-gradient(135deg, #ff2d2d, #ff3d81 50%, #8b5cff); box-shadow: 0 14px 40px -10px rgba(255, 45, 45, .7); }
+  .paywall h2 { margin: 0; font-size: 21px; }
+  .paywall p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+  .paywall .btn { justify-content: center; padding: 12px 18px; font-weight: 600; text-decoration: none; }
+  .paywall .btn.red { background: linear-gradient(120deg, #ff2d2d, #ff3d81 55%, #8b5cff); border: 0; }
   .neuro-mem { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
   .neuro-mem ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow: auto; }
   .neuro-mem li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
@@ -615,6 +633,7 @@
       <b>считает и проверяет кодом</b>, пишет сайты, игры и программы, помнит вас. Работает прямо на вашем компьютере —
       без API и ключей, сообщения никуда не уходят. Ничего устанавливать не нужно: включается сама и загружается один раз,
       дальше — из кэша браузера. Нет видеокарты — работает на процессоре. В основе — открытые модели Qwen3.5 (Apache 2.0).</p>
+    <div class="neuro-plan" id="neuroPlan" hidden></div>
     <div class="neuro-models" id="neuroModels" role="radiogroup" aria-label="Модель"></div>
     <p class="neuro-note" id="neuroWhere"></p>
     <div class="neuro-progress" id="neuroProgress" hidden><div id="neuroBar"></div></div>
@@ -627,6 +646,17 @@
     </div>
     <p class="neuro-note">Быстрее всего — в Chrome или Edge с WebGPU. Без видеокарты модели поменьше работают на процессоре.
       Погоду, курсы валют, перевод, картинки и презентации по-прежнему делает движок Rai — там нужны точные данные.</p>
+  </div>
+</dialog>
+
+<dialog id="paywall" aria-labelledby="pwTitle">
+  <div class="paywall">
+    <div class="pw-ico" aria-hidden="true">✨</div>
+    <h2 id="pwTitle">Нейросеть на сегодня — всё</h2>
+    <p id="pwText">Сообщения нейросети на сегодня закончились. Rai продолжит отвечать своим движком, а с подпиской нейросеть ответит ещё.</p>
+    <a class="btn red" id="pwPlans" href="./#pricing">Выбрать тариф</a>
+    <a class="btn" id="pwLogin" href="login.php?next=chat.html" hidden>Войти — бесплатно больше</a>
+    <button class="btn" type="button" id="pwClose">Продолжить с движком Rai</button>
   </div>
 </dialog>
 
@@ -1855,10 +1885,17 @@ def rai_code(action, code, lang, prompt):
         bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
         message = text + "\n[[link-data]]\n" + JSON.stringify(linkData);
       }
-      const neuro = window.RaiNeuro && window.RaiNeuro.ready();
+      let neuro = window.RaiNeuro && window.RaiNeuro.ready();
       // Погода, курсы, перевод, картинки, презентации, калькулятор — у движка Rai (точные данные);
       // разговор, вопросы, код, сайты и игры — у нейросети, если она включена.
       let data = shots.length && neuro ? null : await engine.ask(chat.version, message, chat.id, history);
+      // Лимит тарифа: нейросеть отвечает, пока есть сообщения на сегодня; дальше — движок Rai
+      const neuroWanted = neuro && (wantsDeck(data) || !data || !isToolAnswer(data) || (data.offline &&
+        [].concat(data.intent || []).some((i) => !i || i === "translate" || i === "web" || i === "unknown")));
+      if (neuroWanted && !(await takeNeuro())) {
+        neuro = false;
+        if (!data) data = await engine.ask(chat.version, message, chat.id, history);
+      }
       if (neuro && wantsDeck(data)) {
         const bubble = pending.querySelector(".bubble");
         sendAsStop(true);
@@ -1899,7 +1936,7 @@ def rai_code(action, code, lang, prompt):
             "3–5 идей для следующих публикаций. Таблицу с цифрами не повторяй — она уже показана.";
         }
         // Сложная задача (математика, логика, ошибки в коде) — нейросеть сначала думает; кнопка «лампочка» — думать всегда
-        reply = await neuroAnswer(pending, history, prompt, t0, facts.sources, {thinking: thinkOn() || isHard(text), question: text});
+        reply = await neuroAnswer(pending, history, prompt, t0, facts.sources, {thinking: canThinkPlan() && (thinkOn() || isHard(text)), question: text});
         const photos = ((data && data.attachments) || []).filter((a) => a.type === "photo");
         if (photos.length) reply.attachments = photos.concat(reply.attachments || []);
         if (linkReport) reply.text = linkReport + "\n\n---\n\n### Разбор Rai Нейро\n\n" + reply.text;  // точные цифры + разбор нейросети
@@ -1947,6 +1984,60 @@ def rai_code(action, code, lang, prompt):
     while ((m = re.exec(md || ""))) if (!out.some((x) => x.url === m[2])) out.push({title: m[1], url: m[2]});
     return out.slice(0, 5);
   }
+  // ---------------------------------------------------------------- тарифы и лимиты нейросети (limits.php на сайте)
+  // Без своего сайта (локальный запуск, окно просмотра) лимитов нет. На rai.rteam.info каждое сообщение нейросети
+  // засчитывается сервером: без входа — немного в день, дальше — по тарифу (index.php#pricing).
+  let limits = null, limitsDone;
+  const limitsReady = new Promise((resolve) => { limitsDone = resolve; });  // нейросеть включается, когда тариф известен
+  async function initLimits() {
+    try {
+      if (!/^https?:$/.test(location.protocol)) return;
+      const r = await withTimeout(fetch("limits.php", {credentials: "same-origin", cache: "no-store"}), 4000);
+      if (!r.ok || !(r.headers.get("content-type") || "").includes("json")) return;
+      limits = await r.json();
+      if (window.RaiNeuro && window.RaiNeuro.setAllowed) window.RaiNeuro.setAllowed(limits.models);
+      renderLimits();
+    } catch (e) { /* без лимитов */ } finally { limitsDone(); }
+  }
+  function canThinkPlan() { return !limits || limits.think !== false; }
+  function renderLimits() {
+    const box = $("neuroPlan");
+    if (!limits || !box) return;
+    const left = limits.limit ? `сегодня осталось <b>${limits.left}</b> из ${limits.limit}` : "без ограничений";
+    const pct = limits.limit ? Math.min(100, Math.round(limits.used * 100 / limits.limit)) : 0;
+    box.innerHTML = `<span>Тариф <b>${esc(limits.guest ? "без входа" : limits.plan_name)}</b> · ${left}</span>` +
+      (limits.limit ? `<span class="meter" aria-hidden="true"><i style="width:${pct}%"></i></span>` : "") +
+      (limits.guest ? `<a href="login.php?next=chat.html">Войти</a>` : limits.plan !== "ultra" ? `<a href="./#pricing">Улучшить</a>` : "");
+    box.hidden = false;
+    if (limits.limit && limits.left <= 3 && limits.left > 0) toast(`Нейросеть: осталось ${limits.left} ${limits.left === 1 ? "сообщение" : "сообщения"} на сегодня`);
+  }
+  /** Засчитать сообщение нейросети. false — лимит исчерпан (ответит движок Rai). */
+  async function takeNeuro(retry) {
+    if (!limits) return true;
+    try {
+      const r = await withTimeout(fetch("limits.php", {method: "POST", credentials: "same-origin",
+        headers: {"X-CSRF-Token": limits.csrf || ""}}), 6000);
+      const d = await r.json().catch(() => null);
+      if (r.status === 403 && !retry) {
+        // сессия сменилась (первый заход, вход в аккаунт) — берём новый токен и пробуем ещё раз
+        const fresh = await withTimeout(fetch("limits.php", {credentials: "same-origin", cache: "no-store"}), 4000);
+        if (fresh.ok) { Object.assign(limits, await fresh.json()); return takeNeuro(true); }
+        return true;
+      }
+      if (d && d.plan) { Object.assign(limits, d); renderLimits(); }
+      if (r.status === 429) { showPaywall(d && d.error); return false; }
+      return true;  // сбой сервера — не мешаем отвечать
+    } catch (e) { return true; }
+  }
+  function showPaywall(text, title) {
+    const d = $("paywall");
+    $("pwTitle").textContent = title || (limits && limits.guest ? "Войдите, чтобы продолжить" : "Нейросеть на сегодня — всё");
+    if (text) $("pwText").textContent = text + " Rai продолжит отвечать своим движком.";
+    $("pwLogin").hidden = !(limits && limits.guest);
+    if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+  }
+  $("pwClose").addEventListener("click", () => $("paywall").close());
+
   // ---------------------------------------------------------------- нейросеть-агент
   // Нейросеть сама решает, что ей нужно: поискать в интернете, выполнить код (посчитать, проверить), запомнить факт.
   // Команды она пишет отдельной строкой — страница выполняет их и возвращает результат, пока не будет готов ответ.
@@ -2337,9 +2428,11 @@ def rai_code(action, code, lang, prompt):
     const saved = N.saved();
     const chosen = N.status().model || (N.MODELS[saved] ? saved : "normal");
     const cpu = N.backend() === "cpu";
+    const locked = (key) => limits && limits.models && !limits.models.includes(key);
     box.innerHTML = Object.entries(N.MODELS).filter(([, m]) => !cpu || m.cpu).map(([key, m]) =>
-      `<label><input type="radio" name="neuroModel" value="${key}"${key === chosen ? " checked" : ""}>` +
-      `<b>${esc(m.label)}${key === "strong" ? " ✦" : ""}</b><span>основа: ${esc(cpu ? m.cpu.base : m.base)}</span>` +
+      `<label${locked(key) ? ` class="locked" title="Нужен тариф «${esc((limits.unlock || {})[key] || "Премиум")}»"` : ""}>` +
+      `<input type="radio" name="neuroModel" value="${key}"${key === chosen && !locked(key) ? " checked" : ""}${locked(key) ? " disabled" : ""}>` +
+      `<b>${esc(m.label)}${key === "strong" ? " ✦" : ""}</b><span>${locked(key) ? "в тарифе «" + esc((limits.unlock || {})[key] || "Премиум") + "»" : "основа: " + esc(cpu ? m.cpu.base : m.base)}</span>` +
       `<span>${cpu ? "загрузка " + esc(m.cpu.size) + " · на процессоре" : "загрузка " + esc(m.size) + " · видеопамять " + esc(m.memory)}</span></label>`).join("");
     const mirror = N.mirror();
     $("neuroWhere").textContent = mirror ? "Модели и библиотеки хранятся на вашем сайте (" + new URL(mirror.root).host + ") — " +
@@ -2371,7 +2464,7 @@ def rai_code(action, code, lang, prompt):
     });
     $("neuroOff").addEventListener("click", () => { N.disable(); toast("Нейросеть выключена — отвечает движок Rai"); });
     initThink();
-    mirrorReady.then(() => N.auto());
+    Promise.all([mirrorReady, limitsReady]).then(() => N.auto());
     $("memClear").addEventListener("click", () => { setMemory([]); renderMemory(); toast("Нейросеть всё забыла"); });
     // Нейросеть включается сама (после поиска своего сервера): модель подбирается под компьютер и грузится в фоне
   }
@@ -2395,6 +2488,7 @@ def rai_code(action, code, lang, prompt):
     const b = $("thinkBtn");
     try { if (localStorage.getItem("rai_think") === "1") b.setAttribute("aria-pressed", "true"); } catch (e) { /* по умолчанию выключено */ }
     b.addEventListener("click", () => {
+      if (!canThinkPlan()) { showPaywall("Режим «Думать глубже» есть в тарифах «Плюс», «Премиум» и «Ультра».", "Думать глубже"); return; }
       const on = !thinkOn();
       b.setAttribute("aria-pressed", String(on));
       try { localStorage.setItem("rai_think", on ? "1" : "0"); } catch (e) { /* не страшно */ }
@@ -2537,7 +2631,8 @@ def rai_code(action, code, lang, prompt):
       zip: makeZip,
       copy: (text) => copyRich(text, "<pre>" + esc(text) + "</pre>", document.body),
       pyodideSources: pyodideSources,
-      neuro: window.RaiNeuro
+      neuro: window.RaiNeuro,
+      takeNeuro: takeNeuro  // лимит тарифа: каждое обращение к нейросети в Code тоже засчитывается
     });
     return true;
   }
@@ -2582,6 +2677,7 @@ def rai_code(action, code, lang, prompt):
   window.addEventListener("hashchange", () => setMode(location.hash.slice(1) || "chat"));
 
   initAccount();
+  initLimits();
   initNeuro();
   if (window.RaiScreen) {
     window.RaiScreen.init({input: input, dropZone: $("composer"), toast: toast, download: download, icon: icon});

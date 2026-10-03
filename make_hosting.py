@@ -16,7 +16,8 @@ import build_standalone
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
-# На хостинге только PHP и HTML: весь Rai — один index.html (движок, база знаний, вкладки встроены внутрь),
+# На хостинге только PHP и HTML: весь Rai — один chat.html (движок, база знаний, вкладки встроены внутрь),
+# главная с тарифами — index.php,
 # а Python для браузера и распознавание текста страница берёт с CDN (jsdelivr).
 
 DOMAINS = {
@@ -29,13 +30,17 @@ SKIP = {"__pycache__", ".DS_Store"}
 PLACEHOLDERS = {
     "ВСТАВЬТЕ_СЮДА_СЕКРЕТ_GOCSPX": "GOOGLE_CLIENT_SECRET",
     "ВСТАВЬТЕ_ОДИНАКОВУЮ_СЛУЧАЙНУЮ_СТРОКУ": "SSO_SECRET",
+    "ВСТАВЬТЕ_MERCHANT_ID": "PLATEGA_MERCHANT_ID",
+    "ВСТАВЬТЕ_СЕКРЕТНЫЙ_КЛЮЧ_PLATEGA": "PLATEGA_SECRET",
+    "ВСТАВЬТЕ_КЛЮЧ_ДЛЯ_АДМИНКИ": "ADMIN_API_KEY",
 }
 
 README = """RAI — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГА
 ===================================
 Два сайта, каждая папка — содержимое одного сайта (загрузите ВСЁ из папки в корень этого домена):
 
-  rai.rteam.info/        Rai: чат, Code, Слайды, скриншоты (всё в одном index.html)
+  rai.rteam.info/        index.php — главная: что умеет Rai, тарифы и оплата (Platega)
+                         chat.html — сам Rai: чат, Code, Слайды, скриншоты (всё в одном файле)
                          + аккаунты: регистрация, вход, вход через Google, личный кабинет, чаты в аккаунте
   aistudio.rteam.info/   AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов;
                          вход — аккаунтом Rai
@@ -52,6 +57,13 @@ README = """RAI — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГА
 Своя нейросеть Rai Нейро хранится на вашем сайте: rai.rteam.info/ai.php сам скачивает модели и библиотеки
 в data/ai/ при первом запуске (нужно 2–6 ГБ места и PHP curl), дальше всё грузится с вашего сайта.
 Проверка: https://rai.rteam.info/ai.php/ping — должно быть "path_info":true.
+
+Тарифы и оплата (rai.rteam.info): главная index.php с тарифами, оплата через Platega.
+  • В config.php впишите PLATEGA_MERCHANT_ID и PLATEGA_SECRET (кабинет Platega → API) и ADMIN_API_KEY.
+  • В кабинете Platega адрес уведомлений: https://rai.rteam.info/pay_callback.php
+  • Старый index.html на хостинге УДАЛИТЕ — теперь чат называется chat.html, а главная — index.php.
+  • Подписку по логину выдают в админ-панели основного сайта: admin_rai.php рядом с admin.php,
+    вкладка «Rai: подписки», тот же ADMIN_API_KEY.
 
 Права на запись для PHP (755 или 775): папки data/ на обоих сайтах и sites/ в AI Studio.
 Данные пользователей хранятся в data/*.php — из браузера их прочитать нельзя. HTTPS включите для обоих адресов.
@@ -95,7 +107,7 @@ def build(out):
         shutil.rmtree(out)
     for domain, src in DOMAINS.items():
         copy_tree(os.path.join(BASE, src), os.path.join(out, domain))
-    with open(os.path.join(out, "rai.rteam.info", "index.html"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out, "rai.rteam.info", "chat.html"), "w", encoding="utf-8") as f:
         f.write(build_standalone.build(cdn=True))
 
     filled = []

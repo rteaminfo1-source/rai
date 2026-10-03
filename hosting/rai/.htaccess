@@ -1,6 +1,7 @@
 # Rai (Apache) — необязательно: данные и так защищены (data/*.php)
 Options -Indexes
-DirectoryIndex index.html
+# Главная — index.php (тарифы), сам Rai — chat.html
+DirectoryIndex index.php index.html
 RedirectMatch 404 ^/data(/|$)
 
 # Нейросеть на процессоре в несколько потоков (в 3–6 раз быстрее): изоляция страницы.

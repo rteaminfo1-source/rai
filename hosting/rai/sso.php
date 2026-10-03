@@ -12,7 +12,7 @@ if (!isset(SSO_CLIENTS[$client]) || !preg_match('/^[a-f0-9]{32}$/', $state)) {
     http_response_code(400);
     page_head('Ошибка входа — Rai');
     echo '<main class="auth"><section class="panel"><h1>Ссылка входа неверная</h1><p class="muted">Откройте сервис и нажмите «Войти» ещё раз.</p>'
-       . '<a class="btn" href="./">В Rai</a></section></main>';
+       . '<a class="btn" href="' . CHAT_URL . '">В Rai</a></section></main>';
     page_foot();
     exit;
 }

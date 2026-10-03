@@ -113,9 +113,22 @@
     return {key: "normal", gpu: gpu};
   }
 
+  // Какие модели разрешены тарифом (null — все). Недоступная модель заменяется ближайшей разрешённой послабее.
+  let allowed = null;
+  const RANK = {fast: 0, normal: 1, strong: 2, coder: 3, max: 4};
+  function permitted(key) {
+    if (!allowed || !allowed.length || allowed.includes(key)) return key;
+    const ok = allowed.filter((k) => MODELS[k] && RANK[k] <= RANK[key]).sort((a, b) => RANK[b] - RANK[a]);
+    return ok[0] || allowed.filter((k) => MODELS[k]).sort((a, b) => RANK[a] - RANK[b])[0] || key;
+  }
+  function setAllowed(list) {
+    allowed = Array.isArray(list) ? list.slice() : null;
+    if (current && permitted(current) !== current) enable(permitted(current)).catch(() => null);  // тариф закончился — модель попроще
+  }
+
   /** Включить нейросеть: скачать модель (или взять из кэша браузера) и запустить в фоновом потоке. */
   async function enable(key) {
-    key = MODELS[key] ? key : (await pick()).key;
+    key = permitted(MODELS[key] ? key : (await pick()).key);
     if (engine && current === key) return engine;
     if (loading) return loading;
     loading = (async () => {
@@ -313,6 +326,8 @@
     busy: () => generating,
     lastThought: () => lastThought,
     canThink: () => backend === "gpu",
+    setAllowed: setAllowed,
+    permitted: permitted,
     backend: () => backend,
     status: () => status,
     saved: saved,

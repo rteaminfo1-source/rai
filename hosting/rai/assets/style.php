@@ -109,6 +109,34 @@ tr.top td:first-child { color: var(--gold); }
 .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .panel.danger { border-color: #4a1111; }
 
+/* подписка в кабинете и оплата */
+.plan-box { flex-direction: row; align-items: center; gap: 18px; flex-wrap: wrap;
+  background: radial-gradient(120% 140% at 100% 0%, rgba(225, 6, 0, .18), transparent 60%), var(--panel); }
+.plan-box > div { flex: 1; min-width: 220px; }
+.plan-box h2 { font-size: 20px; }
+.meter { height: 8px; border-radius: 99px; background: var(--bg); overflow: hidden; margin-top: 10px; }
+.meter i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--red), #ff3d81); }
+.pay .panel { width: min(520px, 100%); }
+.pay .tag { align-self: flex-start; font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--red-hi);
+  border: 1px solid #4a1111; background: var(--red-soft); padding: 5px 8px; border-radius: 6px; }
+.pay h1 { font-size: 28px; }
+.checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.checks li { padding-left: 28px; position: relative; }
+.checks li::before { content: "✓"; position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(60, 207, 122, .15); color: var(--ok); font-size: 12px; font-weight: 700; }
+.periods { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.periods a { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); text-decoration: none; color: var(--fg); background: var(--bg); }
+.periods a span { color: var(--muted); font-size: 14px; }
+.periods a[aria-checked="true"] { border-color: var(--red); background: var(--red-soft); }
+.result { align-items: center; text-align: center; }
+.result-icon { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; font: 800 40px/1 var(--display); color: #fff;
+  background: var(--red); animation: popin .6s cubic-bezier(.2, 1.4, .4, 1) both; }
+.result.ok .result-icon { background: var(--ok); box-shadow: 0 0 0 0 rgba(60, 207, 122, .5); animation: popin .6s cubic-bezier(.2, 1.4, .4, 1) both, ring 2s 0.6s infinite; }
+.result.wait .result-icon { background: var(--panel-2); border: 2px solid var(--line); animation: spinwait 1.2s linear infinite; }
+@keyframes popin { from { transform: scale(.3); opacity: 0; } }
+@keyframes ring { 70% { box-shadow: 0 0 0 22px rgba(60, 207, 122, 0); } }
+@keyframes spinwait { to { transform: rotate(360deg); } }
+
 .foot { display: flex; gap: 18px; flex-wrap: wrap; padding: 18px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
 .foot a { color: var(--muted); }
 

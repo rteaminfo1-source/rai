@@ -1037,6 +1037,7 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     return "main." + (LANG_EXT[l] || (/^\s*(def |import |print\()/m.test(block.code) ? "py" : "txt"));
   }
   async function neuroAi(action, prompt) {
+    if (H.takeNeuro && !(await H.takeNeuro())) return;  // лимит нейросети на сегодня исчерпан — окно с тарифами уже показано
     const f = active();
     showPane("ai");
     const me = aiMsg("me");

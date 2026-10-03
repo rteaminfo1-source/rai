@@ -1,6 +1,7 @@
 <?php
 /* Личный кабинет: профиль, пароль, Google, сервисы, выход и удаление аккаунта. */
 require __DIR__ . '/config.php';
+require __DIR__ . '/plans.php';
 $user = require_user();
 $csrf = csrf_token();
 $flash = $_SESSION['flash'] ?? null;
@@ -32,9 +33,20 @@ page_head('Личный кабинет — Rai', $user);
   <?php if ($ok): ?><p class="okmsg" role="status"><?= h($ok) ?></p><?php endif; ?>
   <?php if ($error): ?><p class="error" role="alert"><?= h($error) ?></p><?php endif; ?>
 
+  <?php $mine = user_plan($user); $lim = limits_state($user); $mp = plans()[$mine['key']]; ?>
+  <section class="panel plan-box" aria-labelledby="h-plan">
+    <div>
+      <p class="kicker">Подписка</p>
+      <h2 id="h-plan">Rai <?= h($mp['name']) ?><?= $mine['until'] ? ' · до ' . ru_date($mine['until']) : '' ?></h2>
+      <p class="muted small">Нейросеть сегодня: <?= $lim['limit'] ? $lim['used'] . ' из ' . $lim['limit'] . ' сообщений' : 'без ограничений' ?></p>
+      <?php if ($lim['limit']): ?><div class="meter" aria-hidden="true"><i style="width: <?= min(100, round($lim['used'] * 100 / max(1, $lim['limit']))) ?>%"></i></div><?php endif; ?>
+    </div>
+    <a class="btn" href="./#pricing"><?= $mine['key'] === 'free' ? 'Выбрать тариф' : 'Продлить или сменить' ?></a>
+  </section>
+
   <section class="cards" aria-label="Ваши сервисы">
-    <a class="card" href="./"><span class="tag">Чат</span><h2>Rai</h2><p>Спросить, перевести, нарисовать, сделать презентацию. Чаты сохраняются в аккаунте.</p><span class="go">Открыть →</span></a>
-    <a class="card" href="./#code"><span class="tag">Код</span><h2>Rai Code</h2><p>Писать, запускать и исправлять программы с ИИ.</p><span class="go">Открыть →</span></a>
+    <a class="card" href="<?= CHAT_URL ?>"><span class="tag">Чат</span><h2>Rai</h2><p>Спросить, перевести, нарисовать, сделать презентацию. Чаты сохраняются в аккаунте.</p><span class="go">Открыть →</span></a>
+    <a class="card" href="<?= CHAT_URL ?>#code"><span class="tag">Код</span><h2>Rai Code</h2><p>Писать, запускать и исправлять программы с ИИ.</p><span class="go">Открыть →</span></a>
     <a class="card" href="<?= h(STUDIO_URL) ?>/sso_start.php"><span class="tag">Сайты</span><h2>AI Studio</h2><p>Ваш сайт: aistudio.rteam.info/sites/<?= h($user['login']) ?>/ и API-ключи.</p><span class="go">Войти →</span></a>
   </section>
 

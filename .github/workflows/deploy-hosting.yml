@@ -53,6 +53,9 @@ jobs:
         env:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           SSO_SECRET: ${{ secrets.SSO_SECRET }}
+          PLATEGA_MERCHANT_ID: ${{ secrets.PLATEGA_MERCHANT_ID }}
+          PLATEGA_SECRET: ${{ secrets.PLATEGA_SECRET }}
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
         run: python make_hosting.py dist/hosting
 
       - name: Выложить rai.rteam.info

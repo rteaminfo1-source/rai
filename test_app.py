@@ -764,18 +764,23 @@ class HostingTest(unittest.TestCase):
     def test_package(self):
         import make_hosting
         with tempfile.TemporaryDirectory() as out:
-            with mock.patch.dict(os.environ, {"GOOGLE_CLIENT_SECRET": "", "SSO_SECRET": ""}):
+            with mock.patch.dict(os.environ, {"GOOGLE_CLIENT_SECRET": "", "SSO_SECRET": "", "PLATEGA_SECRET": "", "ADMIN_API_KEY": ""}):
                 make_hosting.build(out)
             rai = os.path.join(out, "rai.rteam.info")
-            for name in ("index.html", "ai.php", "net.php", "login.php", "config.php"):
+            # главная с тарифами — index.php, сам Rai — chat.html (index.html нет, чтобы главной была index.php)
+            for name in ("index.php", "chat.html", "limits.php", "pay.php", "pay_callback.php", "admin_api.php", "ai.php", "net.php", "login.php", "config.php"):
                 self.assertTrue(os.path.isfile(os.path.join(rai, name)), name)
+            self.assertFalse(os.path.exists(os.path.join(rai, "index.html")))
+            with open(os.path.join(rai, "config.php"), encoding="utf-8") as fh:
+                self.assertIn("ВСТАВЬТЕ_СЕКРЕТНЫЙ_КЛЮЧ_PLATEGA", fh.read())  # секреты Platega — только на хостинге
             for root, _, files in os.walk(out):
                 for f in files:  # на хостинге только PHP и HTML (+ необязательные настройки сервера)
                     self.assertTrue(f.endswith((".php", ".html")) or f in (".htaccess", "web.config", "ПРОЧТИ.txt"), f)
-            with open(os.path.join(rai, "index.html"), encoding="utf-8") as fh:
+            with open(os.path.join(rai, "chat.html"), encoding="utf-8") as fh:
                 page = fh.read()
             self.assertIn("ai.php", page)
             self.assertIn("window.RaiNeuro", page)
+            self.assertIn("limits.php", page)
 
     @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
     def test_php_servers(self):
@@ -849,6 +854,182 @@ class HostingTest(unittest.TestCase):
 
 
     @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
+    def test_subscriptions(self):
+        """Главная, лимиты нейросети, оплата через Platega (поддельный сервер), API админ-панели."""
+        import hashlib
+        import hmac
+        import http.cookiejar
+        import http.server
+        import shutil
+        import socket
+        import subprocess
+        import threading
+        import time
+        import urllib.request
+        base = os.path.dirname(os.path.abspath(__file__))
+        state = {"orders": {}, "requests": []}
+
+        class Platega(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def reply(self, code, data):
+                body = json.dumps(data).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                state["requests"].append((self.path, dict(self.headers), body))
+                if self.headers.get("X-Secret") != "plat-secret":
+                    return self.reply(401, {"message": "bad secret"})
+                tid = "tx-%d" % (len(state["orders"]) + 1)
+                state["orders"][tid] = {"status": "PENDING", "amount": body["paymentDetails"]["amount"]}
+                self.reply(200, {"transactionId": tid, "url": "https://pay.example/" + tid, "status": "PENDING"})
+
+            def do_GET(self):
+                tid = self.path.rsplit("/", 1)[-1]
+                o = state["orders"].get(tid)
+                if not o:
+                    return self.reply(404, {"message": "not found"})
+                self.reply(200, {"id": tid, "status": o["status"], "paymentDetails": {"amount": o["amount"], "currency": "RUB"}, "paymentMethod": "SBPQR"})
+
+        platega = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Platega)
+        threading.Thread(target=platega.serve_forever, daemon=True).start()
+
+        def free_port():
+            with socket.socket() as sk:
+                sk.bind(("127.0.0.1", 0))
+                return sk.getsockname()[1]
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k):
+                return None
+
+        key = "k" * 40
+        with tempfile.TemporaryDirectory() as site:
+            shutil.copytree(os.path.join(base, "hosting", "rai"), site, dirs_exist_ok=True, ignore=shutil.ignore_patterns("data"))
+            port = free_port()
+            url = f"http://127.0.0.1:{port}/"
+            env = dict(os.environ, ADMIN_API_KEY=key, PLATEGA_MERCHANT_ID="m-1", PLATEGA_SECRET="plat-secret",
+                       PLATEGA_API=f"http://127.0.0.1:{platega.server_address[1]}", RAI_URL=url.rstrip("/"), SSO_SECRET="s" * 40)
+            php = subprocess.Popen(["php", "-S", f"127.0.0.1:{port}", "-t", site], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                for _ in range(50):
+                    try:
+                        urllib.request.urlopen(url + "me.php", timeout=1)
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+                jar = http.cookiejar.CookieJar()
+                web = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+                raw = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar), NoRedirect)
+
+                def get(path):
+                    return web.open(url + path).read().decode()
+
+                def post(path, data=None, headers=None, opener=None):
+                    req = urllib.request.Request(url + path, data=urllib.parse.urlencode(data or {}).encode(), headers=headers or {})
+                    try:
+                        r = (opener or web).open(req)
+                        return r.status, r.read().decode(), r.headers
+                    except urllib.error.HTTPError as e:
+                        return e.code, e.read().decode(), e.headers
+
+                # главная: тарифы и цены в рублях
+                home = get("index.php")
+                for word in ("Тарифы", "Старт", "Плюс", "Премиум", "Ультра", "599 ₽", "pay.php?plan=premium"):
+                    self.assertIn(word, home)
+
+                # без входа — 5 сообщений нейросети в день, дальше 429
+                lim = json.loads(get("limits.php"))
+                self.assertTrue(lim["guest"])
+                self.assertEqual((lim["limit"], lim["models"]), (5, ["fast", "normal"]))
+                csrf = {"X-CSRF-Token": lim["csrf"]}
+                codes = [post("limits.php", {}, csrf)[0] for _ in range(6)]
+                self.assertEqual(codes, [200] * 5 + [429])
+                self.assertEqual(post("limits.php", {}, {"X-CSRF-Token": "bad"})[0], 403)
+
+                # регистрация → бесплатный тариф: 15 в день, модели Лайт и Стандарт
+                csrf_token = json.loads(get("me.php"))["csrf"]
+                post("auth.php", {"csrf": csrf_token, "action": "register", "login": "anya", "password": "secret123", "name": "Аня"})
+                lim = json.loads(get("limits.php"))
+                self.assertEqual((lim["guest"], lim["plan"], lim["limit"], lim["left"]), (False, "free", 15, 15))
+                self.assertEqual(lim["unlock"]["max"], "Премиум")
+
+                # покупка «Премиум» на месяц: заказ → страница Platega
+                page = get("pay.php?plan=premium&months=1")
+                self.assertIn("Оплатить 599 ₽", page)
+                code, _, headers = post("pay.php", {"csrf": lim["csrf"], "plan": "premium", "months": 1}, opener=raw)
+                self.assertEqual(code, 302)
+                self.assertTrue(headers["Location"].startswith("https://pay.example/tx-1"))
+                path, sent_headers, sent = state["requests"][-1]
+                self.assertEqual(path, "/v2/transaction/process")
+                self.assertEqual((sent_headers["X-MerchantId"], sent["paymentDetails"]), ("m-1", {"amount": 599.0, "currency": "RUB"}))
+                order_id = sent["payload"]
+                self.assertEqual(sent["metadata"], {"userId": "anya"})
+
+                # пока не оплачено — подписки нет; поддельное уведомление отклоняется
+                self.assertEqual(json.loads(get("limits.php"))["plan"], "free")
+                cb = json.dumps({"id": "tx-1", "amount": 599, "currency": "RUB", "status": "CONFIRMED", "paymentMethod": 2, "payload": order_id})
+                def callback(secret):
+                    req = urllib.request.Request(url + "pay_callback.php", data=cb.encode(), method="POST",
+                                                 headers={"X-MerchantId": "m-1", "X-Secret": secret, "Content-Type": "application/json"})
+                    try:
+                        r = urllib.request.urlopen(req)
+                        return r.status, r.read().decode()
+                    except urllib.error.HTTPError as e:
+                        return e.code, e.read().decode()
+                self.assertEqual(callback("wrong")[0], 401)
+                # уведомление пришло, но сама Platega говорит «ещё не оплачено» — не включаем
+                self.assertEqual(callback("plat-secret"), (200, "OK"))
+                self.assertEqual(json.loads(get("limits.php"))["plan"], "free")
+                state["orders"]["tx-1"]["status"] = "CONFIRMED"
+                self.assertEqual(callback("plat-secret"), (200, "OK"))
+                self.assertEqual(callback("plat-secret"), (200, "OK"))  # повтор — подписка не удваивается
+                lim = json.loads(get("limits.php"))
+                self.assertEqual((lim["plan"], lim["limit"]), ("premium", 600))
+                self.assertIn("max", lim["models"])
+                self.assertAlmostEqual(lim["until"], time.time() + 30 * 86400, delta=120)
+                self.assertIn("подключён", get("pay_return.php?order=" + order_id))
+                self.assertIn("Ваш тариф", get("index.php"))
+
+                # API админ-панели: только с подписью, без повторов
+                def admin(action, nonce=None, sign_key=key, **data):
+                    body = json.dumps(dict(action=action, nonce=nonce or os.urandom(8).hex(), admin="owner", **data))
+                    t = str(int(time.time()))
+                    sig = hmac.new(sign_key.encode(), (t + "\n" + body).encode(), hashlib.sha256).hexdigest()
+                    req = urllib.request.Request(url + "admin_api.php", data=body.encode(), method="POST",
+                                                 headers={"X-Rai-Time": t, "X-Rai-Signature": sig, "Content-Type": "application/json"})
+                    try:
+                        return 200, json.loads(urllib.request.urlopen(req).read())
+                    except urllib.error.HTTPError as e:
+                        return e.code, json.loads(e.read())
+                self.assertEqual(admin("ping", sign_key="x" * 40)[0], 401)
+                self.assertTrue(admin("ping")[1]["platega"])
+                self.assertEqual(admin("ping", nonce="same")[0], 200)
+                self.assertEqual(admin("ping", nonce="same")[0], 409)
+                stats = admin("stats")[1]
+                self.assertEqual((stats["users"], stats["subscribers"], stats["revenue_total"], stats["by_plan"]["premium"]), (1, 1, 599, 1))
+                self.assertEqual(stats["orders"][0]["status"], "paid")
+                code, res = admin("grant", login="anya", plan="ultra", days=10, note="подарок")
+                self.assertTrue(res["ok"], res)
+                self.assertEqual(res["user"]["plan"], "ultra")
+                self.assertIsNone(json.loads(get("limits.php"))["left"])  # «Ультра» — без лимита
+                self.assertFalse(admin("grant", login="nobody", plan="plus", days=5)[1]["ok"])
+                self.assertEqual(admin("revoke", login="anya")[1]["user"]["plan"], "free")
+                self.assertTrue(admin("plans_save", plans={"premium": {"price": 650, "neuro_day": 700}})[1]["ok"])
+                self.assertIn("650 ₽", get("index.php"))
+                self.assertEqual(admin("user", login="anya")[1]["user"]["plan"], "free")
+                log = admin("stats")[1]["log"]
+                self.assertEqual([x["type"] for x in log[:4]], ["plans", "revoke", "grant", "payment"])
+            finally:
+                php.terminate()
+                php.wait()
+                platega.shutdown()
+
     def test_social_links(self):
         """Ссылки на TikTok, YouTube, Telegram, Instagram и сайт: PHP достаёт цифры, Rai считает вовлечённость и даёт советы."""
         import http.server

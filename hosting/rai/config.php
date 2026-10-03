@@ -12,6 +12,7 @@
 define('SITE_URL', getenv('RAI_URL') ?: 'https://rai.rteam.info');
 define('STUDIO_URL', getenv('STUDIO_URL') ?: 'https://aistudio.rteam.info');
 define('GITHUB_URL', 'https://github.com/rteaminfo1-source/rai');
+define('CHAT_URL', 'chat.html');  // сам Rai (чат, Code, Слайды); главная — index.php
 
 define('GOOGLE_CLIENT_ID', '40211315152-jq7a91jcqrpu8hkmlqmg1poh6bthgs5j.apps.googleusercontent.com');
 define('GOOGLE_CLIENT_SECRET', getenv('GOOGLE_CLIENT_SECRET') ?: 'ВСТАВЬТЕ_СЮДА_СЕКРЕТ_GOCSPX');
@@ -25,6 +26,17 @@ define('SSO_SECRET', getenv('SSO_SECRET') ?: 'ВСТАВЬТЕ_ОДИНАКОВ�
 const SSO_CLIENTS = [
     'aistudio' => ['name' => 'AI Studio', 'callback' => STUDIO_URL . '/sso_callback.php', 'sync' => STUDIO_URL . '/sync.php'],
 ];
+
+// ---- Оплата подписок через Platega (platega.io). Впишите данные из личного кабинета Platega → Настройки → API.
+// В кабинете Platega укажите адрес уведомлений (callback): https://rai.rteam.info/pay_callback.php
+define('PLATEGA_MERCHANT_ID', getenv('PLATEGA_MERCHANT_ID') ?: 'ВСТАВЬТЕ_MERCHANT_ID');
+define('PLATEGA_SECRET', getenv('PLATEGA_SECRET') ?: 'ВСТАВЬТЕ_СЕКРЕТНЫЙ_КЛЮЧ_PLATEGA');
+// 0 — покупатель сам выбирает способ на странице Platega; 2 — сразу СБП (QR); 11 — банковские карты
+define('PLATEGA_METHOD', (int)(getenv('PLATEGA_METHOD') ?: 0));
+define('PLATEGA_API', getenv('PLATEGA_API') ?: 'https://app.platega.io');
+
+// ---- Ключ для админ-панели (вкладка «Rai» в admin.php): длинная случайная строка, ОДИНАКОВАЯ здесь и в админке.
+define('ADMIN_API_KEY', getenv('ADMIN_API_KEY') ?: 'ВСТАВЬТЕ_КЛЮЧ_ДЛЯ_АДМИНКИ');
 
 // Папка с данными (пользователи и чаты). Если хостинг позволяет — вынесите её выше корня сайта.
 define('DATA_DIR', __DIR__ . '/data');
@@ -210,8 +222,9 @@ function create_user($login, $fields) {
 /** Куда вернуться после входа: только страницы этого сайта (без открытых редиректов). По умолчанию — в чат. */
 function safe_next($next) {
     $next = (string)$next;
-    if ($next === './' || $next === 'index.html') return './?login=ok';
-    return preg_match('#^[a-z_]+\.php(\?[A-Za-z0-9_=&%.\-]*)?$#', $next) ? $next : './?login=ok';
+    if ($next === './' || $next === 'index.html' || $next === 'chat.html') return CHAT_URL . '?login=ok';
+    if (preg_match('#^\./(\#[a-z]+)?$#', $next)) return $next;  // главная, например ./#pricing
+    return preg_match('#^[a-z_]+\.php(\?[A-Za-z0-9_=&%.\-]*)?$#', $next) ? $next : CHAT_URL . '?login=ok';
 }
 
 // ====================================================================== единый вход (SSO)
@@ -285,9 +298,9 @@ function page_head($title, $user = null) {
 <header class="topbar">
   <a class="brand" href="./">R<span>ai</span></a>
   <nav aria-label="Сервисы">
-    <a href="./">Чат</a>
-    <a href="./#code">Code</a>
-    <a href="./#slides">Слайды</a>
+    <a href="<?= CHAT_URL ?>">Чат</a>
+    <a href="<?= CHAT_URL ?>#code">Code</a>
+    <a href="./#pricing">Тарифы</a>
     <a href="<?= h(STUDIO_URL . ($user ? '/sso_start.php' : '/')) ?>">AI Studio</a>
     <a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
     <?php if ($user): ?>
