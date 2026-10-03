@@ -109,6 +109,65 @@ class BrainTest(unittest.TestCase):
     def ask(self, version, text, sid="t"):
         return self.brain.answer(version, text, session_id=sid)
 
+    def test_no_false_topic_matches(self):
+        # совпадение одного слова — ещё не ответ: «написал» ≠ «куда написать», «вечером» ≠ «добрый вечер»
+        q = VERSIONS["pro-quasar"]
+        for text, wrong in [("кто написал войну и мир", "contact"), ("что посмотреть вечером", "greeting"),
+                            ("сколько дней до нового года", "how_are_you"), ("когда началась вторая мировая война", "debug"),
+                            ("как сделать цикл в javascript", "python_loops")]:
+            self.assertNotEqual(self.ask(q, text)["intent"], wrong, text)
+        for text, right in [("доброе утро всем", "greeting"), ("спасибо большое", "thanks"), ("как дела сегодня", "how_are_you"),
+                            ("ок понятно спасибо", "ok"), ("как попасть в команду", "join_team")]:
+            self.assertEqual(self.ask(q, text)["intent"], right, text)
+        # исправление опечаток не трогает обычные слова и всегда одинаково
+        self.assertEqual(self.brain.speller.correct("доброе утро всем"), "доброе утро всем")
+        self.assertEqual(self.brain.speller.correct("превет"), "привет")
+
+    def test_syntax_examples(self):
+        import syntax
+        q = VERSIONS["pro-quasar"]
+        for text, head in [("как сделать цикл в javascript", "Циклы на JavaScript"), ("как написать функцию на c++", "Функции на C++"),
+                           ("словарь в go", "Словари (ключ → значение) на Go"), ("как сделать класс в php", "Классы и объекты на PHP"),
+                           ("ввод с клавиатуры на java", "Ввод с клавиатуры на Java")]:
+            r = self.ask(q, text)
+            self.assertEqual(r["intent"], "proglang", text)
+            self.assertIn(head, r["answer"])
+        # конкретная задача — это уже программа, а не справка о синтаксисе
+        self.assertEqual(self.ask(q, "напиши функцию на python которая считает факториал")["intent"], "code")
+        self.assertEqual(len([1 for t in syntax.S.values() for _ in t]), 114)
+
+    def test_poems_recommendations_support(self):
+        q = VERSIONS["pro-quasar"]
+        r = self.ask(q, "придумай стих про осень")
+        self.assertEqual(r["intent"], "poem")
+        self.assertIn("Сочинил Rai", r["answer"])
+        self.assertIn("Пушкин", self.ask(q, "прочитай стих пушкина")["answer"])
+        self.assertIn("Rai Нейро", self.ask(q, "стих про трактор")["answer"])
+        for text in ("посоветуй фильм", "что посмотреть вечером", "посоветуй комедию", "посоветуй книгу фантастика",
+                     "во что поиграть", "посоветуй сериал"):
+            self.assertEqual(self.ask(q, text)["intent"], "recommend", text)
+        self.assertIn("Фильмы: комедия", self.ask(q, "посоветуй комедию")["answer"])
+        for text in ("мне грустно", "я устал", "мне скучно", "не могу уснуть", "завтра экзамен, волнуюсь"):
+            self.assertEqual(self.ask(q, text)["intent"], "support", text)
+        crisis = self.ask(q, "я не хочу жить")
+        self.assertEqual(crisis["intent"], "crisis")
+        self.assertIn("8-800-2000-122", crisis["answer"])
+        # игру по-прежнему делает генератор кода
+        self.assertEqual(self.ask(q, "сделай игру змейка")["intent"], "code")
+
+    def test_dates_and_units(self):
+        q = VERSIONS["pro-quasar"]
+        with mock.patch("skills._now", return_value=__import__("datetime").datetime(2026, 10, 3, 12, 0)):
+            self.assertIn("**90 дней**", self.ask(q, "сколько дней до нового года")["answer"])
+            self.assertIn("**156 дней**", self.ask(q, "сколько дней до 8 марта")["answer"])
+            self.assertIn("**81 год**", self.ask(q, "сколько лет прошло с 1945 года")["answer"])
+            self.assertIn("**пятница**", self.ask(q, "какой день недели будет 1 января 2027")["answer"])
+            self.assertIn("была **среда**", self.ask(q, "какой день недели был 9 мая 1945")["answer"])
+            self.assertIn("13 октября 2026", self.ask(q, "какое число будет через 10 дней")["answer"])
+            self.assertIn("високосный", self.ask(q, "високосный ли 2028 год")["answer"])
+        r = self.ask(q, "переведи 100 км в мили")
+        self.assertEqual((r["intent"], r["answer"]), ("skill", "100 км = **62,1371** мили"))
+
     def test_knowledge_in_all_versions(self):
         for v in VERSIONS.values():
             self.assertEqual(self.ask(v, "привет")["intent"], "greeting", v.id)

@@ -26,6 +26,8 @@ import online
 import proglangs
 import skills
 import social
+import syntax
+import talk
 import webgen
 from versions import Version
 
@@ -286,6 +288,9 @@ class Brain:
         }
 
     def _answer_one(self, version: Version, text: str, session: dict, attachments: list):
+        # Человеку очень плохо — сначала помощь, всё остальное потом.
+        if talk.is_crisis(text):
+            return talk.CRISIS, "crisis"
         name_match = _NAME_RE.search(text)
         if name_match:
             name = name_match.group(1).capitalize()
@@ -348,6 +353,27 @@ class Brain:
                     return found[0], "meme"
             return ("Этого мема пока нет в моей базе. Спросите иначе («что за мем …» с точным названием) "
                     "или включите нейросеть — она поищет и объяснит."), "meme"
+
+        # ---- разговор: стихи, советы фильмов и книг, поддержка
+        if talk.is_poem_request(text) and not creative.is_slides_request(text):
+            return talk.poem(text), "poem"
+        if talk.is_recommend_request(text):
+            return talk.recommend(text), "recommend"
+        feeling = talk.support(text)
+        if feeling:
+            return feeling, "support"
+
+        # ---- синтаксис: «как сделать цикл в javascript», «функция на c++», «класс на kotlin»
+        if not codeai.extract_code(text)[0] and codelib.find_task(text) in (None, "hello", "class"):
+            example = syntax.answer(text)
+            if example:
+                return example, "proglang"
+
+        # ---- «переведи 100 км в мили», «сколько секунд в часе» — посчитать, а не писать программу
+        if "convert" in version.skills:
+            converted = skills.converter(text)
+            if converted:
+                return converted, "skill"
 
         # ---- «сделай сайт / игру / приложение» — это код, даже если в просьбе есть «погода» или «валюты»
         building = codeai.is_build_request(text)
@@ -868,11 +894,10 @@ class Brain:
             titles = [self.intents[k].get("title", k) for k, s in results[:3] if s >= 0.1]
             if titles:
                 lines.append("Возможно, вы имели в виду:\n" + "\n".join(f"- {t}" for t in titles))
-        if version.memory:
-            example = subject or "Rai"
-            lines.append(f"Научите меня: напишите «запомни, что {example} — это …», и я запомню.")
-        else:
-            lines.append("Попробуйте спросить иначе или напишите «что ты умеешь».")
+        if version.memory and subject:
+            lines.append(f"Научите меня: напишите «запомни, что {subject} — это …», и я запомню.")
+        lines.append("Включите **Rai Нейро** (кнопка сверху) — нейросеть ответит на любой вопрос. "
+                     "Или напишите «найди в интернете …», или «что ты умеешь».")
         return "\n\n".join(lines)
 
 
