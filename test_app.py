@@ -73,9 +73,17 @@ class SkillsTest(unittest.TestCase):
         self.assertIsNone(skills.calculator("9**9**9"))
 
     def test_converter(self):
-        self.assertEqual(skills.converter("1 км в м"), "1 км = 1000 м")
-        self.assertEqual(skills.converter("100 c в f"), "100 °C = 212 °F")
+        self.assertEqual(skills.converter("1 км в м"), "1 км = **1 000** м")
+        self.assertEqual(skills.converter("100 c в f"), "100 °C = **212** °F")
         self.assertEqual(skills.converter("1 кг в км"), "Эти единицы нельзя перевести друг в друга.")
+        # время, данные, скорость, площадь; «сколько X в Y» в любом порядке слов; склонение и запятая
+        self.assertEqual(skills.converter("сколько в часе секунд"), "1 ч = **3 600** с")
+        self.assertEqual(skills.converter("сколько секунд в часе"), "1 ч = **3 600** с")
+        self.assertEqual(skills.converter("сколько байт в килобайте"), "1 КБ = **1 024** байта")
+        self.assertEqual(skills.converter("100 км/ч в м/с"), "100 км/ч = **27,7778** м/с")
+        self.assertEqual(skills.converter("сколько соток в гектаре"), "1 га = **100** соток")
+        self.assertEqual(skills.converter("переведи 100 км в мили"), "100 км = **62,1371** мили")
+        self.assertEqual(skills.converter("2.5 мили в км"), "2,5 мили = **4,0234** км")
 
     def test_password(self):
         answer = skills.password("сгенерируй пароль 20")

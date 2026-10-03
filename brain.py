@@ -56,6 +56,8 @@ _RECALL_RE = re.compile(r"что ты (?:помнишь|запомнил|зна�
 _FORGET_RE = re.compile(r"^\s*забудь (?:вс[её]|об? мне)", re.I)
 _ARCHIVE_RE = re.compile(r"(сделай|собери|скачай|создай|упакуй|сохрани)\w*\s+(?:мне\s+)?(?:весь\s+)?(?:чат\s+)?(?:в\s+)?(архив|zip)|"
                          r"^\s*(архив|zip)(?:\s+чата)?\s*[.!?]*$", re.I)
+# Темы-реплики: отвечают, только когда весь вопрос про них (иначе «что посмотреть вечером» = «добрый вечер»).
+_SMALL_TALK = {"greeting", "how_are_you", "thanks", "bye", "ok", "compliment", "insult", "bot_feelings"}
 _DEFINE_RE = re.compile(
     r"^\s*(?:а\s+)?(?:что такое|что это(?: такое)?|кто такой|кто такая|кто такие|что значит|что означает|"
     r"что такое это|расскажи (?:про|о|об)|что ты знаешь (?:про|о|об)|что знаешь (?:про|о|об)|объясни(?: что такое)?)"
@@ -150,6 +152,7 @@ class Brain:
         with self._lock:
             self.intents, self.indexes = by_id, indexes
             self.intent_tokens, self.speller = intent_tokens, speller
+            self.small_tokens = set().union(*(intent_tokens.get(k, set()) for k in _SMALL_TALK))
             self.glossary = glossary
 
     def teach(self, patterns, answer, title=None):
@@ -201,9 +204,27 @@ class Brain:
         results = self.indexes[key].search(text)
         # Совпадение только по общим словам («что», «такое», «как»…) при наличии
         # в вопросе значимых слов — не совпадение: «что такое рхп» ≠ «что такое python».
-        meaningful = set(nlp.tokens(text)) - nlp.GENERIC
+        meaningful = set(nlp.tokens(text)) - nlp.GENERIC - nlp.FILLER
         if meaningful:
-            results = [(k, s) for k, s in results if meaningful & self.intent_tokens.get(k, set())]
+            other_lang = proglangs.find_language(text)
+            other_lang = other_lang and other_lang[0] != "Python"
+            kept = []
+            for k, s in results:
+                matched = meaningful & self.intent_tokens.get(k, set())
+                if not matched:
+                    continue
+                # Совпала меньшая часть смысла: «кто НАПИСАЛ войну и мир» ≠ «куда написать».
+                if len(matched) * 2 < len(meaningful):
+                    continue
+                # Короткие реплики (привет, как дела, спасибо) — только если в вопросе нет другой темы:
+                # «что посмотреть вечером» ≠ «добрый вечер».
+                if k in _SMALL_TALK and meaningful - matched - self.small_tokens:
+                    continue
+                # Темы про Python не отвечают на вопрос про другой язык: «цикл в javascript».
+                if other_lang and k.startswith("python"):
+                    continue
+                kept.append((k, s))
+            results = kept
         return results[:limit]
 
     # ------------------------------------------------------------ ответы
@@ -343,7 +364,9 @@ class Brain:
                     return codelib.help_text(), "code"
 
         # ---- навыки с интернетом
-        if "translate" in version.skills and online.is_translate_request(text):
+        # «переведи 100 км в мили» — это конвертер, а не переводчик
+        if "translate" in version.skills and online.is_translate_request(text) and not (
+                "convert" in version.skills and skills.converter(text)):
             return online.translate(text), "translate"
         if "weather" in version.skills:
             found = online.weather(text, session, DEFAULT_CITY)
