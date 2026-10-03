@@ -28,7 +28,7 @@ const {
   Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits: P, MessageFlags, REST, Routes,
 } = require("discord.js");
 
-const BOT_VERSION = "2026.10.03"; // сайт сравнивает: старая версия на сервере — «Проверить всё» подскажет обновить index.js
+const BOT_VERSION = "2026.10.04"; // сайт сравнивает: старая версия на сервере — «Проверить всё» подскажет обновить index.js
 const DIR = process.env.RAI_BOT_DIR || __dirname;
 const API_BASE = process.env.DISCORD_API_BASE || ""; // только для тестов: подменный Discord
 const EPH = MessageFlags.Ephemeral;
@@ -148,7 +148,7 @@ const PERM_NAMES = {
 };
 const permName = (flag) => PERM_NAMES[Object.keys(P).find((k) => P[k] === flag)] || String(flag);
 const INVITE_PERMS = [P.ViewChannel, P.SendMessages, P.SendMessagesInThreads, P.EmbedLinks, P.AttachFiles, P.ReadMessageHistory,
-  P.AddReactions, P.UseExternalEmojis, P.ManageMessages, P.ManageRoles, P.ModerateMembers, P.MoveMembers, P.MentionEveryone].reduce((a, b) => a | b, 0n);
+  P.AddReactions, P.UseExternalEmojis, P.ManageMessages, P.ManageRoles, P.ModerateMembers, P.MoveMembers, P.MentionEveryone, P.SendPolls].reduce((a, b) => a | b, 0n);
 const inviteUrl = () => `https://discord.com/oauth2/authorize?client_id=${cfg.client_id}&scope=bot+applications.commands` +
   `&permissions=${INVITE_PERMS}${isId(cfg.guild_id) ? `&guild_id=${cfg.guild_id}&disable_guild_select=true` : ""}`;
 
@@ -449,6 +449,12 @@ const pagesCount = () => Math.max(1, Math.ceil(questions().length / 5));
 
 function panelPayload() {
   const a = A();
+  if (!a.enabled) { // «Модули» в админ-панели: приём заявок выключен
+    return {
+      embeds: [{ color: COLORS.gray, title: cut(a.panel_title, 256), description: "⛔ **Набор сейчас закрыт.**\nСледите за объявлениями — когда откроем, здесь снова появится кнопка." }],
+      components: [row({ ...button(2, "Набор закрыт", "app:start", "⛔"), disabled: true })],
+    };
+  }
   const text = a.panel_text || [
     "Хотите помогать серверу? Подайте заявку — это займёт пару минут.",
     "", "**Как это работает**",
@@ -933,6 +939,7 @@ function panelHome(note) {
   const rows = [];
   if (anns.length) rows.push(row(...anns.map((c, k) => button(1, cut(`Объявление: ${c.name || "канал"}`, 80), `adm:ann:${k}`, c.emoji || "📢"))));
   rows.push(row(button(3, `Обзвон (${calls})`, "adm:calls", "📞"), button(2, "Активность", "adm:act", "📊"), button(2, "Обновить", "adm:home", "🔄")));
+  if (plugin) rows.push(...plugin.panelRows().slice(0, 5 - rows.length));
   return {
     content: note || "",
     embeds: [{
@@ -1281,6 +1288,10 @@ async function onDM(m) {
 const S = 3, INT = 4, BOOL = 5, USER = 6, SUB = 1;
 const opt = (type, name, ru, description, extra = {}) => ({ type, name, name_localizations: { ru }, description, ...extra });
 function commandList() {
+  const list = baseCommands();
+  return plugin ? plugin.extendCommands(list) : list;
+}
+function baseCommands() {
   const mod = String(P.ModerateMembers);
   return [
     { name: "rules", name_localizations: { ru: "правила" }, description: "Правила сервера (видите только вы)" },
@@ -1316,6 +1327,7 @@ function commandList() {
 }
 
 async function onCommand(i) {
+  if (plugin && await plugin.onCommand(i)) return;
   const name = i.commandName;
   if (name === "rules") return i.reply({ ...rulesPayload(), flags: EPH });
   if (name === "admin") return onPanel(i, "open");
@@ -1418,6 +1430,7 @@ async function onCommand(i) {
 }
 
 async function onButton(i) {
+  if (plugin && await plugin.onButton(i)) return;
   const [scope, action, id, extra] = i.customId.split(":");
   if (scope === "adm") return onPanel(i, action, id, extra);
   if (scope !== "app") return;
@@ -1432,6 +1445,7 @@ async function onButton(i) {
 }
 
 async function onModal(i) {
+  if (plugin && await plugin.onModal(i)) return;
   const [scope, action, arg] = i.customId.split(":");
   if (scope === "adm") return onPanelModal(i, action, arg);
   if (scope !== "app") return;
@@ -1492,6 +1506,8 @@ async function diagnose() {
     else ok("Автомодерация: права есть");
   }
   ok(rai.lib ? "Нейросеть Rai для ЛС загружена" : "Нейросеть Rai ещё не загружена (загрузится при первом вопросе)");
+  if (plugin) out.push(...plugin.diagnose());
+  else bad("Нет файла features.js рядом с index.js — розыгрыши, опросы, игры и доп. разделы админ-панели выключены");
   return out;
 }
 
@@ -1510,7 +1526,8 @@ function createClient() {
   c.on(Events.InteractionCreate, (i) => {
     if (i.guildId && i.guildId !== cfg.guild_id) return;
     const run = i.isChatInputCommand() ? onCommand(i) : i.isButton() ? onButton(i) : i.isModalSubmit() ? onModal(i)
-      : i.isStringSelectMenu() && i.customId === "adm:cand" ? onPanel(i, "cand") : null;
+      : i.isStringSelectMenu() && i.customId === "adm:cand" ? onPanel(i, "cand")
+      : i.isAnySelectMenu() && plugin ? plugin.onSelect(i) : null;
     if (run) run.catch(async (e) => {
       log(`❌ ${i.customId || i.commandName}:`, e.stack || e.message);
       const msg = { content: "⚠️ Что-то пошло не так. Попробуйте ещё раз или сообщите администрации.", flags: EPH };
@@ -1551,7 +1568,8 @@ async function setupGuild(fresh = false) {
   if (!g) { bad(`Бот не добавлен на сервер ${cfg.guild_id}. Пригласите его: ${inviteUrl()}`); return out; }
   await g.commands.set(commandList()).then(() => { ok("Команды зарегистрированы"); log("✅ Команды зарегистрированы"); }).catch((e) => bad("Команды: " + e.message));
   const step = async (what, fn) => { try { const m = await fn(); ok(`${what}: ${m.url}`); } catch (e) { bad(`${what}: ${e.message}`); } };
-  if (A().enabled) await step("Кнопка заявок", () => ensurePanel(fresh));
+  if (plugin) plugin.applyToggles(); // «Модули» в админ-панели важнее config.json
+  if (isId(A().panel_channel_id)) await step(A().enabled ? "Кнопка заявок" : "Кнопка заявок (набор закрыт)", () => ensurePanel(fresh));
   if (isId(cfg.rules.channel_id)) await step("Правила", () => ensureRules(null, fresh));
   else if (fresh && data.messages.rules && data.messages.rules.channel) await step("Правила", () => ensureRules(data.messages.rules.channel, true));
   if (I().enabled && I().info_message) await step("Подсказка в канале идей", () => ensureIdeasInfo(fresh));
@@ -1665,7 +1683,7 @@ async function handleHttp(req, res) {
 <body><main><h1>Discord-бот RTeam</h1><p class="ok">✅ Приложение запущено — Node.js в Plesk работает.</p>
 <p class="${online && !reason ? "ok" : "bad"}">${online ? `✅ В Discord: в сети как <b>${esc(client.user.tag)}</b>${guild() ? `, сервер «${esc(guild().name)}»` : ""}` : "❌ В Discord: не в сети"}</p>
 ${reason ? `<p class="bad">Причина: ${esc(reason)}</p>` : ""}
-<p>Ключ для сайта: ${cfg.api_key ? "✅ задан" : "❌ не задан — впишите api_key в secret.json"}</p><p>Версия бота: <code>${BOT_VERSION}</code></p></main></body></html>`);
+<p>Ключ для сайта: ${cfg.api_key ? "✅ задан" : "❌ не задан — впишите api_key в secret.json"}</p><p>Версия бота: <code>${BOT_VERSION}</code> · доп. функции: ${plugin ? `<code>${plugin.version}</code>` : "❌ нет файла features.js"}</p></main></body></html>`);
     }
     return sendJson(res, 200, { ok: true, service: "rteam-discord-bot", version: BOT_VERSION, online, mode, reason });
   }
@@ -1678,7 +1696,7 @@ ${reason ? `<p class="bad">Причина: ${esc(reason)}</p>` : ""}
     return sendJson(res, 200, { ok: report.every((x) => x.ok), report });
   }
   if (p === "/status") {
-    const report = { ok: true, version: BOT_VERSION, mode, online: !!(client && client.isReady()), bot: client && client.user ? client.user.tag : null,
+    const report = { ok: true, version: BOT_VERSION, features: plugin ? plugin.version : null, mode, online: !!(client && client.isReady()), bot: client && client.user ? client.user.tag : null,
       guild: guild() ? guild().name : null, invite_url: inviteUrl(), last_error: lastError || null, rai: !!rai.lib, checks: [] };
     if (report.online) report.checks = await diagnose().catch((e) => [{ ok: false, text: e.message }]);
     else if (mode === "standby") report.checks = [{ ok: true, text: "Эта копия в резерве — с Discord работает другая" }];
@@ -1714,6 +1732,7 @@ async function start() {
   // Plesk (Passenger) усыпляет приложение без HTTP-запросов — бот сам стучится к себе
   if (cfg.public_url) timers.push(setInterval(() => fetch(cfg.public_url + "/health").catch(() => {}), 120000));
   timers.push(setInterval(() => { try { voiceTick(); } catch (e) { log("⚠️ Голос:", e.message); } }, Number(process.env.RAI_BOT_VOICE_TICK) || 60000));
+  if (plugin) timers.push(setInterval(() => plugin.tick().catch((e) => log("⚠️ features:", e.message)), Number(process.env.RAI_BOT_FEATURE_TICK) || 10000));
   timers.push(setInterval(() => { // старые черновики заявок
     let changed = false;
     for (const [k, d] of Object.entries(data.drafts)) if (now() - d.t > 3600e3) { delete data.drafts[k]; changed = true; }
@@ -1730,6 +1749,22 @@ async function stop() {
   if (server) await new Promise((r) => server.close(() => r()));
 }
 
+/* ============================== доп. функции (features.js рядом с index.js) */
+
+const api = {
+  get cfg() { return cfg; }, get data() { return data; }, get client() { return client; },
+  P, EPH, COLORS, button, row, linkButton, cut, ts, isId, ids, num, plural, fmtMin, fmtVoice, bar, log, save,
+  guild, chan, dmUser, modLog, isPanel, isStaff, hasPerm, canModerate, roleError, statusLine, dayKey,
+  addActivity, levelOf, levelUp, ranked, activeWarnings, addWarning, timeoutFor, timeoutMember, nextStepText,
+  panelHome: (note) => panelHome(note), ensurePanel: () => ensurePanel(),
+};
+function loadPlugin() {
+  const file = path.join(__dirname, "features.js");
+  if (!fs.existsSync(file)) { log("⚠️ Нет features.js рядом с index.js — розыгрыши, опросы, игры и доп. разделы админ-панели выключены"); return null; }
+  try { const p = require(file)(api); log(`🧩 Доп. функции features.js ${p.version}`); return p; } catch (e) { log("❌ features.js не загрузился:", e.stack || e.message); return null; }
+}
+const plugin = loadPlugin();
+
 if (process.env.RAI_BOT_TEST !== "1") {
   process.on("unhandledRejection", (e) => log("⚠️", e && (e.stack || e.message || e)));
   for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => { log("Остановка…"); stop().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 3000).unref(); });
@@ -1739,6 +1774,6 @@ if (process.env.RAI_BOT_TEST !== "1") {
 module.exports = {
   start, stop, automodCheck, findBadWord, filterVariants, isScam, linksOf, timeoutFor, nextStepText, appEmbed, appModal,
   commandList, panelPayload, rulesPayload, supportUrl, raiAnswer, evalRai, idFromToken, inviteUrl, plural, fmtMin,
-  get data() { return data; }, get cfg() { return cfg; }, get mode() { return mode; }, get client() { return client; },
+  get data() { return data; }, get cfg() { return cfg; }, get mode() { return mode; }, get client() { return client; }, plugin,
   _reset() { data = EMPTY_DATA(); recent.clear(); ideaAt.clear(); noticeAt.clear(); dmAt.clear(); dmHistory.clear(); cfg = loadConfig(); },
 };

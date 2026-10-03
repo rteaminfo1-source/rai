@@ -735,6 +735,12 @@ class DiscordBotTest(unittest.TestCase):
         here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "discord")
         with open(os.path.join(here, "config.json"), encoding="utf-8") as f:
             cfg = json.load(f)
+        with open(os.path.join(here, "quiz.json"), encoding="utf-8") as f:
+            quiz = json.load(f)["questions"]
+        self.assertGreaterEqual(len(quiz), 30)
+        for q in quiz:
+            self.assertTrue(2 <= len(q["a"]) <= 5 and 0 <= q["c"] < len(q["a"]), q["q"])
+            self.assertLessEqual(len(q["a"][q["c"]]) + 3, 80)
         for q in cfg["applications"]["questions"]:
             self.assertLessEqual(len(q["label"]), 45, q["label"])  # предел Discord для вопросов в окне
         self.assertFalse(os.path.exists(os.path.join(here, "secret.json")) and "secret.json" not in open(

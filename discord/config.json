@@ -278,5 +278,18 @@
   "voice_announce_channel_id": "1504798164421578835",
   "ignore_channel_ids": [],
   "roles": {}
+ },
+ "fun": {
+  "_info": "Игры и интерактив: /бонус (daily_base XP в первый день, +daily_step за каждый день серии, не больше daily_max), /викторина (quiz_xp за первый правильный ответ, quiz_seconds на ответ), /дуэль (duel_xp победителю, duel_bot_xp за победу над ботом), /спасибо (thanks_xp получателю, раз в thanks_cooldown_hours часов). Вопросы викторины — quiz.json. Включить и выключить игры можно в /админ → «Модули».",
+  "enabled": true,
+  "daily_base": 50,
+  "daily_step": 10,
+  "daily_max": 150,
+  "quiz_xp": 25,
+  "quiz_seconds": 30,
+  "duel_xp": 15,
+  "duel_bot_xp": 5,
+  "thanks_xp": 10,
+  "thanks_cooldown_hours": 6
  }
 }

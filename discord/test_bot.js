@@ -35,7 +35,7 @@ for (const [id, name, bot] of [[APP, "RTeam Bot", true], [OWNER, "owner"], [ALIC
 }
 const everyone = P.ViewChannel | P.SendMessages | P.ReadMessageHistory | P.AddReactions | P.EmbedLinks | P.AttachFiles | P.UseApplicationCommands;
 const botPerms = P.ViewChannel | P.SendMessages | P.SendMessagesInThreads | P.EmbedLinks | P.AttachFiles | P.ReadMessageHistory |
-  P.AddReactions | P.UseExternalEmojis | P.ManageMessages | P.ManageRoles | P.ModerateMembers | P.MoveMembers | P.MentionEveryone;
+  P.AddReactions | P.UseExternalEmojis | P.ManageMessages | P.ManageRoles | P.ModerateMembers | P.MoveMembers | P.MentionEveryone | P.SendPolls;
 const roles = [
   { id: G, name: "@everyone", position: 0, permissions: String(everyone) },
   { id: BOTROLE, name: "RTeam Bot", position: 5, permissions: String(botPerms), managed: true },
@@ -43,6 +43,7 @@ const roles = [
   { id: CALLROLE, name: "Обзвон", position: 2, permissions: "0" },
   { id: PANELROLE, name: "Администрация", position: 4, permissions: "0" },
   { id: ACCEPTROLE, name: "Модератор Discord", position: 1, permissions: "0" },
+  { id: "1500000000000000022", name: "Игрок", position: 1, permissions: "0" },
 ].map((r) => ({ color: 0, hoist: false, managed: false, mentionable: false, flags: 0, ...r }));
 const members = { [APP]: [BOTROLE], [OWNER]: [], [ALICE]: [], [BOB]: [MODROLE], [CAROL]: [], [DAVE]: [PANELROLE], [EVE]: [] };
 const moves = {};
@@ -291,7 +292,7 @@ const deleted = (m) => waitFor(() => messages.get(m.id) && messages.get(m.id).de
   fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify(cfg));
   fs.writeFileSync(path.join(dir, "secret.json"), JSON.stringify({ token: Buffer.from(APP).toString("base64") + ".fake.token", api_key: KEY }));
   const BOTPORT = 39000 + Math.floor(Math.random() * 2000);
-  Object.assign(process.env, { RAI_BOT_TEST: "1", RAI_BOT_DIR: dir, DISCORD_API_BASE: `http://127.0.0.1:${PORT}/api`, PORT: String(BOTPORT), RAI_BOT_LOCK_TICK: "1000", RAI_BOT_VOICE_TICK: "300" });
+  Object.assign(process.env, { RAI_BOT_TEST: "1", RAI_BOT_DIR: dir, DISCORD_API_BASE: `http://127.0.0.1:${PORT}/api`, PORT: String(BOTPORT), RAI_BOT_LOCK_TICK: "1000", RAI_BOT_VOICE_TICK: "300", RAI_BOT_FEATURE_TICK: "300" });
   const realFetch = global.fetch; // интернет в тестах не нужен
   global.fetch = (u, o) => (/^http:\/\/127\.0\.0\.1/.test(String(u)) ? realFetch(u, o) : Promise.reject(new Error("offline")));
   const bot = require("./index.js");
@@ -301,7 +302,9 @@ const deleted = (m) => waitFor(() => messages.get(m.id) && messages.get(m.id).de
   await bot.start();
   await test("подключение: команды, кнопка заявок, подсказка в канале идей", async () => {
     const put = await waitFor(() => reqs.find((r) => r.method === "PUT" && r.path.endsWith("/commands")), "команды");
-    assert.deepStrictEqual(put.body.map((c) => c.name).sort(), ["admin", "ask", "clear", "idea", "level", "link", "mute", "rules", "setup", "top", "unmute", "unwarn", "warn", "warnings"]);
+    assert.deepStrictEqual(put.body.map((c) => c.name).sort(), ["admin", "ask", "ball", "clear", "coin", "daily", "dice", "duel", "help", "idea", "level", "link", "mute",
+      "profile", "quiz", "rules", "setup", "thanks", "top", "unmute", "unwarn", "warn", "warnings"]);
+    assert.strictEqual(put.body.find((c) => c.name === "top").options[0].choices.length, 5);
     assert.ok(put.body.every((c) => c.name_localizations && c.name_localizations.ru));
     await waitFor(() => live(A.panel_channel_id).find((m) => JSON.stringify(m.components || []).includes("app:start")), "кнопка заявок");
     await waitFor(() => live(I.input_channel_id).find((m) => embedText(m).includes("Предложите идею")), "подсказка идей");
@@ -627,6 +630,229 @@ const deleted = (m) => waitFor(() => messages.get(m.id) && messages.get(m.id).de
     assert.ok((await cb(t, "чужой клик")).data.content.includes("только администрации"));
   });
 
+  await test("интерактив: /помощь, /бонус с серией, /профиль с достижениями, /спасибо, /топ по репутации", async () => {
+    let t = command(ALICE, GENERAL, "help");
+    let c = await cb(t, "/помощь");
+    assert.strictEqual(c.data.flags, 64);
+    assert.ok(!JSON.stringify(c.data.embeds).includes("Администрации"));
+    t = command(DAVE, GENERAL, "help");
+    assert.ok(JSON.stringify((await cb(t, "/помощь админ")).data.embeds).includes("Администрации"));
+    const xp0 = (bot.data.levels[EVE] || { xp: 0 }).xp;
+    t = command(EVE, GENERAL, "daily");
+    c = await cb(t, "/бонус");
+    assert.ok(c.data.embeds[0].description.includes("+50 XP") && c.data.embeds[0].description.includes("**1**"), JSON.stringify(c.data));
+    assert.strictEqual(bot.data.levels[EVE].xp, xp0 + 50);
+    t = command(EVE, GENERAL, "daily");
+    assert.ok((await cb(t, "второй бонус")).data.content.includes("уже получен"));
+    const msk = (ms) => new Date(ms + 3 * 3600e3).toISOString().slice(0, 10);
+    bot.data.daily[EVE].last = msk(Date.now() - 864e5);
+    t = command(EVE, GENERAL, "daily");
+    c = await cb(t, "бонус на следующий день");
+    assert.ok(c.data.embeds[0].description.includes("+60 XP") && c.data.embeds[0].description.includes("**2**"));
+    t = command(ALICE, GENERAL, "thanks", [{ name: "user", type: 6, value: ALICE }]);
+    assert.ok((await cb(t, "себя")).data.content.includes("Себя"));
+    t = command(ALICE, GENERAL, "thanks", [{ name: "user", type: 6, value: EVE }]);
+    c = await cb(t, "/спасибо");
+    assert.ok(c.data.content.includes(`<@${EVE}>`) && c.data.content.includes("Репутация: **1**"));
+    t = command(ALICE, GENERAL, "thanks", [{ name: "user", type: 6, value: BOB }]);
+    assert.ok((await cb(t, "кулдаун")).data.content.includes("раз в 6 ч"));
+    t = command(ALICE, GENERAL, "profile", [{ name: "user", type: 6, value: EVE }]);
+    c = await cb(t, "/профиль");
+    const f = JSON.stringify(c.data.embeds[0].fields);
+    assert.ok(f.includes("💖 1") && f.includes("🔥 2") && f.includes("Первое слово") && f.includes("Достижения"), f);
+    t = command(ALICE, GENERAL, "top", [{ name: "by", type: 3, value: "rep" }]);
+    c = await cb(t, "/топ репутация");
+    assert.ok(c.data.embeds[0].title.includes("репутации") && c.data.embeds[0].description.includes(`<@${EVE}>`));
+  });
+
+  await test("игры: викторина (неверно, одна попытка, победа, время вышло), дуэль с ботом и с участником, монетка, кубик, шар", async () => {
+    let t = command(ALICE, GENERAL, "quiz");
+    let c = await cb(t, "/викторина");
+    const btns = c.data.components[0].components;
+    assert.strictEqual(btns.length, 4);
+    const qkey = btns[0].custom_id.split(":")[1];
+    const st = bot.plugin._quizzes.get(qkey);
+    const qmsg = original(t);
+    const wrong = [0, 1, 2, 3].find((k) => k !== st.correct);
+    let a = click(ALICE, qmsg, `quiz:${qkey}:${wrong}`);
+    assert.ok((await cb(a, "неверно")).data.content.includes("Неверно"));
+    a = click(ALICE, qmsg, `quiz:${qkey}:${st.correct}`);
+    assert.ok((await cb(a, "вторая попытка")).data.content.includes("уже была попытка"));
+    t = command(BOB, GENERAL, "quiz");
+    assert.ok((await cb(t, "вторая викторина")).data.content.includes("уже идёт"));
+    a = click(BOB, qmsg, `quiz:${qkey}:${st.correct}`);
+    c = await cb(a, "победа");
+    assert.strictEqual(c.type, 7);
+    assert.ok(c.data.embeds[0].description.includes(`<@${BOB}>`) && c.data.components[0].components.every((b) => b.disabled));
+    assert.strictEqual(bot.data.quizw[BOB], 1);
+    bot.cfg.fun = { quiz_seconds: 1 };
+    t = command(CAROL, GENERAL, "quiz"); await cb(t, "викторина 2");
+    await waitFor(() => original(t).embeds[0].description.includes("Время вышло"), "время вышло", 4000);
+    bot.cfg.fun = {};
+
+    t = command(EVE, GENERAL, "duel");
+    c = await cb(t, "дуэль с ботом");
+    const dmsg = original(t);
+    const dkey = c.data.components[0].components[0].custom_id.split(":")[1];
+    a = click(EVE, dmsg, `duel:${dkey}:pick:r`);
+    c = await cb(a, "ход");
+    assert.ok(c.type === 7 && c.data.embeds[0].description.includes("🤖 Бот:"), JSON.stringify(c.data));
+    t = command(ALICE, GENERAL, "duel", [{ name: "user", type: 6, value: BOB }]);
+    c = await cb(t, "вызов");
+    assert.ok(c.data.content.includes(`<@${BOB}>`));
+    const inv = original(t), k2 = c.data.components[0].components[0].custom_id.split(":")[1];
+    a = click(CAROL, inv, `duel:${k2}:acc`);
+    assert.ok((await cb(a, "чужой")).data.content.includes("не вам"));
+    a = click(BOB, inv, `duel:${k2}:acc`); await cb(a, "принял");
+    a = click(CAROL, inv, `duel:${k2}:pick:r`);
+    assert.ok((await cb(a, "чужой ход")).data.content.includes("не ваша дуэль"));
+    a = click(ALICE, inv, `duel:${k2}:pick:r`);
+    c = await cb(a, "ход Алисы");
+    assert.ok(c.data.embeds[0].description.includes(`✅ <@${ALICE}> выбрал(а)`) && !c.data.embeds[0].description.includes("Камень"));
+    await waitFor(() => [...messages.values()].find((m) => m.followup_of === a && m.content.includes("Ваш выбор")), "тайный выбор");
+    a = click(BOB, inv, `duel:${k2}:pick:s`);
+    c = await cb(a, "ход Боба");
+    assert.ok(c.data.embeds[0].description.includes(`Победил(а) <@${ALICE}>`), JSON.stringify(c.data));
+    assert.strictEqual(bot.data.duelw[ALICE], 1);
+
+    t = command(ALICE, GENERAL, "coin");
+    assert.ok(/Орёл|Решка/.test((await cb(t, "монетка")).data.content));
+    t = command(ALICE, GENERAL, "dice", [{ name: "sides", type: 4, value: 20 }]);
+    const n = Number((await cb(t, "кубик")).data.content.match(/\*\*(\d+)\*\*/)[1]);
+    assert.ok(n >= 1 && n <= 20);
+    t = command(ALICE, GENERAL, "ball", [{ name: "question", type: 3, value: "Сдам экзамен?" }]);
+    assert.ok((await cb(t, "шар")).data.embeds[0].description.includes("Сдам экзамен?"));
+  });
+
+  await test("админ-панель: розыгрыш (участие, итоги, перевыбор, отмена), опрос", async () => {
+    let t = command(DAVE, GENERAL, "admin");
+    let c = await cb(t, "/админ");
+    const ids = JSON.stringify(c.data.components);
+    for (const id of ["adx:gw", "adx:poll", "adx:member", "adx:roles", "adx:apps", "adx:mods"]) assert.ok(ids.includes(id), id);
+    assert.ok(c.data.components.length <= 5);
+    const panel = original(t);
+    t = click(DAVE, panel, "adx:gw"); await cb(t, "розыгрыши");
+    t = click(DAVE, panel, "adx:gwnew");
+    assert.strictEqual((await cb(t, "окно розыгрыша")).data.custom_id, "adx:gwm");
+    t = modal(DAVE, GENERAL, "adx:gwm", { prize: "Nitro", dur: "завтра", win: "1", desc: "" }, panel);
+    assert.ok((await cb(t, "плохая длительность")).data.content.includes("Не понял длительность"));
+    t = modal(DAVE, GENERAL, "adx:gwm", { prize: "Nitro на месяц", dur: "1ч", win: "1", desc: "Быть на сервере" }, panel);
+    c = await cb(t, "предпросмотр");
+    assert.ok(JSON.stringify(c.data.components).includes("adx:gwpub:here") && JSON.stringify(c.data.components).includes("adx:gwpub:0"));
+    t = click(DAVE, panel, "adx:gwpub:here"); await cb(t, "публикация");
+    const gmsg = await waitFor(() => live(GENERAL).find((m) => embedText(m).includes("Розыгрыш: Nitro на месяц")), "сообщение розыгрыша");
+    const gid = gmsg.components[0].components[0].custom_id.split(":")[1];
+    for (const u of [ALICE, EVE]) { const j = click(u, gmsg, `gw:${gid}:join`); assert.ok((await cb(j, "участие")).data.content.includes("Вы участвуете")); }
+    let j = click(ALICE, gmsg, `gw:${gid}:join`);
+    assert.ok((await cb(j, "выход")).data.content.includes("вышли"));
+    j = click(BOB, gmsg, `gw:${gid}:join`); await cb(j, "Боб участвует");
+    await waitFor(() => gmsg.embeds[0].footer.text.includes("Участников: 2"), "счётчик участников", 5000);
+    bot.data.gw[gid].ends = Date.now();
+    await waitFor(() => gmsg.embeds[0].footer.text.includes("завершён"), "итоги");
+    const winner = bot.data.gw[gid].won[0];
+    assert.ok([EVE, BOB].includes(winner));
+    await waitFor(() => live(GENERAL).find((m) => m.content.includes(`Поздравляем <@${winner}>`)), "поздравление");
+    await waitFor(() => dmsTo(winner).find((m) => embedText(m).includes("Вы выиграли")), "ЛС победителю");
+    t = click(DAVE, panel, "adx:gw"); await cb(t, "список");
+    t = interact(3, DAVE, GENERAL, { custom_id: "adx:gwsel", component_type: 3, values: [gid] }, panel); await cb(t, "карточка");
+    t = click(DAVE, panel, `adx:gwre:${gid}`); await cb(t, "перевыбор");
+    await waitFor(() => bot.data.gw[gid].won[0] && bot.data.gw[gid].won[0] !== winner, "новый победитель");
+    // второй розыгрыш — отмена
+    t = click(DAVE, panel, "adx:gwnew"); await cb(t, "окно");
+    t = modal(DAVE, GENERAL, "adx:gwm", { prize: "Скин", dur: "2д", win: "2", desc: "" }, panel); await cb(t, "предпросмотр 2");
+    t = click(DAVE, panel, "adx:gwpub:0"); await cb(t, "в медиа");
+    const g2 = await waitFor(() => Object.values(bot.data.gw).find((g) => g.prize === "Скин"), "розыгрыш 2");
+    assert.strictEqual(g2.ch, MEDIA);
+    t = click(DAVE, panel, `adx:gwdel:${g2.id}`); await cb(t, "отмена");
+    await waitFor(() => live(MEDIA).find((m) => embedText(m).includes("отменён")), "отменён");
+
+    t = click(DAVE, panel, "adx:poll");
+    assert.strictEqual((await cb(t, "окно опроса")).data.custom_id, "adx:pollm");
+    t = modal(DAVE, GENERAL, "adx:pollm", { q: "Во что играем?", ans: "Minecraft", hours: "" }, panel);
+    assert.ok((await cb(t, "мало вариантов")).data.content.includes("минимум 2"));
+    t = modal(DAVE, GENERAL, "adx:pollm", { q: "Во что играем?", ans: "Minecraft\nCS2\n\nRoblox\nCS2", hours: "48" }, panel); await cb(t, "предпросмотр опроса");
+    t = click(DAVE, panel, "adx:pollmulti");
+    assert.ok(JSON.stringify((await cb(t, "несколько ответов")).data).includes("Несколько ответов: **да**"));
+    t = click(DAVE, panel, "adx:pollpub:0"); await cb(t, "публикация опроса");
+    const pr = await waitFor(() => reqs.find((r) => r.method === "POST" && r.path === `/channels/${MEDIA}/messages` && r.body.poll), "опрос в медиа");
+    assert.strictEqual(pr.body.poll.question.text, "Во что играем?");
+    assert.deepStrictEqual(pr.body.poll.answers.map((x) => x.poll_media.text), ["Minecraft", "CS2", "Roblox"]);
+    assert.strictEqual(pr.body.poll.duration, 48);
+    assert.strictEqual(pr.body.poll.allow_multiselect, true);
+    await waitFor(() => panel.content.includes("Опрос опубликован"), "отчёт");
+  });
+
+  await test("админ-панель: участник (пред, мут, снять мут, XP, ЛС, снять преды), роли по кнопкам, заявки, модули", async () => {
+    let t = command(DAVE, GENERAL, "admin"); await cb(t, "/админ");
+    const panel = original(t);
+    t = click(DAVE, panel, "adx:member"); await cb(t, "участник");
+    const mp = memberPayload(EVE); delete mp.user;
+    t = interact(3, DAVE, GENERAL, { custom_id: "adx:msel", component_type: 5, values: [EVE], resolved: { users: { [EVE]: users[EVE] }, members: { [EVE]: { ...mp, permissions: "0" } } } }, panel);
+    let c = await cb(t, "карточка");
+    assert.ok(JSON.stringify(c.data.embeds[0]).includes(`<@${EVE}>`) && JSON.stringify(c.data.components).includes(`adx:mwarn:${EVE}`));
+    const before = (bot.data.warnings[EVE] || []).length;
+    t = click(DAVE, panel, `adx:mwarn:${EVE}`); await cb(t, "окно преда");
+    t = modal(DAVE, GENERAL, `adx:mwarnm:${EVE}`, { reason: "Спам в общем чате" }, panel); await cb(t, "пред");
+    await waitFor(() => panel.content.includes("Предупреждение выдано"), "пред выдан");
+    assert.strictEqual(bot.data.warnings[EVE].length, before + 1);
+    await waitFor(() => dmsTo(EVE).find((m) => embedText(m).includes("Спам в общем чате")), "ЛС о преде");
+    timeouts[EVE] = null;
+    t = click(DAVE, panel, `adx:mmute:${EVE}:10`); await cb(t, "мут");
+    await waitFor(() => timeouts[EVE] && panel.content.includes("Мут на 10 мин"), "мут");
+    t = click(DAVE, panel, `adx:munmute:${EVE}`); await cb(t, "снять мут");
+    await waitFor(() => timeouts[EVE] === null && panel.content.includes("Мут снят"), "мут снят");
+    const xp = bot.data.levels[EVE].xp;
+    t = click(DAVE, panel, `adx:mxp:${EVE}`); await cb(t, "окно XP");
+    t = modal(DAVE, GENERAL, `adx:mxpm:${EVE}`, { amount: "+500" }, panel); await cb(t, "XP");
+    assert.strictEqual(bot.data.levels[EVE].xp, xp + 500);
+    t = modal(DAVE, GENERAL, `adx:mxpm:${EVE}`, { amount: "много" }, panel);
+    assert.ok((await cb(t, "плохое число")).data.content.includes("Напишите число"));
+    t = modal(DAVE, GENERAL, `adx:mdmm:${EVE}`, { text: "Привет от администрации!" }, panel); await cb(t, "ЛС");
+    await waitFor(() => dmsTo(EVE).find((m) => embedText(m).includes("Привет от администрации!")), "ЛС участнику");
+    t = click(DAVE, panel, `adx:munwarn:${EVE}`); await cb(t, "снять преды");
+    await waitFor(() => panel.content.includes("Сняты предупреждения"), "преды сняты");
+    t = click(DAVE, panel, `adx:mwarn:${OWNER}`); await cb(t, "окно преда владельцу");
+    t = modal(DAVE, GENERAL, `adx:mwarnm:${OWNER}`, { reason: "x" }, panel);
+    assert.ok((await cb(t, "владелец")).data.content.includes("Нельзя"));
+
+    const SELF = "1500000000000000022";
+    t = click(DAVE, panel, "adx:roles"); await cb(t, "роли");
+    const role = (id) => roles.find((r) => r.id === id);
+    t = interact(3, DAVE, GENERAL, { custom_id: "adx:rsel", component_type: 6, values: [SELF, MODROLE], resolved: { roles: { [SELF]: role(SELF), [MODROLE]: role(MODROLE) } } }, panel);
+    c = await cb(t, "выбор ролей");
+    assert.ok(c.data.content.includes("Модератор") && c.data.content.includes("права модерации") && c.data.embeds[0].description.includes(`<@&${SELF}>`));
+    t = click(DAVE, panel, "adx:rpub"); await cb(t, "публикация ролей");
+    const rmsg = await waitFor(() => live(GENERAL).find((m) => embedText(m).includes("Выберите роли")), "сообщение с ролями");
+    assert.deepStrictEqual(rmsg.components[0].components.map((b) => b.custom_id), [`role:${SELF}`]);
+    let r = click(ALICE, rmsg, `role:${SELF}`);
+    assert.ok((await cb(r, "взять роль")).data.content.includes("выдана"));
+    assert.ok(members[ALICE].includes(SELF));
+    r = click(ALICE, rmsg, `role:${SELF}`);
+    assert.ok((await cb(r, "снять роль")).data.content.includes("снята"));
+    assert.ok(!members[ALICE].includes(SELF));
+    r = click(ALICE, rmsg, `role:${MODROLE}`);
+    assert.ok((await cb(r, "подделка")).data.content.includes("устарела"));
+    assert.ok(!members[ALICE].includes(MODROLE));
+
+    t = click(DAVE, panel, "adx:apps");
+    assert.ok((await cb(t, "заявки")).data.embeds[0].title.includes("Заявки ждут решения"));
+    t = click(DAVE, panel, "adx:mods"); await cb(t, "модули");
+    t = click(DAVE, panel, "adx:tog:applications"); await cb(t, "выкл заявки");
+    const pmsg = live(A.panel_channel_id).find((m) => JSON.stringify(m.components || []).includes("app:start"));
+    await waitFor(() => embedText(pmsg).includes("Набор сейчас закрыт") && pmsg.components[0].components[0].disabled, "набор закрыт");
+    r = click(ALICE, pmsg, "app:start");
+    assert.ok((await cb(r, "закрыто")).data.content.includes("закрыт"));
+    t = click(DAVE, panel, "adx:tog:applications"); await cb(t, "вкл заявки");
+    await waitFor(() => embedText(pmsg).includes("Подать заявку") || JSON.stringify(pmsg.components).includes("Подать заявку"), "набор открыт");
+    t = click(DAVE, panel, "adx:tog:games"); await cb(t, "выкл игры");
+    t = command(ALICE, GENERAL, "coin");
+    assert.ok((await cb(t, "игры выключены")).data.content.includes("выключены"));
+    t = click(DAVE, panel, "adx:tog:games"); await cb(t, "вкл игры");
+    assert.strictEqual(bot.data.toggles.games, true);
+    t = click(ALICE, panel, "adx:mods");
+    assert.ok((await cb(t, "без роли")).data.content.includes("только администрации"));
+  });
+
   await test("кнопка «Открыть админ-панель» в канале", async () => {
     let t = command(OWNER, GENERAL, "setup", [{ name: "adminpanel", type: 1, options: [] }]);
     await cb(t, "/настройка админка");
@@ -705,6 +931,7 @@ const deleted = (m) => waitFor(() => messages.get(m.id) && messages.get(m.id).de
     const st = await r.json();
     assert.strictEqual(st.online, true);
     assert.ok(st.checks.length > 5 && st.checks.every((x) => x.ok), JSON.stringify(st.checks));
+    assert.strictEqual(st.features, bot.plugin.version);
   });
 
   await test("вторая копия (как в Plesk/Passenger) ждёт в резерве и подхватывает работу", async () => {

@@ -1658,7 +1658,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
                 $ver = (string)($st["version"] ?? "");
                 $rep[] = $ver !== "" && strcmp($ver, RT_DISCORD_BOT_VERSION) >= 0
                     ? "✅ Версия бота: $ver (свежая)"
-                    : "❌ На сервере старая версия бота" . ($ver !== "" ? " ($ver)" : "") . " — нет /админ, /уровень, /топ. Загрузите новый index.js в папку бота (туда, где лежат config.json и secret.json; в Plesk → Node.js это Application root), затем нажмите «Restart App». Новый index.js — около 115 КБ.";
+                    : "❌ На сервере старая версия бота" . ($ver !== "" ? " ($ver)" : "") . ". Загрузите новые index.js, features.js, quiz.json и config.json в папку бота (туда, где лежит secret.json; в Plesk → Node.js это Application root), затем нажмите «Restart App».";
+                if (empty($st["features"])) $rep[] = "❌ Бот не нашёл features.js — загрузите features.js и quiz.json рядом с index.js и нажмите «Restart App» (без них нет розыгрышей, опросов, игр и новых разделов /админ).";
                 $rep[] = ($st["online"] ?? false) ? "✅ Бот " . ($st["bot"] ?? "") . " в сети" . (!empty($st["guild"]) ? ", сервер «" . $st["guild"] . "»" : "") : "❌ Бот не подключён к Discord" . (!empty($st["last_error"]) ? ": " . $st["last_error"] : "");
                 foreach (($st["checks"] ?? []) as $chk) $rep[] = (!empty($chk["ok"]) ? "✅ " : "❌ ") . $chk["text"];
                 if (!empty($st["invite_url"])) $rep[] = "ℹ️ Пригласить бота на сервер: " . $st["invite_url"];
