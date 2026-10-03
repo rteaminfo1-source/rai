@@ -178,9 +178,10 @@ class BrainTest(unittest.TestCase):
         for v in VERSIONS.values():
             self.assertIsNone(self.ask(v, "что такое рхп")["intent"], v.id)
 
-    def test_typos_only_in_plus_and_sun(self):
-        self.assertIsNone(self.ask(PRO, "ghbdtn")["intent"])
-        self.assertEqual(self.ask(PLUS, "ghbdtn")["intent"], "greeting")
+    def test_layout_and_typos_in_every_version(self):
+        for v in VERSIONS.values():  # неверную раскладку и опечатки понимают все версии
+            self.assertEqual(self.ask(v, "ghbdtn")["intent"], "greeting", v.id)
+            self.assertEqual(self.ask(v, "раскажи анекдот")["intent"], "joke", v.id)
         self.assertEqual(self.ask(SUN, "что такое pyton")["intent"], "python")
 
     def test_name_memory(self):
@@ -897,6 +898,53 @@ class ToolboxTest(unittest.TestCase):
                              ("сделай игру змейка", "code"), ("придумай стих про осень", "poem"), ("мне грустно", "support"),
                              ("что такое фотосинтез", "glossary"), ("калькулятор ИМТ", "code")]:
             self.assertEqual(self.brain.answer(q, text, session_id="nh")["intent"], intent, text)
+
+
+class FixerTest(unittest.TestCase):
+    """Не та раскладка и опечатки: Rai понимает и отвечает на исправленное."""
+
+    def setUp(self):
+        import fixer
+        self.fix = lambda t: fixer.fix(t)[0]
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_layout(self):
+        for typed, meant in [("ghbdtn", "привет"), ("ghbdtn rfr ltkf", "привет как дела"), ("gjujlf vbycr", "погода минск"),
+                             ("crjkmrj ,eltn 2+2", "сколько будет 2+2"), ("Ghbdtn", "Привет"), ("погода vbycr", "погода минск"),
+                             ("yfgbib rjl yf python", "напиши код на python"), ("руддщ цщкдв", "hello world")]:
+            self.assertEqual(self.fix(typed), meant, typed)
+        for keep in ("hello world", "how are you", "python", "ok", "google", "vk.com", "напиши код на python"):
+            self.assertEqual(self.fix(keep), keep)
+
+    def test_typos(self):
+        for typed, meant in [("пагода в минске", "погода в минске"), ("сколко будет 2+2", "сколько будет 2+2"),
+                             ("раскажи анекдот", "расскажи анекдот"), ("превет как дила", "привет как дела"),
+                             ("что такое фатосинтез", "что такое фотосинтез"), ("здраствуй", "здравствуй"), ("спосибо", "спасибо")]:
+            self.assertEqual(self.fix(typed), meant, typed)
+        # правильные слова, сленг, имена, марки и «сырой» текст команд не трогаем
+        for keep in ("кто такой илон маск", "тойота камри", "ваще норм", "скока стоит", "привет, Маша", "транслит Иванов Пётр",
+                     "мой кот не ест корм", "как избавиться от тараканов", "морзе SOS", "base64 ghbdtn"):
+            self.assertEqual(self.fix(keep), keep)
+        import json
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "knowledge.json"), encoding="utf-8") as fh:
+            for it in json.load(fh)["intents"]:
+                for pattern in it["patterns"]:
+                    self.assertEqual(self.fix(pattern), pattern)
+
+    def test_brain_answers_fixed_text(self):
+        q = VERSIONS["pro-quasar"]
+        r = self.brain.answer(q, "gjujlf vbycr", session_id="fx")
+        self.assertEqual((r["intent"], r["fixed"]), ("weather", "погода минск"))
+        self.assertTrue(r["answer"].startswith("*Понял как: «погода минск»*"))
+        r = self.brain.answer(q, "пагода в минске", session_id="fx")
+        self.assertEqual(r["intent"], "weather")
+        r = self.brain.answer(q, "привет", session_id="fx")
+        self.assertIsNone(r["fixed"])
+        self.assertNotIn("Понял как", r["answer"])
 
 
 class HostingTest(unittest.TestCase):

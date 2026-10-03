@@ -675,7 +675,7 @@
   if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
   if (params.get("py")) CFG.pyBase = params.get("py");
 
-  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "creative.py",
+  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
                     "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
@@ -1889,6 +1889,7 @@ def rai_code(action, code, lang, prompt):
       // Погода, курсы, перевод, картинки, презентации, калькулятор — у движка Rai (точные данные);
       // разговор, вопросы, код, сайты и игры — у нейросети, если она включена.
       let data = shots.length && neuro ? null : await engine.ask(chat.version, message, chat.id, history);
+      if (data && data.fixed) text = data.fixed;  // не та раскладка или опечатки — нейросеть получает исправленный вопрос
       // Лимит тарифа: нейросеть отвечает, пока есть сообщения на сегодня; дальше — движок Rai
       const neuroWanted = neuro && (wantsDeck(data) || !data || !isToolAnswer(data) || (data.offline &&
         [].concat(data.intent || []).some((i) => !i || i === "translate" || i === "web" || i === "unknown")));

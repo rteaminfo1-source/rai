@@ -31,6 +31,7 @@ import talk
 import toolbox
 import facts  # noqa: F401 — регистрирует справочник в toolbox
 import games
+import fixer
 import webgen
 from versions import Version
 
@@ -265,6 +266,12 @@ class Brain:
             return {"answer": text, "version": version.id, "version_name": version.name, "intent": "social",
                     "attachments": attachments}
 
+        # Не та раскладка и опечатки (см. fixer.py) — исправляем и отвечаем на исправленное
+        understood = None
+        fixed, kind = fixer.fix(message)
+        if kind:
+            message = understood = fixed
+
         parts = [message]
         if social.is_link_request(message):
             parts = [message]  # ссылку с вопросом не режем на части
@@ -285,7 +292,11 @@ class Brain:
             text = "\n\n".join(f"**{q}**\n\n{a}" for q, a in zip(parts, answers))
         else:
             text = answers[0]
+        if understood:
+            shown = understood if len(understood) <= 160 else understood[:157] + "…"
+            text = f"*Понял как: «{shown}»*\n\n" + text
         return {
+            "fixed": understood,  # страница отдаёт нейросети уже исправленный вопрос
             "answer": text,
             "version": version.id,
             "version_name": version.name,

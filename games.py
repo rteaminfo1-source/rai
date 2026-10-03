@@ -193,7 +193,12 @@ def riddle(text, low, s):
     return f"🧩 **Загадка:**\n\n> {q}\n\nНапишите ответ. «Сдаюсь» — покажу отгадку."
 
 
+_NOT_ANSWER = re.compile(r"^(?:привет|здравствуй\w*|добр\w+ (?:утро|день|вечер)|пока|спасибо|как дела|что ты умеешь|кто ты)\b")
+
+
 def _riddle_turn(low, game, session):
+    if _NOT_ANSWER.match(low) or len(low.split()) > 5:
+        return None  # это не ответ — Rai ответит как обычно, загадка подождёт
     if any(a in low for a in game["answers"]):
         session.pop("game", None)
         return f"✅ **Правильно — {game['answer']}!** Ещё загадку?"
