@@ -78,6 +78,19 @@ switch ($action) {
         $sum = function ($list) { return array_sum(array_map(function ($o) { return (int)$o['amount']; }, $list)); };
         $usage = load_json('usage/' . usage_day() . '.json', []);
         $recent = array_slice(array_reverse($orders), 0, 30);
+        // графики: оплаты за 30 дней и сообщения нейросети за 7 дней
+        $revenue_days = [];
+        for ($i = 29; $i >= 0; $i--) $revenue_days[date('Y-m-d', strtotime("-$i days"))] = 0;
+        foreach ($paid as $o) {
+            $d = date('Y-m-d', (int)($o['paid_at'] ?? 0));
+            if (isset($revenue_days[$d])) $revenue_days[$d] += (int)$o['amount'];
+        }
+        $neuro_days = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $d = date('Y-m-d', strtotime("-$i days"));
+            $neuro_days[$d] = array_sum(load_json('usage/' . $d . '.json', []));
+        }
+        $expiring = count(array_filter($subs, function ($u) { return $u['until'] && $u['until'] - time() < 3 * 86400; }));
         json_out(['ok' => true,
             'users' => count($users), 'new_week' => count(array_filter($users, function ($u) { return ($u['created'] ?? 0) > time() - 7 * 86400; })),
             'by_plan' => $by_plan, 'subscribers' => array_sum($by_plan), 'mrr' => $mrr,
@@ -85,7 +98,38 @@ switch ($action) {
             'neuro_today' => array_sum($usage), 'neuro_people_today' => count($usage),
             'subs' => array_slice($subs, 0, 300), 'orders' => $recent,
             'log' => array_slice(array_reverse(load_json('sub_log.json', [])), 0, 50),
-            'plans' => plans(), 'platega' => platega_ready(), 'guest_limit' => GUEST_NEURO_DAY]);
+            'plans' => plans(), 'platega' => platega_ready(), 'platega_source' => platega_conf()['source'], 'guest_limit' => guest_limit(),
+            'revenue_days' => $revenue_days, 'neuro_days' => $neuro_days, 'expiring' => $expiring,
+            'pending' => count(array_filter($orders, function ($o) { return in_array($o['status'], ['new', 'pending'], true) && $o['created'] > time() - 3 * 86400; }))]);
+
+    case 'subs_all':  // для выгрузки в CSV
+        $out = [];
+        foreach (users() as $u) if (user_plan($u)['key'] !== 'free' || !empty($req['everyone'])) $out[] = public_user($u);
+        json_out(['ok' => true, 'users' => $out]);
+
+    case 'order_check':
+        $order = order_check((string)($req['id'] ?? ''));
+        if (!$order) json_out(['ok' => false, 'error' => 'Заказ не найден']);
+        json_out(['ok' => true, 'order' => $order]);
+
+    case 'platega_get':
+        $c = platega_conf();
+        json_out(['ok' => true, 'source' => $c['source'], 'method' => $c['method'],
+                  'id' => $c['id'] !== '' ? substr($c['id'], 0, 4) . '…' . substr($c['id'], -4) : '',
+                  'callback' => SITE_URL . '/pay_callback.php']);
+
+    case 'platega_save':
+        if (platega_conf()['source'] === 'config') json_out(['ok' => false, 'error' => 'Ключи Platega уже вписаны в config.php на rai.rteam.info — меняйте их там.']);
+        $saved = load_json('platega.json', []);
+        $id = trim((string)($req['id'] ?? ''));
+        $secret = trim((string)($req['secret'] ?? ''));
+        if ($id !== '') $saved['id'] = mb_substr($id, 0, 100);
+        if ($secret !== '') $saved['secret'] = mb_substr($secret, 0, 300);
+        if (isset($req['method'])) $saved['method'] = max(0, min(99, (int)$req['method']));
+        if (!empty($req['clear'])) $saved = [];
+        save_json('platega.json', $saved);
+        sub_log('plans', '', '', 0, empty($req['clear']) ? 'Изменены ключи Platega' : 'Ключи Platega удалены', $by);
+        json_out(['ok' => true, 'ready' => !empty($saved['id']) && !empty($saved['secret'])]);
 
     case 'user':
         $u = find_login($req['login'] ?? '');
@@ -125,6 +169,7 @@ switch ($action) {
         $in = $req['plans'] ?? [];
         if (!is_array($in)) json_out(['ok' => false, 'error' => 'bad plans']);
         $saved = update_json('plans.json', function (&$over) use ($in) {
+            if (isset($in['guest']['neuro_day'])) $over['guest']['neuro_day'] = max(0, min(1000, (int)$in['guest']['neuro_day']));
             foreach (PLAN_DEFAULTS as $key => $def) {
                 if (!isset($in[$key]) || !is_array($in[$key])) continue;
                 $row = $in[$key];

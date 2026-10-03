@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $state['ok'] = false;
         $state['error'] = $user
             ? 'Сообщения нейросети на сегодня закончились (' . $state['limit'] . ' в день на тарифе «' . $state['plan_name'] . '»).'
-            : 'Без входа нейросеть отвечает ' . GUEST_NEURO_DAY . ' раз в день. Войдите — бесплатно будет ' . plans()['free']['neuro_day'] . '.';
+            : 'Без входа нейросеть отвечает ' . guest_limit() . ' раз в день. Войдите — бесплатно будет ' . plans()['free']['neuro_day'] . '.';
         json_out($state, 429);
     }
     $state['ok'] = true;

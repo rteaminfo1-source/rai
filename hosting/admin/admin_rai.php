@@ -1,12 +1,13 @@
 <?php
 /*
- * Вкладка «Rai» админ-панели rteam.info: подписки Rai (rai.rteam.info).
+ * Вкладка «Rai: подписки» админ-панели rteam.info (встраивается прямо в admin.php — отдельный файл не нужен).
+ * Всё остальное — на rai.rteam.info (admin_api.php).
  *   — статистика: пользователи, подписчики, доход, нейросеть сегодня;
  *   — выдать или снять подписку по логину пользователя Rai;
  *   — поиск пользователей, список подписчиков, платежи Platega, журнал;
  *   — цены, лимиты и описания тарифов.
  *
- * Положите этот файл рядом с admin.php. Связь с rai.rteam.info — через admin_api.php, каждый запрос подписан
+ * Связь с rai.rteam.info — через admin_api.php, каждый запрос подписан
  * ключом (HMAC-SHA256). Ключ — одинаковый в config.php на rai.rteam.info (ADMIN_API_KEY) и здесь
  * (вкладка «Rai» → «Подключение», хранится в settings.json; или константа RAI_ADMIN_KEY).
  *
@@ -24,7 +25,7 @@ function rai_conf() {
 }
 
 /** Подписанный запрос к rai.rteam.info/admin_api.php. Возвращает массив ответа (ok, error, …). */
-function rai_api($action, array $data = []) {
+function rai_api($action, array $data = [], $timeout = 15) {
     global $user;
     $c = rai_conf();
     if (!$c['ready']) return ['ok' => false, 'error' => 'Не задан ключ подключения (от 32 символов).'];
@@ -35,14 +36,14 @@ function rai_api($action, array $data = []) {
     if (function_exists('curl_init')) {
         $ch = curl_init($c['url']);
         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_HTTPHEADER => $headers,
-                                CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 6, CURLOPT_TIMEOUT => 15]);
+                                CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => min(6, $timeout), CURLOPT_TIMEOUT => $timeout]);
         $raw = curl_exec($ch);
         $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
         curl_close($ch);
     } else {
         $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => implode("\r\n", $headers), 'content' => $body,
-                                                 'timeout' => 15, 'ignore_errors' => true]]);
+                                                 'timeout' => $timeout, 'ignore_errors' => true]]);
         $raw = @file_get_contents($c['url'], false, $ctx);
         $code = isset($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m) ? (int)$m[1] : 0;
         $err = $raw === false ? 'нет связи' : '';
@@ -52,6 +53,36 @@ function rai_api($action, array $data = []) {
         return ['ok' => false, 'error' => $code ? "rai.rteam.info ответил кодом $code (нет admin_api.php или ошибка PHP)" : 'Нет связи с rai.rteam.info' . ($err ? ": $err" : '')];
     }
     return $res;
+}
+
+/** Статистика для главной админки: кэш на минуту и короткое ожидание, чтобы главная не тормозила. */
+function rai_cached_stats() {
+    if (!rai_conf()['ready']) return null;
+    $cache = $_SESSION['rai_stats_cache'] ?? null;
+    if ($cache && time() - $cache['t'] < 60) return $cache['data'];
+    $r = rai_api('stats', [], 4);
+    $data = !empty($r['ok']) ? ['subscribers' => $r['subscribers'], 'revenue_month' => $r['revenue_month'], 'expiring' => $r['expiring'] ?? 0,
+                                 'neuro_today' => $r['neuro_today'], 'pending' => $r['pending'] ?? 0] : null;
+    $_SESSION['rai_stats_cache'] = ['t' => time(), 'data' => $data];
+    return $data;
+}
+
+/** Выгрузка подписчиков в CSV (Excel): ?tab=rai&export=csv (вызывается до вывода страницы). */
+function rai_admin_export() {
+    if (($_GET['export'] ?? '') !== 'csv' || !can('users.manage')) return;
+    $r = rai_api('subs_all', ['everyone' => !empty($_GET['all'])]);
+    if (empty($r['ok'])) { flash('Не удалось выгрузить: ' . ($r['error'] ?? '?'), 'error'); rai_back(); }
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="rai-' . (!empty($_GET['all']) ? 'users' : 'subscribers') . '-' . date('Y-m-d') . '.csv"');
+    $out = fopen('php://output', 'w');
+    fwrite($out, "\xEF\xBB\xBF");  // чтобы Excel понял UTF-8
+    fputcsv($out, ['Логин', 'Имя', 'Почта', 'Тариф', 'До', 'Откуда', 'Комментарий', 'Нейросеть сегодня', 'Зарегистрирован', 'Последний вход'], ';');
+    foreach ($r['users'] as $u) {
+        fputcsv($out, [$u['login'], $u['name'], $u['email'], $u['plan_name'], $u['until'] ? date('d.m.Y', $u['until']) : '',
+                       $u['source'] === 'platega' ? 'оплата' : ($u['source'] === 'admin' ? 'выдано' : ''), $u['note'], $u['neuro_today'],
+                       $u['created'] ? date('d.m.Y', $u['created']) : '', $u['last_login'] ? date('d.m.Y H:i', $u['last_login']) : ''], ';');
+    }
+    exit;
 }
 
 function rai_log($msg) {
@@ -94,6 +125,8 @@ function rai_admin_post() {
         rai_back();
     }
 
+    unset($_SESSION['rai_stats_cache']);  // после любого действия главная покажет свежие цифры
+
     if ($action === 'rai_grant') {
         $login = strtolower(trim((string)($_POST['login'] ?? '')));
         $plan = (string)($_POST['plan'] ?? '');
@@ -119,8 +152,26 @@ function rai_admin_post() {
         rai_back();
     }
 
+    if ($action === 'rai_order_check') {
+        $r = rai_api('order_check', ['id' => (string)($_POST['id'] ?? '')]);
+        $st = $r['order']['status'] ?? '';
+        if (!empty($r['ok'])) flash($st === 'paid' ? '✅ Оплата подтверждена — подписка включена.' : ($st === 'canceled' ? 'Платёж отменён в Platega.' : 'Platega: ещё не оплачено.'), $st === 'paid' ? 'success' : 'info');
+        else flash($r['error'] ?? 'Не получилось проверить', 'error');
+        if ($st === 'paid') rai_log("$user подтвердил оплату заказа Rai " . ($_POST['id'] ?? ''));
+        unset($_SESSION['rai_stats_cache']);
+        rai_back('#orders');
+    }
+
+    if ($action === 'rai_platega') {
+        $r = rai_api('platega_save', ['id' => (string)($_POST['platega_id'] ?? ''), 'secret' => (string)($_POST['platega_secret'] ?? ''),
+                                      'method' => (int)($_POST['platega_method'] ?? 0), 'clear' => !empty($_POST['platega_clear'])]);
+        if (!empty($r['ok'])) { rai_log("$user изменил ключи Platega для Rai"); flash(!empty($r['ready']) ? '✅ Platega подключена — оплата на сайте работает.' : 'Сохранено. Для оплаты нужны и Merchant ID, и секрет.', 'success'); }
+        else flash($r['error'] ?? 'Не получилось сохранить', 'error');
+        rai_back('#platega');
+    }
+
     if ($action === 'rai_plans') {
-        $in = [];
+        $in = ['guest' => ['neuro_day' => (int)($_POST['guest_day'] ?? 5)]];
         foreach (array_merge(['free'], RAI_PLAN_KEYS) as $k) {
             $row = $_POST['plan'][$k] ?? null;
             if (!is_array($row)) continue;
@@ -187,6 +238,15 @@ function rai_admin_render() {
       .rai-days label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; font-size: 13px; }
       .rai-days input { width: auto; margin: 0; }
       .rai-days label:has(input:checked) { border-color: #ff3d81; background: rgba(255, 61, 129, .12); }
+      .rai-chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; margin-top: 14px; padding-bottom: 20px; position: relative; }
+      .rai-chart i { flex: 1; min-height: 2px; border-radius: 4px 4px 1px 1px; background: linear-gradient(180deg, #ff3d81, #ff2d2d); opacity: .85;
+        position: relative; transform-origin: bottom; animation: raiGrow .8s cubic-bezier(.2, .8, .2, 1) both; }
+      .rai-chart i:hover { opacity: 1; filter: brightness(1.2); }
+      .rai-chart i.zero { background: var(--line); opacity: .6; }
+      .rai-chart.violet i:not(.zero) { background: linear-gradient(180deg, #8b5cff, #ff3d81); }
+      .rai-chart span { position: absolute; bottom: 0; font-size: 11px; color: var(--muted); }
+      @keyframes raiGrow { from { transform: scaleY(0); } }
+      tr.rai-soon td { background: rgba(245, 158, 11, .07); }
     </style>
 
     <div class="rai-hero">
@@ -218,6 +278,23 @@ function rai_admin_render() {
         <div class="kpi"><div class="k-ico">🧠</div><div class="k-num"><?= (int)$stats['neuro_today'] ?></div><div class="k-lbl">сообщений нейросети сегодня · <?= (int)$stats['neuro_people_today'] ?> чел.</div></div>
         <?php foreach (RAI_PLAN_KEYS as $k): ?>
           <div class="kpi"><div class="k-ico"><?= ['plus' => '✦', 'premium' => '💎', 'ultra' => '🚀'][$k] ?></div><div class="k-num"><?= (int)($stats['by_plan'][$k] ?? 0) ?></div><div class="k-lbl">«<?= rai_h($plan_name($k)) ?>» · <?= rai_rub($plans[$k]['price'] ?? 0) ?>/мес</div></div>
+        <?php endforeach; ?>
+        <?php if (!empty($stats['expiring'])): ?><a class="kpi hot" href="#subs"><div class="k-ico">⏳</div><div class="k-num"><?= (int)$stats['expiring'] ?></div><div class="k-lbl">подписок кончаются за 3 дня</div></a><?php endif; ?>
+        <?php if (!empty($stats['pending'])): ?><a class="kpi" href="#orders"><div class="k-ico">🕓</div><div class="k-num"><?= (int)$stats['pending'] ?></div><div class="k-lbl">платежей ждут оплату</div></a><?php endif; ?>
+      </div>
+
+      <div class="rai-grid">
+        <?php foreach ([['💰 Оплаты за 30 дней', $stats['revenue_days'] ?? [], '', true], ['🧠 Нейросеть за 7 дней', $stats['neuro_days'] ?? [], ' violet', false]] as [$title, $series, $cls, $money]):
+          $max = max(1, max($series ?: [0])); $sum = array_sum($series); ?>
+          <div class="card">
+            <h3><?= $title ?> <span class="muted" style="font-weight:500; font-size:13px;">· <?= $money ? rai_rub($sum) : $sum . ' сообщений' ?></span></h3>
+            <div class="rai-chart<?= $cls ?>" role="img" aria-label="<?= rai_h($title) ?>">
+              <?php $i = 0; foreach ($series as $day => $v): ?>
+                <i class="<?= $v ? '' : 'zero' ?>" style="height:<?= $v ? max(4, round($v * 100 / $max)) : 2 ?>%; animation-delay:<?= $i++ * 0.02 ?>s" title="<?= date('d.m', strtotime($day)) ?>: <?= $money ? rai_rub($v) : (int)$v ?>"></i>
+              <?php endforeach; ?>
+              <?php if ($series): ?><span style="left:0"><?= date('d.m', strtotime(array_key_first($series))) ?></span><span style="right:0">сегодня</span><?php endif; ?>
+            </div>
+          </div>
         <?php endforeach; ?>
       </div>
     <?php endif; ?>
@@ -278,15 +355,18 @@ function rai_admin_render() {
     </div>
 
     <?php if ($ok): ?>
-    <div class="card">
+    <div class="card" id="subs">
       <h3>⭐ Подписчики (<?= count($stats['subs']) ?>)</h3>
       <?php if (!$stats['subs']): ?><p class="muted">Пока никого — выдайте подписку или дождитесь первой оплаты.</p><?php else: ?>
-      <input type="text" placeholder="Фильтр…" oninput="filterRows('raiSubs', this.value)" style="max-width:280px;">
+      <div class="row" style="gap:8px; align-items:center;">
+        <input type="text" placeholder="Фильтр…" oninput="filterRows('raiSubs', this.value)" style="max-width:280px; margin:0;">
+        <?php if ($can_users): ?><a class="btn ghost sm" href="?tab=rai&amp;export=csv">⬇ Подписчики в CSV</a><a class="btn ghost sm" href="?tab=rai&amp;export=csv&amp;all=1">⬇ Все пользователи</a><?php endif; ?>
+      </div>
       <div class="tbl-wrap"><table class="tbl" id="raiSubs">
         <thead><tr><th>Логин</th><th>Тариф</th><th>До</th><th>Откуда</th><th>Нейросеть сегодня</th><th></th></tr></thead>
         <tbody>
         <?php foreach ($stats['subs'] as $u): ?>
-          <tr><td><b><?= rai_h($u['login']) ?></b><br><span class="muted" style="font-size:12px;"><?= rai_h($u['email'] ?: $u['name']) ?></span></td>
+          <tr<?= $u['until'] && $u['until'] - time() < 3 * 86400 ? ' class="rai-soon"' : '' ?>><td><b><?= rai_h($u['login']) ?></b><br><span class="muted" style="font-size:12px;"><?= rai_h($u['email'] ?: $u['name']) ?></span></td>
             <td><span class="badge badge-gold"><?= rai_h($u['plan_name']) ?></span></td>
             <td><?= rai_date($u['until']) ?><br><span class="muted" style="font-size:12px;"><?= rai_left($u['until']) ?></span></td>
             <td><?= $u['source'] === 'platega' ? '💳 оплата' : '🎁 выдано' ?><br><span class="muted" style="font-size:12px;"><?= rai_h($u['note']) ?></span></td>
@@ -297,17 +377,18 @@ function rai_admin_render() {
       <?php endif; ?>
     </div>
 
-    <div class="card">
+    <div class="card" id="orders">
       <h3>💳 Платежи Platega</h3>
       <?php if (!$stats['orders']): ?><p class="muted">Платежей ещё не было.</p><?php else: ?>
       <div class="tbl-wrap"><table class="tbl">
-        <thead><tr><th>Заказ</th><th>Логин</th><th>Тариф</th><th>Сумма</th><th>Статус</th><th>Дата</th></tr></thead>
+        <thead><tr><th>Заказ</th><th>Логин</th><th>Тариф</th><th>Сумма</th><th>Статус</th><th>Дата</th><th></th></tr></thead>
         <tbody>
         <?php foreach ($stats['orders'] as $o): $st = $status_names[$o['status']] ?? [$o['status'], 'badge-viewed']; ?>
           <tr><td><code><?= rai_h($o['id']) ?></code></td><td><?= rai_h($o['login']) ?></td>
             <td><?= rai_h($plan_name($o['plan'])) ?> · <?= (int)$o['months'] >= 12 ? 'год' : 'месяц' ?></td>
             <td><?= rai_rub($o['amount']) ?></td><td><span class="badge <?= $st[1] ?>"><?= rai_h($st[0]) ?></span><?= !empty($o['error']) ? '<br><span class="muted" style="font-size:12px;">' . rai_h($o['error']) . '</span>' : '' ?></td>
-            <td><?= date('d.m.Y H:i', (int)($o['paid_at'] ?? $o['created'])) ?></td></tr>
+            <td><?= date('d.m.Y H:i', (int)($o['paid_at'] ?? $o['created'])) ?></td>
+            <td><?php if ($can_users && in_array($o['status'], ['new', 'pending'], true) && !empty($o['transaction'])): ?><form method="POST" action="?tab=rai" style="margin:0;"><input type="hidden" name="action" value="rai_order_check"><input type="hidden" name="id" value="<?= rai_h($o['id']) ?>"><button class="btn ghost sm" type="submit" title="Спросить у Platega, оплачен ли заказ">Проверить</button></form><?php endif; ?></td></tr>
         <?php endforeach; ?>
         </tbody></table></div>
       <?php endif; ?>
@@ -346,7 +427,8 @@ function rai_admin_render() {
             </div>
           <?php endforeach; ?>
         </div>
-        <div class="row" style="gap:8px; margin-top:12px;">
+        <div class="row" style="gap:8px; margin-top:12px; align-items:flex-end;">
+          <div style="max-width:260px;"><label>Без входа: сообщений нейросети в день</label><input type="number" name="guest_day" value="<?= (int)$stats['guest_limit'] ?>" min="0" max="1000" style="margin:0;"></div>
           <button class="btn primary" type="submit">Сохранить тарифы</button>
           <button class="btn ghost" type="submit" form="raiReset">Сбросить к стандартным</button>
         </div>
@@ -354,6 +436,31 @@ function rai_admin_render() {
       <form method="POST" action="?tab=rai" id="raiReset" onsubmit="return confirm('Вернуть стандартные цены и описания?');"><input type="hidden" name="action" value="rai_plans_reset"></form>
     </div>
     <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if ($ok && $can_settings): $pl = rai_api('platega_get'); ?>
+    <div class="card" id="platega">
+      <h3>💳 Platega — приём оплаты</h3>
+      <?php if (($pl['source'] ?? null) === 'config'): ?>
+        <p class="meta">Ключи вписаны в <code>config.php</code> на rai.rteam.info (Merchant ID <?= rai_h($pl['id']) ?>) — менять их нужно там.</p>
+      <?php else: ?>
+        <p class="meta">Впишите ключи из кабинета Platega — они сохранятся на rai.rteam.info (из браузера их не прочитать). Секрет здесь не показывается.</p>
+        <form method="POST" action="?tab=rai">
+          <input type="hidden" name="action" value="rai_platega">
+          <div class="row" style="gap:10px;">
+            <div class="grow"><label>Merchant ID <?= !empty($pl['id']) ? '· ✓ ' . rai_h($pl['id']) : '' ?></label><input type="text" name="platega_id" placeholder="<?= !empty($pl['id']) ? 'оставьте пустым, чтобы не менять' : 'из кабинета Platega' ?>" autocomplete="off"></div>
+            <div class="grow"><label>Секретный ключ (API)</label><input type="password" name="platega_secret" placeholder="<?= !empty($pl['id']) ? 'оставьте пустым, чтобы не менять' : 'X-Secret' ?>" autocomplete="new-password"></div>
+            <div class="grow"><label>Способ оплаты</label><select name="platega_method">
+              <?php foreach ([0 => 'Покупатель выбирает сам (СБП, карты…)', 2 => 'Сразу СБП (QR)', 11 => 'Банковские карты'] as $mv => $ml): ?><option value="<?= $mv ?>"<?= (int)($pl['method'] ?? 0) === $mv ? ' selected' : '' ?>><?= $ml ?></option><?php endforeach; ?>
+            </select></div>
+          </div>
+          <?php if (!empty($pl['id'])): ?><label class="switch-row" style="margin-top:6px;"><input type="checkbox" name="platega_clear"> удалить ключи (оплата на сайте выключится)</label><?php endif; ?>
+          <button class="btn primary" type="submit" style="margin-top:10px;">Сохранить</button>
+        </form>
+      <?php endif; ?>
+      <p class="muted" style="font-size:13px; margin:10px 0 0;">В кабинете Platega укажите адрес уведомлений (callback): <code><?= rai_h($pl['callback'] ?? 'https://rai.rteam.info/pay_callback.php') ?></code>.
+        Если уведомление не пришло, подписка всё равно включится, когда покупатель вернётся на сайт, — или нажмите «Проверить» у платежа.</p>
+    </div>
     <?php endif; ?>
 
     <?php if ($can_settings): ?>
@@ -376,8 +483,7 @@ function rai_admin_render() {
         <li>Придумайте ключ: 64 случайных символа (0-9, a-f).</li>
         <li>Впишите его в <code>config.php</code> на rai.rteam.info: <code>define('ADMIN_API_KEY', '…')</code>.</li>
         <li>Вставьте тот же ключ сюда и нажмите «Сохранить и проверить».</li>
-        <li>Platega: впишите Merchant ID и секрет в тот же <code>config.php</code>, а в кабинете Platega укажите адрес уведомлений
-          <code>https://rai.rteam.info/pay_callback.php</code>.</li>
+        <li>Platega: впишите Merchant ID и секрет в карточке «Platega» выше (или в <code>config.php</code> на rai.rteam.info).</li>
       </ol>
     </div>
     <?php endif; ?>

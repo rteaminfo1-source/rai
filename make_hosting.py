@@ -2,6 +2,7 @@
 
     python make_hosting.py dist/hosting                   # папки rai.rteam.info и aistudio.rteam.info
     python make_hosting.py dist/hosting --zip rteam.zip   # и ZIP-архив с ними
+    python make_hosting.py dist/hosting --admin путь/к/admin.php   # + rteam.info/admin.php со вкладкой «Rai: подписки»
 
 Секреты в репозитории не хранятся. Если заданы переменные окружения GOOGLE_CLIENT_SECRET и
 SSO_SECRET, они вписываются в config.php собранных папок (только в копию, не в репозиторий).
@@ -62,8 +63,8 @@ README = """RAI — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГА
   • В config.php впишите PLATEGA_MERCHANT_ID и PLATEGA_SECRET (кабинет Platega → API) и ADMIN_API_KEY.
   • В кабинете Platega адрес уведомлений: https://rai.rteam.info/pay_callback.php
   • Старый index.html на хостинге УДАЛИТЕ — теперь чат называется chat.html, а главная — index.php.
-  • Подписку по логину выдают в админ-панели основного сайта: admin_rai.php рядом с admin.php,
-    вкладка «Rai: подписки», тот же ADMIN_API_KEY.
+  • Подписку по логину выдают в админ-панели основного сайта rteam.info/admin.php (вкладка «Rai: подписки»
+    встроена в сам файл), тот же ADMIN_API_KEY. Ключи Platega можно вписать и там.
 
 Права на запись для PHP (755 или 775): папки data/ на обоих сайтах и sites/ в AI Studio.
 Данные пользователей хранятся в data/*.php — из браузера их прочитать нельзя. HTTPS включите для обоих адресов.
@@ -100,6 +101,18 @@ def copy_tree(src, dst):
                 continue
             os.makedirs(os.path.join(dst, rel), exist_ok=True)
             shutil.copy2(os.path.join(root, name), os.path.join(dst, rel, name))
+
+
+def build_admin(out, admin_path):
+    """rteam.info/admin.php: админка основного сайта со встроенной вкладкой «Rai: подписки» (make_admin.py)."""
+    import make_admin
+    with open(admin_path, encoding="utf-8") as f:
+        text = f.read()
+    key = os.environ.get("ADMIN_API_KEY", "") or None
+    os.makedirs(os.path.join(out, "rteam.info"), exist_ok=True)
+    with open(os.path.join(out, "rteam.info", "admin.php"), "w", encoding="utf-8") as f:
+        f.write(make_admin.patch(text, key))
+    return bool(key)
 
 
 def build(out):
@@ -153,8 +166,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("out", nargs="?", default=os.path.join(BASE, "dist", "hosting"))
     parser.add_argument("--zip", help="ещё и ZIP-архив")
+    parser.add_argument("--admin", help="admin.php основного сайта: собрать rteam.info/admin.php со вкладкой «Rai: подписки»")
     args = parser.parse_args()
     filled = build(args.out)
+    if args.admin:
+        keyed = build_admin(args.out, args.admin)
+        with open(os.path.join(args.out, "ПРОЧТИ.txt"), "a", encoding="utf-8") as f:
+            f.write("\n  rteam.info/   admin.php — ваша админ-панель со вкладкой «Rai: подписки» (один файл, замените им старый admin.php).\n"
+                    + ("                Ключ связи с Rai уже вписан (тот же, что ADMIN_API_KEY в config.php Rai).\n" if keyed else
+                       "                Ключ связи впишите во вкладке «Rai: подписки» → «Подключение».\n"))
+        filled.append("rteam.info/admin.php" + (": ADMIN_API_KEY" if keyed else ""))
     if args.zip:
         make_zip(args.out, args.zip)
     print("Готово:", args.out, "| секреты вписаны:" if filled else "| секреты не вписаны", ", ".join(filled))

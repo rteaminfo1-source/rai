@@ -32,7 +32,7 @@ const PLAN_DEFAULTS = [
     ],
 ];
 const PAID_PLANS = ['plus', 'premium', 'ultra'];
-const GUEST_NEURO_DAY = 5;                 // без входа — столько сообщений в день (по IP)
+const GUEST_NEURO_DAY = 5;                 // без входа — столько сообщений в день (по IP); меняется в админке
 const YEAR_DISCOUNT = 25;                  // скидка за год, %
 const PLAN_PERIODS = [1 => 'месяц', 12 => 'год'];
 
@@ -52,6 +52,12 @@ function plans() {
     }
     unset($plan);
     return $cache = $out;
+}
+
+/** Без входа — сколько сообщений нейросети в день (из админки или GUEST_NEURO_DAY). */
+function guest_limit() {
+    $over = load_json('plans.json', []);
+    return isset($over['guest']['neuro_day']) ? max(0, (int)$over['guest']['neuro_day']) : GUEST_NEURO_DAY;
 }
 
 function plan_price($key, $months) {
@@ -127,7 +133,7 @@ function usage_take($key, $limit) {
 function limits_state($user) {
     $plan = $user ? user_plan($user) : ['key' => 'free', 'until' => 0];
     $p = plans()[$plan['key']];
-    $limit = $user ? $p['neuro_day'] : GUEST_NEURO_DAY;
+    $limit = $user ? $p['neuro_day'] : guest_limit();
     $used = usage_get(usage_key($user));
     return [
         'guest' => !$user,
@@ -150,15 +156,28 @@ function model_unlocks() {
 }
 
 // ====================================================================== оплата через Platega
-function platega_ready() {
-    return PLATEGA_MERCHANT_ID !== '' && strpos(PLATEGA_MERCHANT_ID, 'ВСТАВЬТЕ') !== 0
-        && PLATEGA_SECRET !== '' && strpos(PLATEGA_SECRET, 'ВСТАВЬТЕ') !== 0;
+// Ключи Platega: из config.php, а если там ещё заглушки — из админ-панели (data/platega.php, из браузера не читается).
+function platega_conf() {
+    static $conf = null;
+    if ($conf !== null) return $conf;
+    $filled = function ($v) { return $v !== '' && strpos((string)$v, 'ВСТАВЬТЕ') !== 0; };
+    if ($filled(PLATEGA_MERCHANT_ID) && $filled(PLATEGA_SECRET)) {
+        return $conf = ['id' => PLATEGA_MERCHANT_ID, 'secret' => PLATEGA_SECRET, 'method' => (int)PLATEGA_METHOD, 'source' => 'config'];
+    }
+    $saved = load_json('platega.json', []);
+    if (!empty($saved['id']) && !empty($saved['secret'])) {
+        return $conf = ['id' => (string)$saved['id'], 'secret' => (string)$saved['secret'], 'method' => (int)($saved['method'] ?? 0), 'source' => 'admin'];
+    }
+    return $conf = ['id' => '', 'secret' => '', 'method' => 0, 'source' => null];
 }
+
+function platega_ready() { return platega_conf()['source'] !== null; }
 
 /** Запрос к API Platega. Возвращает [код ответа, данные]. */
 function platega_request($method, $path, $body = null) {
     $url = rtrim(PLATEGA_API, '/') . $path;
-    $headers = ['X-MerchantId: ' . PLATEGA_MERCHANT_ID, 'X-Secret: ' . PLATEGA_SECRET,
+    $c = platega_conf();
+    $headers = ['X-MerchantId: ' . $c['id'], 'X-Secret: ' . $c['secret'],
                 'Content-Type: application/json', 'Accept: application/json'];
     $payload = $body === null ? null : json_encode($body, JSON_UNESCAPED_UNICODE);
     if (function_exists('curl_init')) {
@@ -189,8 +208,9 @@ function platega_create($order) {
         'payload' => $order['id'],
         'metadata' => ['userId' => $order['login']],
     ];
-    if ((int)PLATEGA_METHOD > 0) {  // заданный способ (2 — СБП, 11 — карты…)
-        $body['paymentMethod'] = (int)PLATEGA_METHOD;
+    $method = platega_conf()['method'];
+    if ($method > 0) {  // заданный способ (2 — СБП, 11 — карты…)
+        $body['paymentMethod'] = $method;
         list($code, $data) = platega_request('POST', '/transaction/process', $body);
     } else {                         // покупатель сам выбирает способ на странице Platega
         list($code, $data) = platega_request('POST', '/v2/transaction/process', $body);
@@ -234,6 +254,16 @@ function order_confirm($order_id, $paid_amount) {
                          'Оплата ' . rub($activated['amount']) . ', заказ ' . $activated['id']);
         sub_log('payment', $activated['login'], $activated['plan'], 30 * (int)$activated['months'], 'Platega · ' . rub($activated['amount']));
     }
+    return $order;
+}
+
+/** Спросить у Platega статус заказа и, если оплачен, включить подписку. Возвращает заказ. */
+function order_check($order_id) {
+    $order = load_json('orders.json', [])[$order_id] ?? null;
+    if (!$order || $order['status'] === 'paid' || empty($order['transaction']) || !platega_ready()) return $order;
+    list($status, $amount) = platega_status($order['transaction']);
+    if ($status === 'CONFIRMED') return order_confirm($order['id'], $amount);
+    if (in_array($status, ['CANCELED', 'CANCELLED', 'FAILED', 'EXPIRED'], true)) return order_update($order['id'], ['status' => 'canceled']);
     return $order;
 }
 

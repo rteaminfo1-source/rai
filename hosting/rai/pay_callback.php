@@ -20,7 +20,8 @@ if (!platega_ready()) done(503, 'not configured');
 
 $merchant = (string)($_SERVER['HTTP_X_MERCHANTID'] ?? '');
 $secret = (string)($_SERVER['HTTP_X_SECRET'] ?? '');
-if (!hash_equals((string)PLATEGA_MERCHANT_ID, $merchant) || !hash_equals((string)PLATEGA_SECRET, $secret)) done(401, 'bad credentials');
+$conf = platega_conf();
+if (!hash_equals((string)$conf['id'], $merchant) || !hash_equals((string)$conf['secret'], $secret)) done(401, 'bad credentials');
 
 $data = json_decode((string)file_get_contents('php://input'), true);
 if (!is_array($data)) done(400, 'bad json');

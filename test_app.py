@@ -1025,10 +1025,56 @@ class HostingTest(unittest.TestCase):
                 self.assertEqual(admin("user", login="anya")[1]["user"]["plan"], "free")
                 log = admin("stats")[1]["log"]
                 self.assertEqual([x["type"] for x in log[:4]], ["plans", "revoke", "grant", "payment"])
+
+                # графики, выгрузка, лимит без входа, ключи Platega, проверка заказа из админки
+                stats = admin("stats")[1]
+                self.assertEqual(len(stats["revenue_days"]), 30)
+                self.assertEqual(sum(stats["revenue_days"].values()), 599)
+                self.assertEqual(len(stats["neuro_days"]), 7)
+                self.assertEqual([u["login"] for u in admin("subs_all", everyone=True)[1]["users"]], ["anya"])
+                self.assertTrue(admin("plans_save", plans={"guest": {"neuro_day": 2}})[1]["ok"])
+                self.assertEqual(urllib.request.urlopen(url + "limits.php").read().decode().count('"limit":2'), 1)
+                self.assertEqual(admin("platega_get")[1]["source"], "config")  # ключи из config.php — из админки не меняются
+                self.assertFalse(admin("platega_save", id="x", secret="y")[1]["ok"])
+                code, _, headers = post("pay.php", {"csrf": json.loads(get("limits.php"))["csrf"], "plan": "plus", "months": 12}, opener=raw)
+                order2 = state["requests"][-1][2]["payload"]
+                self.assertEqual(state["requests"][-1][2]["paymentDetails"]["amount"], round(249 * 12 * 0.75))
+                self.assertEqual(admin("order_check", id=order2)[1]["order"]["status"], "pending")
+                state["orders"]["tx-2"]["status"] = "CONFIRMED"
+                self.assertEqual(admin("order_check", id=order2)[1]["order"]["status"], "paid")
+                self.assertEqual(json.loads(get("limits.php"))["plan"], "plus")
             finally:
                 php.terminate()
                 php.wait()
                 platega.shutdown()
+
+    def test_make_admin(self):
+        """Вкладка «Rai: подписки» встраивается в admin.php основного сайта одним файлом, повторно — без изменений."""
+        import make_admin
+        sample = "\n".join([
+            "<?php", "session_start();", "$ACTION_PERMS = [",
+            '    "save_perms" => "perms.manage", "reset_perms" => "perms.manage",', "];",
+            "$TABS = [", '    "directors" => ["Директора школ", "🏫", "directors.manage", "Работа"],', "];",
+            "function can($p) { return true; } function tab_allowed($k) { return true; } function flash($t, $type = 'info') {}",
+            "$tab = 'home'; $settings = []; $user = 'owner'; $kpis = []; $notif = []; $my_unpaid_fines = [];",
+            "/* POST ДЛЯ ОСТАЛЬНОГО */",
+            'if (can("projects.manage"))  $kpis[] = ["projects", "🧩", 0, "проектов", false];',
+            'if ($my_unpaid_fines)                                 $notif[] = ["fines", "💸", 0, "штрафов"];',
+            "?>", '<?php if ($tab === "home"): ?>home', '<?php elseif ($tab === "directors"): ?>dir', "<?php endif; ?>", ""])
+        once = make_admin.patch(sample, key="a" * 64)
+        self.assertEqual(make_admin.patch(once, key="a" * 64), once)
+        for part in ("RAI: НАЧАЛО", "function rai_admin_render", '"rai_order_check" => "users.manage"', '"rai"       => ["Rai: подписки"',
+                     'elseif ($tab === "rai"): rai_admin_render();', "rai_cached_stats()", "define('RAI_ADMIN_KEY', '" + "a" * 64 + "')"):
+            self.assertIn(part, once)
+        self.assertNotIn("require_once __DIR__ . '/admin_rai.php'", once)  # отдельный файл не нужен
+        with self.assertRaises(make_admin.PatchError):
+            make_admin.patch("<?php echo 1;")
+        if __import__("shutil").which("php"):
+            with tempfile.NamedTemporaryFile("w", suffix=".php", delete=False, encoding="utf-8") as fh:
+                fh.write(once)
+            r = __import__("subprocess").run(["php", "-l", fh.name], capture_output=True, text=True)
+            os.unlink(fh.name)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_social_links(self):
         """Ссылки на TikTok, YouTube, Telegram, Instagram и сайт: PHP достаёт цифры, Rai считает вовлечённость и даёт советы."""

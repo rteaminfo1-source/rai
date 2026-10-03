@@ -11,11 +11,7 @@ $id = (string)($_GET['order'] ?? ($_SESSION['last_order'] ?? ''));
 $order = load_json('orders.json', [])[$id] ?? null;
 if (!$order || $order['login'] !== $user['login']) redirect('./#pricing');
 
-if ($order['status'] !== 'paid' && !empty($order['transaction']) && platega_ready()) {
-    list($status, $amount) = platega_status($order['transaction']);
-    if ($status === 'CONFIRMED') $order = order_confirm($order['id'], $amount);
-    elseif (in_array($status, ['CANCELED', 'CANCELLED', 'FAILED', 'EXPIRED'], true)) $order = order_update($order['id'], ['status' => 'canceled']);
-}
+$order = order_check($order['id']);
 $user = current_user();
 $plan = user_plan($user);
 $p = plans()[$order['plan']];

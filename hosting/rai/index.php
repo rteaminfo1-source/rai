@@ -393,7 +393,7 @@ footer .sp { margin-left: auto; }
         <?php endforeach; ?>
       </div>
       <p class="note reveal">Оплата через Platega: СБП и банковские карты. Подписка не продлевается сама — никаких скрытых списаний.
-        Без входа нейросеть отвечает <?= GUEST_NEURO_DAY ?> раз в день.</p>
+        Без входа нейросеть отвечает <?= guest_limit() ?> раз в день.</p>
     </div>
   </section>
 
