@@ -678,6 +678,8 @@ const deleted = (m) => waitFor(() => messages.get(m.id) && messages.get(m.id).de
     const base = `http://127.0.0.1:${process.env.PORT}`;
     const post = (p, body, key) => realFetch(base + p, { method: "POST", headers: { "Content-Type": "application/json", ...(key ? { "X-Api-Key": key } : {}) }, body: JSON.stringify(body) });
     assert.strictEqual((await (await realFetch(base + "/")).json()).online, true);
+    const page = await (await realFetch(base + "/", { headers: { Accept: "text/html" } })).text();
+    assert.ok(page.includes("Приложение запущено") && page.includes("в сети как") && page.includes("Ключ для сайта: ✅"), page);
     assert.strictEqual((await post("/dm", { user_id: ALICE, text: "x" })).status, 403);
     assert.strictEqual((await post("/dm", { user_id: ALICE, text: "x" }, "wrong")).status, 403);
     let r = await post("/dm", { user_id: ALICE, title: "🔐 Код входа", text: "Ваш код: **123456**", button: { label: "Открыть сайт", url: "https://rteam.info/" } }, KEY);

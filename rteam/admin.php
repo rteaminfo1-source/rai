@@ -1636,7 +1636,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
             $rep = ["🔄 Бот перезапущен: config.json перечитан, начальные сообщения написаны заново."];
             foreach ($r["report"] as $chk) $rep[] = (!empty($chk["ok"]) ? "✅ " : "❌ ") . ($chk["text"] ?? "");
         } else {
-            $rep = ["❌ Бот не ответил (" . ($r["error"] ?? "ошибка") . "). Проверьте адрес и ключ бота или перезапустите его в Plesk → Node.js → Restart App."];
+            $rep = array_merge(["❌ Бот не ответил: " . rt_discord_error_text($r) . "."], rt_discord_probe($settings));
         }
         $_SESSION["discord_report"] = $rep;
         $logs[] = ["time" => date("Y-m-d H:i:s"), "type" => "settings", "msg" => "$user перезапустил Discord-бота."];
@@ -1649,19 +1649,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
         $rep[] = ($c["client_id"] !== "" && $c["client_secret"] !== "") ? "✅ Вход через Discord настроен (Client ID и Secret есть)" : "❌ Вход через Discord: нет Client ID или Client Secret";
         $rep[] = "ℹ️ В Discord Developer Portal → OAuth2 → Redirects должен быть адрес: " . rt_discord_redirect_uri($c);
         if ($c["bot_url"] === "" || $c["api_key"] === "") {
-            $rep[] = "❌ Бот: не указан адрес бота или ключ";
+            $rep[] = "❌ Бот: не указан адрес бота или ключ (поля ниже или discord_config.php)";
         } else {
+            $probe = rt_discord_probe($settings);
+            $rep = array_merge($rep, $probe);
             $st = rt_discord_bot_status($settings);
-            if (empty($st["ok"])) {
-                $rep[] = "❌ Бот не отвечает по адресу " . $c["bot_url"] . " (" . ($st["error"] ?? "ошибка") . ($st["error"] === "forbidden" ? ": ключ не совпадает с api_key в secret.json бота" : "") . ")";
-            } else {
-                $rep[] = ($st["online"] ?? false) ? "✅ Бот " . ($st["bot"] ?? "") . " в сети" . (!empty($st["guild"]) ? ", сервер «" . $st["guild"] . "»" : "") : "❌ Бот запущен, но не подключён к Discord" . (!empty($st["last_error"]) ? ": " . $st["last_error"] : "");
+            if (!empty($st["ok"])) {
+                $rep[] = ($st["online"] ?? false) ? "✅ Бот " . ($st["bot"] ?? "") . " в сети" . (!empty($st["guild"]) ? ", сервер «" . $st["guild"] . "»" : "") : "❌ Бот не подключён к Discord" . (!empty($st["last_error"]) ? ": " . $st["last_error"] : "");
                 foreach (($st["checks"] ?? []) as $chk) $rep[] = (!empty($chk["ok"]) ? "✅ " : "❌ ") . $chk["text"];
                 if (!empty($st["invite_url"])) $rep[] = "ℹ️ Пригласить бота на сервер: " . $st["invite_url"];
+            } elseif (($st["error"] ?? "") === "forbidden" || ($st["error"] ?? "") === "api_key_not_set") {
+                $rep[] = "❌ " . rt_discord_error_text($st);
             }
             // Файлы бота не должны открываться из браузера (Document root в Plesk — папка public)
             foreach (["secret.json", "data.json"] as $f) {
-                [$fc, $fj] = rt_discord_http("GET", $c["bot_url"] . "/" . $f);
+                [$fc, $fj] = rt_discord_http("GET", $c["bot_url"] . "/" . $f, null, [], 10, true);
                 if ($fc === 200 && is_array($fj)) $rep[] = "❌ ОПАСНО: " . $c["bot_url"] . "/$f открывается всем! В Plesk поставьте Document root = папка public внутри папки бота.";
             }
         }
@@ -1781,12 +1783,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $tab !== "apps") {
                 save_json("logs.json", $logs);
                 flash("Сообщение отправлено «{$login}» в Discord.", "success");
             } else {
-                flash("Не отправлено: " . ([
-                    "dm_closed" => "у человека закрыты ЛС или его нет на сервере",
-                    "not_configured" => "бот не настроен (вкладка «Discord»)",
-                    "no_connection" => "бот не отвечает",
-                    "forbidden" => "ключ сайта не совпадает с ключом бота",
-                ][$r["error"] ?? ""] ?? ($r["error"] ?? "ошибка")) . ".", "error");
+                flash("Не отправлено: " . rt_discord_error_text($r) . ".", "error");
             }
         }
         header("Location: admin.php?tab=users"); exit;

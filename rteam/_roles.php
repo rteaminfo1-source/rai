@@ -610,19 +610,59 @@ function rt_discord_avatar($u) {
 }
 
 /* Запрос к Discord или к боту: [http-код, ответ JSON или null] */
-function rt_discord_http($method, $url, $form = null, $headers = [], $timeout = 15) {
+function rt_discord_http($method, $url, $form = null, $headers = [], $timeout = 15, $insecure = false) {
     $ch = curl_init($url);
-    $opts = [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => 6,
+    $opts = [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => 8,
              CURLOPT_HTTPHEADER => array_merge(["Accept: application/json", "User-Agent: RTeamSite (https://rteam.info, 1.0)"], $headers)];
     if ($form !== null) $opts[CURLOPT_POSTFIELDS] = is_array($form) ? http_build_query($form) : $form;
+    if ($insecure) { $opts[CURLOPT_SSL_VERIFYPEER] = false; $opts[CURLOPT_SSL_VERIFYHOST] = 0; }
     curl_setopt_array($ch, $opts);
     $res = curl_exec($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $errno = curl_errno($ch);
     $err = curl_error($ch);
     curl_close($ch);
-    if ($res === false) return [0, ["error" => "no_connection", "message" => $err]];
+    if ($res === false) return [0, ["error" => "no_connection", "message" => $err, "errno" => $errno], ""];
     $json = json_decode((string)$res, true);
-    return [$code, is_array($json) ? $json : null];
+    return [$code, is_array($json) ? $json : null, (string)$res];
+}
+
+/* Ошибки curl, при которых виноват сертификат (у поддомена бота нет своего SSL) */
+const RT_CURL_SSL_ERRORS = [35, 51, 53, 54, 58, 59, 60, 64, 66, 77, 80, 82, 83, 90, 91];
+
+/* Запрос к боту. Если у поддомена бота ещё нет SSL-сертификата, повторяем без проверки сертификата:
+   бот на своём же адресе, а «Проверить всё» в админ-панели подскажет выпустить сертификат. */
+function rt_discord_bot_call($method, $path, $body = null, $timeout = 15, $settings = null) {
+    $c = rt_discord_conf($settings);
+    if ($c["bot_url"] === "" || $c["api_key"] === "") return [0, ["error" => "not_configured"], ""];
+    $h = ["X-Api-Key: " . $c["api_key"]];
+    if ($body !== null) $h[] = "Content-Type: application/json";
+    $r = rt_discord_http($method, $c["bot_url"] . $path, $body, $h, $timeout);
+    if ($r[0] === 0 && in_array((int)($r[1]["errno"] ?? 0), RT_CURL_SSL_ERRORS, true)) {
+        $r = rt_discord_http($method, $c["bot_url"] . $path, $body, $h, $timeout, true);
+    }
+    return $r;
+}
+/* Ответ бота → массив с ok; ошибка связи — с понятной причиной */
+function rt_discord_bot_result($r) {
+    [$code, $res] = $r;
+    if (is_array($res) && isset($res["ok"])) return $res;
+    if (is_array($res) && isset($res["error"])) return ["ok" => false] + $res;
+    return ["ok" => false, "error" => $code ? "http_$code" : "no_connection"];
+}
+/* Понятное объяснение ошибки связи с ботом */
+function rt_discord_error_text($r) {
+    $e = (string)($r["error"] ?? "");
+    $map = [
+        "not_configured" => "не указан адрес бота или ключ (админ-панель → «Discord» или discord_config.php)",
+        "forbidden"      => "ключ не совпадает: api_key в discord_config.php и в secret.json бота должен быть одинаковым",
+        "dm_closed"      => "у человека закрыты ЛС или его нет на сервере",
+        "api_key_not_set"=> "в secret.json бота не указан api_key",
+    ];
+    if (isset($map[$e])) return $map[$e];
+    if ($e === "no_connection") return "сайт не может подключиться к адресу бота" . (!empty($r["message"]) ? " (" . $r["message"] . ")" : "") . " — нажмите «Проверить всё», там будет причина";
+    if (preg_match('/^http_(\d+)$/', $e, $m)) return "по адресу бота отвечает не бот (HTTP " . $m[1] . ") — нажмите «Проверить всё», там будет причина";
+    return $e !== "" ? $e : "ошибка";
 }
 
 /* Сообщение в ЛС Discord от бота. $button = ["label" => …, "url" => "https://…"] */
@@ -633,18 +673,55 @@ function rt_discord_dm($discord_id, $text, $title = "", $button = null, $setting
     $body = ["user_id" => (string)$discord_id, "text" => (string)$text];
     if ($title !== "") $body["title"] = $title;
     if (is_array($button) && preg_match('~^https://~', (string)($button["url"] ?? ""))) $body["button"] = $button;
-    [$code, $res] = rt_discord_http("POST", $c["bot_url"] . "/dm", json_encode($body, JSON_UNESCAPED_UNICODE),
-                                    ["Content-Type: application/json", "X-Api-Key: " . $c["api_key"]]);
-    if (is_array($res) && isset($res["ok"])) return $res;
-    return ["ok" => false, "error" => $code ? "http_$code" : "no_connection"];
+    return rt_discord_bot_result(rt_discord_bot_call("POST", "/dm", json_encode($body, JSON_UNESCAPED_UNICODE), 15, $settings));
 }
 /* Состояние бота для админ-панели */
 function rt_discord_bot_status($settings = null) {
     $c = rt_discord_conf($settings);
     if ($c["bot_url"] === "" || $c["api_key"] === "") return ["ok" => false, "error" => "not_configured"];
-    [$code, $res] = rt_discord_http("GET", $c["bot_url"] . "/status", null, ["X-Api-Key: " . $c["api_key"]]);
-    if (is_array($res) && isset($res["ok"])) return $res + ["http" => $code];
-    return ["ok" => false, "error" => $code ? "http_$code" : "no_connection", "http" => $code];
+    $r = rt_discord_bot_call("GET", "/status", null, 20, $settings);
+    return rt_discord_bot_result($r) + ["http" => $r[0]];
+}
+
+/* Подробная проверка связи сайта с ботом — строки для «Проверить всё» с причиной и тем, что сделать */
+function rt_discord_probe($settings = null) {
+    $c = rt_discord_conf($settings);
+    $out = [];
+    if ($c["bot_url"] === "") return ["❌ Не указан адрес бота (админ-панель → «Discord» → «Адрес бота», например https://discord.rteam.info)"];
+    $host = (string)parse_url($c["bot_url"], PHP_URL_HOST);
+    $ip = gethostbyname($host);
+    if ($ip === $host && !filter_var($host, FILTER_VALIDATE_IP)) {
+        return ["❌ Адрес $host не найден в DNS. В Plesk: «Сайты и домены» → «Добавить поддомен» → discord (DNS-запись Plesk создаст сам; если DNS у регистратора — добавьте A-запись discord с IP сайта)."];
+    }
+    $out[] = "✅ DNS: $host → $ip";
+    $r = rt_discord_http("GET", $c["bot_url"] . "/health");
+    if ($r[0] === 0 && in_array((int)($r[1]["errno"] ?? 0), RT_CURL_SSL_ERRORS, true)) {
+        $out[] = "⚠️ У $host нет своего SSL-сертификата (" . ($r[1]["message"] ?? "") . "). Plesk → $host → «SSL/TLS-сертификаты» → Let's Encrypt. Пока сайт связывается с ботом без проверки сертификата.";
+        $r = rt_discord_http("GET", $c["bot_url"] . "/health", null, [], 15, true);
+    }
+    [$code, $json, $raw] = $r;
+    if ($code === 0) {
+        $errno = (int)($r[1]["errno"] ?? 0);
+        $msg = (string)($r[1]["message"] ?? "");
+        if ($errno === 28) $out[] = "❌ $host не ответил за 15 секунд ($msg). Бот, скорее всего, не запускается: Plesk → $host → Node.js → «NPM install», затем «Restart App».";
+        elseif ($errno === 7) $out[] = "❌ Сервер не принимает подключения к $host ($msg). Проверьте, что поддомен создан в Plesk и сайт на нём включён.";
+        else $out[] = "❌ Сайт не может подключиться к $host: $msg";
+        return $out;
+    }
+    $is_bot = is_array($json) && ($json["service"] ?? "") === "rteam-discord-bot";
+    if (!$is_bot) {
+        if ($code >= 500 || stripos($raw, "passenger") !== false) {
+            $out[] = "❌ Бот падает при запуске (HTTP $code). Plesk → $host → Node.js: нажмите «NPM install», потом «Restart App». Не помогло — переключите Application mode на development, откройте $host в браузере и пришлите текст ошибки.";
+        } elseif ($code === 404 || $code === 403 || $code === 200 || $code === 301 || $code === 302) {
+            $out[] = "❌ По адресу $host открывается не бот, а обычная страница (HTTP $code): для поддомена не включён Node.js. Plesk → $host → «Node.js»: Application root — папка с index.js, Document root — её папка public, Application startup file — index.js → «Enable Node.js» → «NPM install» → «Restart App».";
+        } else {
+            $out[] = "❌ По адресу $host отвечает не бот (HTTP $code).";
+        }
+        return $out;
+    }
+    $out[] = "✅ Бот запущен на $host (Node.js работает)";
+    if (empty($json["online"])) $out[] = "❌ Но бот не подключён к Discord" . (!empty($json["reason"]) ? ": " . $json["reason"] : "") . ". Откройте " . $c["bot_url"] . " в браузере — там написана причина.";
+    return $out;
 }
 
 /* «Перезапустить бота»: бот перечитывает config.json и заново пишет начальные сообщения
@@ -652,9 +729,7 @@ function rt_discord_bot_status($settings = null) {
 function rt_discord_bot_restart($settings = null) {
     $c = rt_discord_conf($settings);
     if ($c["bot_url"] === "" || $c["api_key"] === "") return ["ok" => false, "error" => "not_configured"];
-    [$code, $res] = rt_discord_http("POST", $c["bot_url"] . "/restart", "{}", ["Content-Type: application/json", "X-Api-Key: " . $c["api_key"]], 60);
-    if (is_array($res) && isset($res["ok"])) return $res;
-    return ["ok" => false, "error" => $code ? "http_$code" : "no_connection"];
+    return rt_discord_bot_result(rt_discord_bot_call("POST", "/restart", "{}", 60, $settings));
 }
 
 /* ---------- Код входа в админ-панель (2FA): Telegram или Discord ---------- */

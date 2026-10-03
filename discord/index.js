@@ -1602,10 +1602,10 @@ async function goActive() {
   try {
     await client.login(cfg.token);
   } catch (e) {
-    lastError = e.message;
-    if (/disallowed intents/i.test(e.message)) log("❌ Discord не пускает бота: включите Message Content Intent — Developer Portal → Bot → Privileged Gateway Intents");
-    else if (/token/i.test(e.message)) log("❌ Неверный токен бота — проверьте secret.json");
-    else log("❌ Не удалось подключиться к Discord:", e.message);
+    if (/disallowed intents/i.test(e.message)) lastError = "Discord не пускает бота: включите Message Content Intent — Developer Portal → Bot → Privileged Gateway Intents → Save, потом Restart App";
+    else if (/token/i.test(e.message)) lastError = "неверный токен бота — Developer Portal → Bot → Reset Token и вставьте новый в secret.json";
+    else lastError = "не удалось подключиться к Discord: " + e.message;
+    log("❌", lastError);
     try { client.destroy(); } catch (e2) { /* уже закрыт */ }
     client = null;
     mode = "offline";
@@ -1653,7 +1653,20 @@ async function handleHttp(req, res) {
   const url = new URL(req.url, "http://localhost");
   const p = url.pathname.replace(/\/+$/, "") || "/";
   if (req.method === "GET" && (p === "/" || p === "/health")) {
-    return sendJson(res, 200, { ok: true, service: "rteam-discord-bot", online: !!(client && client.isReady()), mode });
+    const online = !!(client && client.isReady());
+    const reason = online ? (guild() ? "" : `бот не добавлен на сервер — пригласите: ${inviteUrl()}`)
+      : mode === "standby" ? "работает другая копия бота" : lastError || "подключается к Discord…";
+    if (p === "/" && /text\/html/.test(req.headers.accept || "")) {
+      const esc = (t) => String(t).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Discord-бот RTeam</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;background:#111827;color:#e5e7eb;margin:0;padding:32px 16px}main{max-width:640px;margin:auto}.ok{color:#4ade80}.bad{color:#f87171}code{background:#1f2937;padding:2px 6px;border-radius:6px}</style></head>
+<body><main><h1>Discord-бот RTeam</h1><p class="ok">✅ Приложение запущено — Node.js в Plesk работает.</p>
+<p class="${online && !reason ? "ok" : "bad"}">${online ? `✅ В Discord: в сети как <b>${esc(client.user.tag)}</b>${guild() ? `, сервер «${esc(guild().name)}»` : ""}` : "❌ В Discord: не в сети"}</p>
+${reason ? `<p class="bad">Причина: ${esc(reason)}</p>` : ""}
+<p>Ключ для сайта: ${cfg.api_key ? "✅ задан" : "❌ не задан — впишите api_key в secret.json"}</p></main></body></html>`);
+    }
+    return sendJson(res, 200, { ok: true, service: "rteam-discord-bot", online, mode, reason });
   }
   if (p !== "/dm" && p !== "/status" && p !== "/restart") return sendJson(res, 404, { ok: false, error: "not_found" });
   if (!cfg.api_key) return sendJson(res, 503, { ok: false, error: "api_key_not_set" });
@@ -1693,7 +1706,7 @@ async function start() {
   server = http.createServer((req, res) => handleHttp(req, res).catch((e) => { log("❌ HTTP:", e.message); sendJson(res, 500, { ok: false, error: "internal" }); }));
   const port = process.env.PORT || cfg.port || 3000;
   server.listen(port, () => log(`🌐 HTTP на порту ${port}`));
-  if (!cfg.token) { mode = "offline"; lastError = "нет токена"; log("❌ Нет токена: положите secret.json рядом с index.js"); return; }
+  if (!cfg.token) { mode = "offline"; lastError = "нет токена: положите secret.json (с токеном) рядом с index.js и нажмите Restart App"; log("❌", lastError); return; }
   if (await takeLock()) await goActive();
   else { mode = "standby"; log("ℹ️ Бот уже работает в другой копии — эта в резерве"); }
   timers.push(setInterval(() => lockTick().catch((e) => log("⚠️ lock:", e.message)), Number(process.env.RAI_BOT_LOCK_TICK) || 20000));
