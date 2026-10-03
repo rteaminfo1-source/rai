@@ -1,0 +1,4 @@
+# Необязательно. Переименуйте этот файл в "rteam.url" и положите рядом с
+# RTeamAdmin.exe, чтобы открыть другой адрес вместо https://rteam.info/admin.php
+# Первая строка с http(s) ссылкой будет использована.
+https://rteam.info/admin.php
