@@ -1,0 +1,18 @@
+# Файлы приложения Rai (кладёт GitHub Actions или вы по FTP): Rai-Setup.exe, Rai-mac-*.dmg/zip, Rai-linux.AppImage/deb
+# и latest*.yml — по ним установленные приложения узнают о новой версии.
+Options -Indexes
+DirectoryIndex index.php
+<IfModule mod_mime.c>
+  AddType application/octet-stream .exe .dmg .AppImage .blockmap
+  AddType application/vnd.debian.binary-package .deb
+  AddType text/yaml .yml
+</IfModule>
+<IfModule mod_headers.c>
+  # сведения о версии всегда свежие — иначе приложения не увидят обновление
+  <FilesMatch "\.yml$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "\.(exe|dmg|zip|AppImage|deb)$">
+    Header set Content-Disposition "attachment"
+  </FilesMatch>
+</IfModule>

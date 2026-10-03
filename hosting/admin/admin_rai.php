@@ -276,6 +276,8 @@ function rai_admin_render() {
         <div class="kpi"><div class="k-ico">📈</div><div class="k-num"><?= rai_rub($stats['mrr']) ?></div><div class="k-lbl">в месяц по текущим подпискам</div></div>
         <div class="kpi"><div class="k-ico">💳</div><div class="k-num"><?= rai_rub($stats['revenue_month']) ?></div><div class="k-lbl">оплачено в этом месяце · всего <?= rai_rub($stats['revenue_total']) ?></div></div>
         <div class="kpi"><div class="k-ico">🧠</div><div class="k-num"><?= (int)$stats['neuro_today'] ?></div><div class="k-lbl">сообщений нейросети сегодня · <?= (int)$stats['neuro_people_today'] ?> чел.</div></div>
+        <?php $dl = $stats['downloads'] ?? []; $dl_mac = (int)($dl['mac'] ?? 0) + (int)($dl['mac-x64'] ?? 0); $dl_lin = (int)($dl['linux'] ?? 0) + (int)($dl['deb'] ?? 0); ?>
+        <div class="kpi"><div class="k-ico">💻</div><div class="k-num"><?= (int)array_sum($dl) ?></div><div class="k-lbl">скачиваний приложения<?= !empty($stats['app_version']) ? ' · версия ' . rai_h($stats['app_version']) : '' ?> · Windows <?= (int)($dl['win'] ?? 0) ?>, Mac <?= $dl_mac ?>, Linux <?= $dl_lin ?></div></div>
         <?php foreach (RAI_PLAN_KEYS as $k): ?>
           <div class="kpi"><div class="k-ico"><?= ['plus' => '✦', 'premium' => '💎', 'ultra' => '🚀'][$k] ?></div><div class="k-num"><?= (int)($stats['by_plan'][$k] ?? 0) ?></div><div class="k-lbl">«<?= rai_h($plan_name($k)) ?>» · <?= rai_rub($plans[$k]['price'] ?? 0) ?>/мес</div></div>
         <?php endforeach; ?>

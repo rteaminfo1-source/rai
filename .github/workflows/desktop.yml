@@ -1,0 +1,147 @@
+# Приложение Rai для компьютера: после изменений Rai собираем его для Windows, macOS и Linux и выпускаем
+# релиз на GitHub (Releases). Установленные приложения сами находят новый релиз и обновляются.
+# Если заданы FTP-секреты (как для выкладки сайта) — те же файлы кладутся на хостинг в rai.rteam.info/app/:
+# оттуда приложение обновляется, когда GitHub недоступен, и оттуда же сайт отдаёт кнопки «Скачать».
+#
+# Номер версии ставится сам: 1.0.<номер запуска>. Первые две цифры — в desktop/package.json.
+name: Приложение Rai
+
+on:
+  push:
+    branches: [main, claude/peaceful-allen-c7nn4t]
+    paths:
+      - "desktop/**"
+      - "*.py"
+      - "!test_app.py"
+      - "*.js"
+      - "*.json"
+      - "index.html"
+      - "pyodide/**"
+      - "ocr/**"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win
+          - os: macos-latest
+            target: --mac --x64 --arm64
+          - os: ubuntu-latest
+            target: --linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Версия приложения
+        shell: bash
+        run: |
+          base=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')")
+          npm version "$base.${{ github.run_number }}" --no-git-tag-version --allow-same-version
+          node -p "'Rai ' + require('./package.json').version"
+
+      - run: npm ci
+
+      - name: Собрать
+        run: npm run prepare-offline && npx electron-builder ${{ matrix.target }} --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rai-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+            desktop/dist/*.blockmap
+            desktop/dist/latest*.yml
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Версия
+        id: ver
+        run: |
+          base=$(node -p "require('./desktop/package.json').version.split('.').slice(0,2).join('.')")
+          echo "version=$base.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          ls -la out
+
+      - name: Релиз на GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Rai ${{ steps.ver.outputs.version }}
+          make_latest: "true"
+          body: |
+            Приложение Rai для компьютера.
+
+            • Windows — **Rai-Setup.exe**
+            • macOS (Apple M1–M4) — **Rai-mac-arm64.dmg**, Intel — **Rai-mac-x64.dmg**
+            • Linux — **Rai-linux.AppImage** или **Rai-linux.deb**
+
+            Уже установленное приложение обновится само.
+          files: out/*
+
+      - name: Проверить настройки хостинга
+        id: cfg
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          RAI_DIR: ${{ vars.RAI_DIR }}
+          APP_TO_HOSTING: ${{ vars.APP_TO_HOSTING }}
+        run: |
+          if [ -z "$FTP_SERVER" ] || [ -z "$FTP_USERNAME" ] || [ -z "$FTP_PASSWORD" ] || [ -z "$RAI_DIR" ] || [ "$APP_TO_HOSTING" = "false" ]; then
+            echo "::notice title=Хостинг пропущен::Файлы приложения только в релизе GitHub (нет FTP-секретов или APP_TO_HOSTING=false)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Выложить на хостинг (rai.rteam.info/app/)
+        if: steps.cfg.outputs.ready == 'true'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          port: ${{ vars.FTP_PORT || 21 }}
+          local-dir: out/
+          server-dir: ${{ vars.RAI_DIR }}app/
+          state-name: .rai-app-state.json

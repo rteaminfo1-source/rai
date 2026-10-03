@@ -8,6 +8,7 @@
  */
 require __DIR__ . '/config.php';
 require __DIR__ . '/plans.php';
+require __DIR__ . '/app.php';
 
 function admin_ready() { return ADMIN_API_KEY !== '' && strpos(ADMIN_API_KEY, 'ВСТАВЬТЕ') !== 0 && strlen(ADMIN_API_KEY) >= 32; }
 
@@ -100,6 +101,7 @@ switch ($action) {
             'log' => array_slice(array_reverse(load_json('sub_log.json', [])), 0, 50),
             'plans' => plans(), 'platega' => platega_ready(), 'platega_source' => platega_conf()['source'], 'guest_limit' => guest_limit(),
             'revenue_days' => $revenue_days, 'neuro_days' => $neuro_days, 'expiring' => $expiring,
+            'downloads' => (load_json('downloads.json', [])['total'] ?? []), 'app_version' => app_version(),
             'pending' => count(array_filter($orders, function ($o) { return in_array($o['status'], ['new', 'pending'], true) && $o['created'] > time() - 3 * 86400; }))]);
 
     case 'subs_all':  // для выгрузки в CSV

@@ -122,6 +122,8 @@
   .back-link { display: block; text-align: center; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--red);
     color: var(--fg); text-decoration: none; font-weight: 600; }
   .back-link:hover { background: var(--red-soft); }
+  .app-link { display: block; text-align: center; margin-top: 8px; color: var(--muted); font-size: 12.5px; text-decoration: none; }
+  .app-link:hover { color: var(--fg); }
 
   figure.photo { margin: 4px 0 0; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
   figure.photo img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); background: #000; }
@@ -568,6 +570,8 @@
     <button id="newChat" type="button"><svg class="i"><use href="#i-plus"/></svg>Новый чат</button>
     <nav id="chatList"></nav>
     <div class="side-foot"><div id="accountBox"></div><a class="back-link" id="studioLink" href="https://aistudio.rteam.info/">AI Studio — сайты по описанию →</a>
+      <a class="app-link" id="appLink" href="https://rai.rteam.info/#download" target="_blank" rel="noopener">💻 Приложение для Windows, macOS и Linux</a>
+      <script>if (window.RaiApp && window.RaiApp.isApp) document.getElementById("appLink").remove();  // уже в приложении</script>
       <span id="storeNote">Чаты и проекты Code хранятся в этом браузере.</span></div>
   </aside>
   <div id="backdrop"></div>
@@ -1590,7 +1594,9 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     const mirror = await mirrorReady;
     // Python со своего сайта (ai.php хранит копию), если есть свой сервер нейросети
     const mine = mirror && mirror.pathInfo ? [mirror.root + "/npm/pyodide@314.0.7/"] : [];
-    for (const src of [CFG.pyodide].concat(mine, window.RAI_PYODIDE_SOURCES)) {
+    // В приложении Rai для компьютера Python уже лежит внутри — без скачивания и без CDN
+    const app = window.RaiApp && window.RaiApp.pyodide ? [window.RaiApp.pyodide] : [];
+    for (const src of [CFG.pyodide].concat(app, mine, window.RAI_PYODIDE_SOURCES)) {
       if (src && !sources.includes(src)) sources.push(src);
     }
     const problems = [];

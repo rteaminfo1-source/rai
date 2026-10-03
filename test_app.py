@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import tempfile
 import unittest
 import urllib.parse
@@ -947,6 +948,42 @@ class FixerTest(unittest.TestCase):
         self.assertNotIn("Понял как", r["answer"])
 
 
+class DesktopTest(unittest.TestCase):
+    """Приложение для компьютера (desktop/): имена файлов совпадают с кнопками сайта, обновления — GitHub и хостинг."""
+
+    def test_config_matches_site(self):
+        base = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(base, "desktop", "package.json"), encoding="utf-8") as fh:
+            pkg = json.load(fh)
+        build = pkg["build"]
+        self.assertEqual([p["provider"] for p in build["publish"]], ["github", "generic"])
+        self.assertEqual(build["publish"][1]["url"], "https://rai.rteam.info/app/")
+        names = {build["win"]["artifactName"].replace("${ext}", "exe"),
+                 build["appImage"]["artifactName"], build["deb"]["artifactName"]}
+        names |= {build["mac"]["artifactName"].replace("${arch}", a).replace("${ext}", e) for a in ("arm64", "x64") for e in ("dmg", "zip")}
+        with open(os.path.join(base, "hosting", "rai", "app.php"), encoding="utf-8") as fh:
+            site = set(re.findall(r"'(Rai-[\w.-]+)'", fh.read()))
+        self.assertEqual(site, names)  # каждая кнопка «Скачать» ведёт на файл, который собирается
+        with open(os.path.join(base, ".github", "workflows", "desktop.yml"), encoding="utf-8") as fh:
+            flow = fh.read()
+        for word in ("windows-latest", "macos-latest", "ubuntu-latest", "softprops/action-gh-release", "app/", "--publish never"):
+            self.assertIn(word, flow)
+        with open(os.path.join(base, "desktop", "preload.js"), encoding="utf-8") as fh:
+            self.assertIn('pyodide: "rai://app/pyodide/"', fh.read())
+        with open(os.path.join(base, "index.html"), encoding="utf-8") as fh:
+            page = fh.read()
+        self.assertIn("window.RaiApp.pyodide", page)  # сайт в приложении берёт Python из приложения
+        self.assertIn('id="appLink"', page)
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_main_process_syntax(self):
+        import subprocess
+        base = os.path.dirname(os.path.abspath(__file__))
+        for name in ("main.js", "preload.js", os.path.join("scripts", "prepare.js")):
+            r = subprocess.run(["node", "--check", os.path.join(base, "desktop", name)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+
 class HostingTest(unittest.TestCase):
     """Пакет для хостинга и PHP: свой сервер нейросети (ai.php) и посредник для интернета (net.php)."""
 
@@ -960,6 +997,8 @@ class HostingTest(unittest.TestCase):
             for name in ("index.php", "chat.html", "limits.php", "pay.php", "pay_callback.php", "admin_api.php", "ai.php", "net.php", "login.php", "config.php"):
                 self.assertTrue(os.path.isfile(os.path.join(rai, name)), name)
             self.assertFalse(os.path.exists(os.path.join(rai, "index.html")))
+            for name in ("download.php", "app.php", os.path.join("app", ".htaccess"), os.path.join("app", "web.config"), os.path.join("app", "index.php")):
+                self.assertTrue(os.path.isfile(os.path.join(rai, name)), name)  # кнопки «Скачать приложение» и папка для его файлов
             with open(os.path.join(rai, "config.php"), encoding="utf-8") as fh:
                 self.assertIn("ВСТАВЬТЕ_СЕКРЕТНЫЙ_КЛЮЧ_PLATEGA", fh.read())  # секреты Platega — только на хостинге
             for root, _, files in os.walk(out):
@@ -1232,6 +1271,25 @@ class HostingTest(unittest.TestCase):
                 state["orders"]["tx-2"]["status"] = "CONFIRMED"
                 self.assertEqual(admin("order_check", id=order2)[1]["order"]["status"], "paid")
                 self.assertEqual(json.loads(get("limits.php"))["plan"], "plus")
+
+                # приложение для компьютера: раздел «Скачать» на главной и download.php
+                home = get("index.php")
+                for word in ('id="download"', "Скачать для Windows", "download.php?os=mac-x64", "download.php?os=deb", "Последняя версия"):
+                    self.assertIn(word, home)
+                code, _, headers = post("download.php?os=win", opener=raw)  # файла на хостинге нет — релиз на GitHub
+                self.assertEqual(headers["Location"], "https://github.com/rteaminfo1-source/rai/releases/latest/download/Rai-Setup.exe")
+                os.makedirs(os.path.join(site, "app"), exist_ok=True)
+                for name, body in (("Rai-Setup.exe", b"MZ" + b"0" * 3 * 1048576), ("Rai-mac-arm64.zip", b"PK"), ("latest.yml", b"version: 1.0.7\nfiles: []\n")):
+                    with open(os.path.join(site, "app", name), "wb") as fh:
+                        fh.write(body)
+                self.assertEqual(post("download.php?os=win", opener=raw)[2]["Location"], "app/Rai-Setup.exe")
+                self.assertEqual(post("download.php?os=mac", opener=raw)[2]["Location"], "app/Rai-mac-arm64.zip")  # нет .dmg — .zip
+                self.assertEqual(post("download.php?os=../config", opener=raw)[2]["Location"], "./#download")
+                home = get("index.php")
+                self.assertIn("Версия 1.0.7", home)
+                self.assertIn("3 МБ", home)
+                stats = admin("stats")[1]
+                self.assertEqual((stats["app_version"], stats["downloads"]), ("1.0.7", {"win": 2, "mac": 1}))
             finally:
                 php.terminate()
                 php.wait()

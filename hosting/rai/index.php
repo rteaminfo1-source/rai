@@ -4,11 +4,13 @@
  */
 require __DIR__ . '/config.php';
 require __DIR__ . '/plans.php';
+require __DIR__ . '/app.php';
 
 $user = current_user();
 $mine = $user ? user_plan($user) : ['key' => 'free', 'until' => 0];
 $plans = plans();
 $free = $plans['free'];
+$app_version = app_version();
 $pricing = [];
 foreach ($plans as $key => $p) {
     $pricing[$key] = ['month' => plan_price($key, 1), 'year' => plan_price($key, 12), 'year_month' => (int)round(plan_price($key, 12) / 12)];
@@ -19,7 +21,7 @@ foreach ($plans as $key => $p) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rai — свой ИИ-помощник</title>
-<meta name="description" content="Rai — ИИ-помощник команды Rteam: нейросеть прямо в браузере, код на 17 языках, презентации, погода, перевод и анализ соцсетей. Бесплатно и по подписке.">
+<meta name="description" content="Rai — ИИ-помощник команды Rteam: нейросеть прямо в браузере, код на 17 языках, презентации, погода, перевод и анализ соцсетей. Приложение для Windows, macOS и Linux. Бесплатно и по подписке.">
 <meta name="theme-color" content="#07070b">
 <meta property="og:title" content="Rai — свой ИИ-помощник">
 <meta property="og:description" content="Нейросеть в браузере, код, презентации, перевод и анализ соцсетей. Начните бесплатно.">
@@ -201,10 +203,32 @@ h2 { font: 800 clamp(30px, 4vw, 48px)/1.1 var(--head); letter-spacing: -.03em; m
 .per s { color: var(--dim); } .per em { font-style: normal; color: var(--green); }
 .plan ul { list-style: none; padding: 0; margin: 0 0 26px; display: grid; gap: 11px; flex: 1; align-content: start; }
 .plan li { display: flex; gap: 10px; font-size: 15px; color: #d9d9e2; }
-.plan li::before { content: ""; flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 50%; background: rgba(61,220,151,.14) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M6 10.5l2.5 2.5L14 7.5' fill='none' stroke='%233ddc97' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/18px no-repeat; }
+.plan li::before, .dl-points li::before { content: ""; flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 50%; background: rgba(61,220,151,.14) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M6 10.5l2.5 2.5L14 7.5' fill='none' stroke='%233ddc97' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/18px no-repeat; }
 .plan .btn { width: 100%; }
 .until { margin-top: 10px; text-align: center; color: var(--muted); font-size: 13px; }
 .note { margin-top: 26px; color: var(--dim); font-size: 14px; }
+
+/* ---------- приложение для компьютера */
+.dl { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; padding: 52px; border-radius: 32px; overflow: hidden;
+  background: linear-gradient(160deg, rgba(255,255,255,.055), rgba(255,255,255,.012)); border: 1px solid var(--line); }
+.dl::before { content: ""; position: absolute; width: 560px; height: 560px; right: -180px; top: -220px; background: radial-gradient(circle, rgba(139,92,255,.38), transparent 62%); filter: blur(24px); pointer-events: none; animation: breathe 7s ease-in-out infinite; }
+.dl > * { position: relative; }
+.dl .sub { margin-bottom: 24px; }
+.dl-points { list-style: none; margin: 0 0 30px; padding: 0; display: grid; gap: 11px; }
+.dl-points li { display: flex; gap: 10px; color: var(--muted); font-size: 15.5px; } .dl-points b { color: var(--text); font-weight: 600; }
+.dl .cta { align-items: center; }
+.dl-meta { color: var(--dim); font-size: 14px; }
+.dl-phone { margin: 18px 0 0; padding: 12px 16px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 14.5px; }
+.dl-list { display: grid; gap: 10px; }
+.os { display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 16px; padding: 15px 18px; border-radius: 18px; background: var(--card); border: 1px solid var(--line);
+  transition: transform .3s var(--ease), border-color .3s, background .3s; }
+.os:hover { transform: translateX(6px); border-color: var(--line2); background: var(--card2); }
+.os-ico { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(140deg, rgba(255,45,45,.22), rgba(139,92,255,.22)); border: 1px solid var(--line2); }
+.os b { display: block; font: 700 17px/1.3 var(--head); letter-spacing: -.01em; } .os small { color: var(--muted); font-size: 14px; }
+.os em { font-style: normal; font-weight: 600; font-size: 14px; color: var(--muted); white-space: nowrap; transition: color .3s; } .os:hover em { color: var(--text); }
+.os.mine { background: linear-gradient(var(--bg2), var(--bg2)) padding-box, var(--grad) border-box; border: 1.5px solid transparent; box-shadow: 0 20px 60px -30px rgba(255,45,45,.7); }
+.os.mine em { color: var(--pink); }
+.os .you { margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: var(--grad); color: #fff; font: 600 11px/1.4 var(--body); vertical-align: 3px; }
 
 /* ---------- вопросы */
 .faq { max-width: 820px; margin: 0 auto; display: grid; gap: 12px; }
@@ -233,6 +257,7 @@ footer .sp { margin-left: auto; }
   .prices { grid-template-columns: repeat(2, 1fr); }
   .bento { grid-template-columns: repeat(2, 1fr); } .f, .f.wide { grid-column: span 1; } .f.tall { grid-row: auto; }
   .chip-float.two { left: -8px; }
+  .dl { grid-template-columns: 1fr; gap: 32px; padding: 36px 28px; }
 }
 @media (max-width: 760px) {
   .links, .me small { display: none; }
@@ -242,6 +267,7 @@ footer .sp { margin-left: auto; }
   .prices, .bento { grid-template-columns: 1fr; }
   .chip-float { display: none; } .demo-in { min-height: 360px; }
   footer .sp { margin-left: 0; }
+  .dl { padding: 28px 18px; border-radius: 24px; } .os { grid-template-columns: 42px 1fr; gap: 12px; } .os em { display: none; } .os-ico { width: 42px; height: 42px; }
 }
 @media (max-width: 420px) { .stats { grid-template-columns: 1fr; } .me span:not(.ava) { display: none; } }
 @media (prefers-reduced-motion: reduce) {
@@ -257,7 +283,7 @@ footer .sp { margin-left: auto; }
   <div class="wrap">
     <a class="logo" href="./" aria-label="Rai — на главную"><i>R</i>Rai</a>
     <nav class="links" aria-label="Разделы">
-      <a href="#features">Возможности</a><a href="#how">Как это работает</a><a href="#pricing">Тарифы</a><a href="#faq">Вопросы</a>
+      <a href="#features">Возможности</a><a href="#how">Как это работает</a><a href="#download">Приложение</a><a href="#pricing">Тарифы</a><a href="#faq">Вопросы</a>
     </nav>
     <div class="right">
       <?php if ($user): ?>
@@ -278,7 +304,7 @@ footer .sp { margin-left: auto; }
         <span class="badge fade"><b>Новое</b> Своя нейросеть Rai Нейро — прямо в браузере</span>
         <h1><span class="line"><span>Ваш умный</span></span><span class="line"><span>помощник —</span></span><span class="line"><span class="grad-text">Rai</span></span></h1>
         <p class="lead fade d1">Отвечает на вопросы, пишет и исправляет код на 17 языках, делает презентации, переводит, знает погоду
-          в любом посёлке и разбирает TikTok, YouTube и Telegram по ссылке. Ничего не нужно устанавливать.</p>
+          в любом посёлке и разбирает TikTok, YouTube и Telegram по ссылке. Работает прямо в браузере — или в приложении для Windows, macOS и Linux.</p>
         <div class="cta fade d2">
           <a class="btn primary big" href="<?= CHAT_URL ?>">Начать бесплатно <span class="arrow">→</span></a>
           <a class="btn big" href="#pricing">Тарифы</a>
@@ -364,6 +390,38 @@ footer .sp { margin-left: auto; }
     </div>
   </section>
 
+  <section id="download">
+    <div class="wrap">
+      <div class="dl reveal">
+        <div>
+          <span class="kicker">Приложение</span>
+          <h2>Rai на <span class="grad-text">вашем компьютере</span></h2>
+          <p class="sub">Отдельное окно и значок на панели задач, голос, снимки экрана и работа без интернета. Всё, что умеет сайт, — и даже больше.</p>
+          <ul class="dl-points">
+            <li><span><b>Обновляется само</b> — новые функции появляются сразу, а новые версии приложения ставятся сами</span></li>
+            <li><span><b>Работает без интернета</b> — движок Rai и Python уже внутри</span></li>
+            <li><span><b>Быстрее браузера</b> — Python не скачивается, нейросеть работает на видеокарте</span></li>
+          </ul>
+          <div class="cta">
+            <a class="btn primary big" id="dl-main" href="download.php?os=win">Скачать для Windows <span class="arrow">↓</span></a>
+            <span class="dl-meta" id="dl-meta"><?= $app_version ? 'Версия ' . h($app_version) : 'Последняя версия' ?> · бесплатно</span>
+          </div>
+          <p class="dl-phone" id="dl-phone" hidden>📱 На телефоне приложение не нужно: откройте rai.rteam.info в браузере и добавьте на главный экран.</p>
+        </div>
+        <div class="dl-list">
+          <?php $app_icons = ['win' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M3 5.1 10.4 4v7.2H3zM11.4 3.9 21 2.5v8.7h-9.6zM3 12.2h7.4v7.2L3 18.3zM11.4 12.2H21v8.7l-9.6-1.4z"/></svg>', 'mac' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="#fff"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.6-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.1-1.2 2.9-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.4-.9-2.4-4M14 5.5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1 .1 2.1-.6 2.8-1.4"/></svg>', 'linux' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>', 'deb' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg>'];
+          foreach (APP_FILES as $key => $a): $mb = app_size_mb($key); ?>
+            <a class="os" data-os="<?= h($key) ?>" data-name="<?= h($a['name']) ?>" data-size="<?= $mb ? (int)$mb : '' ?>" href="download.php?os=<?= h($key) ?>">
+              <span class="os-ico"><?= $app_icons[$key === 'mac-x64' ? 'mac' : $key] ?></span>
+              <span><b><?= h($a['name']) ?></b><small><?= h($a['note']) ?><?= $mb ? ' · ' . (int)$mb . ' МБ' : '' ?></small></span>
+              <em>Скачать ↓</em>
+            </a>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="pricing">
     <div class="wrap center">
       <div class="reveal"><span class="kicker">Тарифы</span><h2>Выберите <span class="grad-text">свой Rai</span></h2>
@@ -402,7 +460,8 @@ footer .sp { margin-left: auto; }
       <div class="center reveal"><span class="kicker">Вопросы</span><h2>Часто спрашивают</h2></div>
       <div class="faq">
         <details class="reveal"><summary>Что такое Rai Нейро?</summary><div class="ans">Своя нейросеть Rai на открытой модели Qwen. Она загружается в браузер и работает на вашей видеокарте или процессоре — вопросы не отправляются в чужие сервисы.</div></details>
-        <details class="reveal"><summary>Нужно ли что-то устанавливать?</summary><div class="ans">Нет. Откройте rai.rteam.info в Chrome, Edge или Safari. Первая загрузка модели занимает от минуты, потом она берётся из памяти браузера.</div></details>
+        <details class="reveal"><summary>Нужно ли что-то устанавливать?</summary><div class="ans">Нет. Откройте rai.rteam.info в Chrome, Edge или Safari. Первая загрузка модели занимает от минуты, потом она берётся из памяти браузера. Если удобнее отдельное окно — <a href="#download" style="color:var(--pink)">скачайте приложение</a> для Windows, macOS или Linux.</div></details>
+        <details class="reveal"><summary>Как обновляется приложение?</summary><div class="ans">Само. Чат внутри приложения — это сайт Rai, поэтому новые функции появляются сразу. А новые версии самого приложения оно находит на GitHub (или на нашем сервере, если GitHub недоступен), скачивает и ставит при следующем запуске — на Windows и Linux без вопросов, на macOS предложит скачать. Без интернета приложение открывает встроенный Rai.</div></details>
         <details class="reveal"><summary>Что будет, когда закончатся сообщения нейросети?</summary><div class="ans">Rai продолжит отвечать своим движком: погода, курсы, перевод, код, презентации, расчёты — всё работает. Лимит нейросети обновляется каждый день в полночь (по Москве).</div></details>
         <details class="reveal"><summary>Как оплатить и когда включится подписка?</summary><div class="ans">Выберите тариф, войдите или зарегистрируйтесь и оплатите через Platega — СБП или картой. Подписка включается сразу после оплаты.</div></details>
         <details class="reveal"><summary>Подписка продлевается автоматически?</summary><div class="ans">Нет. Вы платите за месяц или год, и всё. Продлить можно в любой момент — новое время добавится к оставшемуся.</div></details>
@@ -425,7 +484,7 @@ footer .sp { margin-left: auto; }
 <footer><div class="wrap">
   <a class="logo" href="./"><i>R</i>Rai</a><span>© <?= date('Y') ?> Rteam</span>
   <a href="<?= CHAT_URL ?>">Чат</a><a href="<?= CHAT_URL ?>#code">Code</a><a href="<?= CHAT_URL ?>#slides">Слайды</a>
-  <a href="<?= h(STUDIO_URL) ?>/">AI Studio</a><a href="<?= $user ? 'account.php' : 'login.php' ?>"><?= $user ? 'Кабинет' : 'Вход' ?></a>
+  <a href="<?= h(STUDIO_URL) ?>/">AI Studio</a><a href="#download">Приложение</a><a href="<?= $user ? 'account.php' : 'login.php' ?>"><?= $user ? 'Кабинет' : 'Вход' ?></a>
   <a class="sp" href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
 </div></footer>
 
@@ -502,6 +561,41 @@ footer .sp { margin-left: auto; }
     }
   }
   play();
+
+  // приложение: угадываем систему и подсвечиваем нужную кнопку
+  (async () => {
+    const main = document.getElementById("dl-main"), meta = document.getElementById("dl-meta");
+    if (!main) return;
+    if (window.RaiApp && window.RaiApp.isApp) {  // страницу открыли в самом приложении
+      main.innerHTML = 'Проверить обновления <span class="arrow">↻</span>';
+      main.addEventListener("click", (e) => { e.preventDefault(); window.RaiApp.checkUpdates(); });
+      try { const i = await window.RaiApp.info(); meta.textContent = "У вас приложение Rai " + i.version; } catch (e) { /* старая версия */ }
+      return;
+    }
+    const ua = navigator.userAgent, plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+    let os = "win";
+    if (/android|iphone|ipad|ipod/i.test(ua) || (navigator.maxTouchPoints > 1 && /mac/i.test(plat))) os = "phone";
+    else if (/mac/i.test(plat) || /mac os/i.test(ua)) {
+      os = "mac";
+      try {
+        const hi = navigator.userAgentData && await navigator.userAgentData.getHighEntropyValues(["architecture"]);
+        if (hi && hi.architecture === "x86") os = "mac-x64";
+      } catch (e) { /* Safari не говорит — у большинства Mac сейчас Apple M */ }
+    } else if (/linux|x11|cros/i.test(plat + " " + ua)) os = /ubuntu|debian|mint/i.test(ua) ? "deb" : "linux";
+    if (os === "phone") {  // на телефоне приложение не нужно — открываем сам Rai
+      document.getElementById("dl-phone").hidden = false;
+      main.href = <?= json_encode(CHAT_URL) ?>;
+      main.innerHTML = 'Открыть Rai <span class="arrow">→</span>';
+      return;
+    }
+    const card = document.querySelector('.os[data-os="' + os + '"]');
+    if (!card) return;
+    card.classList.add("mine");
+    card.querySelector("b").insertAdjacentHTML("beforeend", '<span class="you">ваша система</span>');
+    main.href = card.href;
+    main.innerHTML = "Скачать для " + card.dataset.name + ' <span class="arrow">↓</span>';
+    if (card.dataset.size) meta.textContent += " · " + card.dataset.size + " МБ";
+  })();
 
   // тарифы: месяц или год
   const pill = document.getElementById("pill"), buttons = [...document.querySelectorAll(".toggle button")];
