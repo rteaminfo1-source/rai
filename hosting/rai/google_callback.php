@@ -2,6 +2,28 @@
 /* Возврат от Google. В Google Cloud Console → Authorized redirect URIs: https://rai.rteam.info/google_callback.php */
 require __DIR__ . '/config.php';
 
+// Google вернул ответ после # (response_mode=fragment): сервер его не видит. Страничка берёт из адреса только code, state
+// и error и открывает этот же файл уже с ними — без ссылок accounts.google.com и googleapis.com, которые защита
+// некоторых хостингов принимает за атаку и отвечает 403.
+if (!isset($_GET['code']) && !isset($_GET['error'])) {
+    header('Cache-Control: no-store');
+    ?><!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Вход через Google…</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b0c;color:#f3f1f1;font:16px system-ui,sans-serif}</style></head>
+<body><p>Входим через Google…</p>
+<script>
+(function () {
+  var got = new URLSearchParams(location.hash.slice(1)), keep = new URLSearchParams();
+  ["code", "state", "error"].forEach(function (k) { if (got.get(k)) keep.set(k, got.get(k)); });
+  location.replace(keep.toString() ? "google_callback.php?" + keep.toString() : "login.php?error=google");
+})();
+</script>
+<noscript>Для входа через Google включите JavaScript.</noscript>
+</body></html>
+<?php
+    exit;
+}
+
 function g_request($url, $post = null, $headers = []) {
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
