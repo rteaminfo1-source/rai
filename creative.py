@@ -688,6 +688,8 @@ def web_blocks(title, text, first=False):
         rest = rest[1:]
     if len(rest) >= 2:
         blocks.append({"kind": "bullets", "title": title, "bullets": [_short(x, 170) for x in rest[:4]]})
+        if len(rest) >= 7:  # длинный раздел — ещё один слайд, чтобы материал не пропадал
+            blocks.append({"kind": "bullets", "title": f"{title}: подробнее", "bullets": [_short(x, 170) for x in rest[4:8]]})
     elif rest and not blocks:
         blocks.append({"kind": "fact", "title": title, "text": _short(rest[0], 260)})
     return blocks
@@ -868,6 +870,75 @@ def make_slides(topic: str, articles: list, max_slides: int = 8, theme=None, pho
 
 
 TRANSITIONS = ["fade", "slide", "zoom", "wipe", "rise"]
+_SERVICE = {"image", "pic", "photo", "transition", "side", "kind"}
+
+
+def _slide_text(s):
+    """Весь текст слайда (без картинок и служебных полей) — для оценки качества."""
+    def walk(x):
+        if isinstance(x, str):
+            return x
+        if isinstance(x, dict):
+            return " ".join(walk(v) for k, v in x.items() if k not in _SERVICE)
+        if isinstance(x, list):
+            return " ".join(walk(v) for v in x)
+        return ""
+    return walk({k: v for k, v in s.items() if k not in _SERVICE})
+
+
+def deck_quality(deck, want=None, pictures="photo"):
+    """Оценка презентации 0–100: хватает ли содержательных слайдов, нет ли пустых и повторов, есть ли фото.
+
+    {"score", "issues": [что не так], "weak": [номера слабых слайдов], "needs_text", "needs_pics"}.
+    Rai пересобирает презентацию с материалом из интернета, если оценка ниже 75.
+    """
+    if not deck or not deck.get("slides"):
+        return {"score": 0, "issues": ["нет слайдов"], "weak": [], "needs_text": True, "needs_pics": pictures != "none"}
+    slides = deck["slides"]
+    body = [s for s in slides if s["kind"] not in ("title", "agenda", "summary", "end", "photo")]
+    score, issues, weak = 100, [], []
+    for i, s in enumerate(slides):
+        if s["kind"] in ("title", "agenda", "end", "photo"):
+            continue
+        text = _slide_text(s)
+        least = 40 if s["kind"] in ("fact", "quote") else 90   # «факт» — одно яркое предложение, так и задумано
+        thin = len(text) < least or (s["kind"] == "bullets" and len(s.get("bullets") or []) < 2)
+        if thin or text.count("…") >= 3:
+            weak.append(i)
+    if len(body) < 3:
+        score -= 40
+        issues.append("мало содержания")
+    elif len(body) < 5:
+        score -= 12
+        issues.append("всего %d содержательных слайда" % len(body))
+    if want and len(slides) < want - 1:
+        score -= 12
+        issues.append(f"слайдов меньше, чем просили ({len(slides)} из {want})")
+    if weak:
+        score -= min(30, 9 * len(weak))
+        issues.append(f"слабых слайдов: {len(weak)}")
+    heads = [s["kind"] + ":" + re.sub(r"\W+", " ", s.get("title", "").lower()).strip() for s in body]  # факт + пункты — пара
+    dups = len(heads) - len(set(heads))
+    if dups:
+        score -= 6 * dups
+        issues.append("повторяются заголовки")
+    texts = [_slide_text(s)[:120].lower() for s in body]
+    if len(texts) - len(set(texts)):
+        score -= 10
+        issues.append("повторяется текст")
+    needs_pics = False
+    if pictures != "none":
+        pics = sum(1 for s in slides if s.get("pic") or s.get("photo"))
+        if pics == 0:
+            score -= 20
+            needs_pics = True
+            issues.append("нет фотографий")
+        elif pics < min(3, len(body)):
+            score -= 8
+            needs_pics = True
+            issues.append("мало фотографий")
+    needs_text = len(body) < 5 or len(weak) >= 2 or bool(want and len(slides) < want - 1)
+    return {"score": max(0, score), "issues": issues, "weak": weak, "needs_text": needs_text, "needs_pics": needs_pics}
 
 
 def _add_photos(slides, photos, main=None):

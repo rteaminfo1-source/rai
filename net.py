@@ -134,6 +134,26 @@ def search(query: str, limit: int = 6):
     return found
 
 
+def read(page_url: str) -> dict:
+    """Текст страницы из интернета через посредник net.php (?read=): {"url", "title", "text"} — без меню и скриптов."""
+    base = PROXY or SEARCH_URL or SAME_ORIGIN
+    if not base:
+        raise NetError("нет посредника net.php", offline=True)
+    address = base + ("&" if "?" in base else "?") + urllib.parse.urlencode({"read": page_url[:2000]})
+    now = time.time()
+    if address in _cache and now - _cache[address][0] < 3600:
+        return _cache[address][1]
+    text = _xhr(address) if IN_BROWSER else fetch_text(address, timeout=20)
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise NetError("посредник вернул не JSON") from e
+    if not isinstance(data, dict) or data.get("error") or not data.get("text"):
+        raise NetError(str((data or {}).get("error") or "пустая страница"))
+    _cache[address] = (now, data)
+    return data
+
+
 def social(url: str) -> dict:
     """Данные для анализа по ссылке (TikTok, YouTube, Telegram, Instagram, VK, X, сайты) — через посредник на хостинге."""
     base = PROXY or SEARCH_URL or SAME_ORIGIN

@@ -776,9 +776,55 @@ class Brain:
         elif found and found[0].get("key_match") and len(title.split()) == 1:
             title = found[0]["title"]  # «котов» -> «Кошка»
         limit = req["count"] or version.slide_limit
-        deck = creative.make_slides(title, found, max_slides=limit, theme=theme,
-                                    photo=photo if req["pictures"] != "none" else None, extras=extras,
-                                    photos=photos, pictures=req["pictures"]) if found or extras else None
+
+        def build(material, pics):
+            return creative.make_slides(title, material, max_slides=limit, theme=theme,
+                                        photo=photo if req["pictures"] != "none" else None, extras=extras,
+                                        photos=pics, pictures=req["pictures"]) if material or extras else None
+        deck = build(found, photos)
+        quality = creative.deck_quality(deck, req["count"], req["pictures"])
+        redone = []
+        # Плохой результат (мало слайдов, пустые пункты, нет фото) — ищем ещё текст и фото в интернете и пересобираем
+        if online_ok and (topic or title) and quality["score"] < 75 and not offline:
+            query = topic or title
+            if quality["needs_text"]:
+                more, seen_urls = [], set()
+                for q in (query, f"{query} интересные факты", f"{query} история", f"{query} особенности"):
+                    for p in web(online.web_material, q, 2, tuple(seen_urls)) or []:
+                        seen_urls.add(p["url"])
+                        blocks = creative.web_blocks(p["title"], p["text"], first=True)
+                        if blocks and all(p["title"] != a.get("title") for a in found + more):
+                            more.append({"title": p["title"], "answers": [p["text"]], "web": True, "blocks": blocks, "url": p["url"]})
+                    if len(more) >= 3 or offline:
+                        break
+                if not more and not page:  # поиска нет — хотя бы статья Википедии по подтемам
+                    for q in (f"{query} история", query):
+                        art = web(online.web_article, q)
+                        if art and online._relevant(query, art["title"] + " " + art["text"][:400]) and \
+                                all(art["title"] != a.get("title") for a in found):
+                            more.append({"title": art["title"], "answers": [art["text"]], "web": True,
+                                         "blocks": creative.web_blocks(art["title"], art["text"], first=not found)})
+                            break
+                if more:
+                    found = found + more
+                    redone.append("добавил текст из интернета" + (f" ({len([m for m in more if m.get('url')])} сайта)"
+                                                                  if any(m.get("url") for m in more) else ""))
+            if req["pictures"] != "none" and quality["needs_pics"]:
+                fresh = []
+                for q in dict.fromkeys([query, title, query.split()[0] if query.split() else query]):
+                    fresh += [u for u in (web(online.photos_for, q) or []) if u not in photos and u not in fresh]
+                    if len(fresh) >= 6:
+                        break
+                if fresh:
+                    photos = photos + fresh
+                    redone.append(f"нашёл ещё фото ({len(fresh)})")
+            if redone:
+                again = build(found, photos)
+                q2 = creative.deck_quality(again, req["count"], req["pictures"])
+                if again and q2["score"] >= quality["score"]:
+                    deck, quality = again, q2
+                else:
+                    redone = []
         if not deck:
             hint = "" if online_ok else " Rai Pro, Pro Plus и Pro Sun ещё и ищут материал в интернете."
             if offline:
@@ -803,6 +849,8 @@ class Brain:
         if offline:
             notes.append("интернет был недоступен, собрал из своей базы знаний")
         tail = (" В ней: " + "; ".join(done) + ".") if done else ""
+        if redone:
+            tail += " Первый вариант вышел слабым — переделал: " + ", ".join(redone) + f" (качество {quality['score']}/100)."
         tail += (" *Заметки: " + "; ".join(notes) + ".*") if notes else ""
         return (f"Готово: презентация **«{deck['title']}»**{colors}, {count}.{tail} "
                 "Смотрите на весь экран, скачивайте в PowerPoint, файлом или ZIP-архивом.")

@@ -2673,15 +2673,43 @@ def rai_code(action, code, lang, prompt):
   }
   function seedOf(t) { let h = 7; for (const ch of String(t)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 1000000000; }
   /** Презентация от нейросети по запросу text. base — презентация Rai по той же теме (цвета, картинки, материал) или null. */
+  /** Качество слайдов от нейросети: сколько содержательных, сколько пустых и повторов (0–100). */
+  function deckScore(body) {
+    const text = (s) => JSON.stringify(Object.assign({}, s, {image: "", pic: ""})).replace(/"[a-z]+":/g, "");
+    const weak = body.filter((s) => text(s).length < 110 || (s.kind === "bullets" && (s.bullets || s.items || []).length < 2));
+    const titles = body.map((s) => (s.title || "").toLowerCase());
+    const dups = titles.length - new Set(titles).size;
+    const score = Math.max(0, 100 - (body.length < 4 ? 35 : body.length < 6 ? 12 : 0) - Math.min(30, weak.length * 9) - dups * 8);
+    return {score: score, weak: weak.map((s) => s.title || s.kind), dups: dups};
+  }
   async function neuroDeck(text, base, onStatus) {
     const engine = await enginePromise;
-    const material = deckText(base).slice(0, 2500);
-    const prompt = "Запрос: " + text + (material ? "\n\nМатериал по теме (бери факты отсюда, можно дополнить):\n" + material : "");
-    const raw = await window.RaiNeuro.chat([{role: "user", content: prompt}], (full) => {
-      if (onStatus) onStatus("Нейросеть пишет слайды… " + ((full.match(/"kind"/g) || []).length || ""));
-    }, {system: DECK_SYSTEM, temperature: 0.3, maxTokens: 2600});
-    const json = parseDeckJSON(raw);
-    const body = json ? (Array.isArray(json.slides) ? json.slides : []).map(cleanDeckSlide).filter(Boolean).slice(0, 10) : [];
+    let material = deckText(base).slice(0, 2500);
+    // Мало материала у Rai — сначала ищем факты в интернете (поиск + чтение найденных страниц)
+    if (material.length < 700) {
+      if (onStatus) onStatus("Ищу материал для слайдов в интернете…");
+      const facts = await webContext(deckTopic(text, base), engine).catch(() => ({text: ""}));
+      if (facts.text) material = (material + "\n\n" + facts.text).slice(0, 3600);
+    }
+    const write = async (extra, attempt) => {
+      const prompt = "Запрос: " + text + (material ? "\n\nМатериал по теме (бери факты отсюда, можно дополнить):\n" + material : "") + (extra || "");
+      const raw = await window.RaiNeuro.chat([{role: "user", content: prompt}], (full) => {
+        if (onStatus) onStatus((attempt ? "Переделываю слабые слайды… " : "Нейросеть пишет слайды… ") + ((full.match(/"kind"/g) || []).length || ""));
+      }, {system: DECK_SYSTEM, temperature: attempt ? 0.45 : 0.3, maxTokens: 2800});
+      const json = parseDeckJSON(raw);
+      const body = json ? (Array.isArray(json.slides) ? json.slides : []).map(cleanDeckSlide).filter(Boolean).slice(0, 10) : [];
+      return {json: json, body: body, q: deckScore(body)};
+    };
+    let best = await write("", 0);
+    // Плохой результат — переделываем один раз с подсказкой, что не так, и берём лучший вариант
+    if (best.body.length < 3 || best.q.score < 70) {
+      const why = [best.body.length < 4 ? "слишком мало слайдов" : "", best.q.weak.length ? "пустые или короткие слайды: " + best.q.weak.slice(0, 4).join(", ") : "",
+                   best.q.dups ? "повторяются заголовки" : ""].filter(Boolean).join("; ");
+      const redo = await write("\n\nПрошлый вариант был слабым (" + (why || "мало фактов") + "). Сделай 6–8 содержательных слайдов, " +
+        "на каждом 3–5 конкретных пунктов с фактами, цифрами и примерами из материала; заголовки не повторяй.", 1).catch(() => null);
+      if (redo && (redo.q.score > best.q.score || best.body.length < 3)) best = redo;
+    }
+    const json = best.json, body = best.body;
     if (body.length < 3) return null;
     if (onStatus) onStatus("Рисую картинки…");
     const title = clip(json.title, 90) || (base && base.title) || clip(text, 60);
@@ -2692,7 +2720,12 @@ def rai_code(action, code, lang, prompt):
     const oldPics = old.filter((s) => s.kind === "bullets" && s.image).map((s) => s.image);
     // Настоящие фото: те, что Rai уже нашёл в интернете, или новый поиск по названию
     let photos = old.map((s) => s.pic).filter(Boolean);
-    if (!photos.length) { try { photos = (await engine.slides("photos", {query: title})).photos || []; } catch (e) { photos = []; } }
+    // Фото из интернета: по названию, по теме запроса и по главному слову — пока не наберётся на слайды
+    for (const q of [...new Set([title, deckTopic(text, base), title.split(/\s+/)[0]])]) {
+      if (photos.length >= 4 || !q) break;
+      if (onStatus) onStatus("Ищу фотографии…");
+      try { photos = photos.concat((await engine.slides("photos", {query: q})).photos || []); } catch (e) { /* без фото — рисунки Rai */ }
+    }
     photos = [...new Set(photos)];
     const cover = {kind: "title", title: title, subtitle: clip(json.subtitle, 140) || (old[0] && old[0].subtitle) || ""};
     cover.image = (old[0] && old[0].image) || await picture(title, 0);
@@ -2716,6 +2749,12 @@ def rai_code(action, code, lang, prompt):
     slides.push(end ? Object.assign({}, end, {subtitle: title}) : {kind: "end", title: "Спасибо за внимание!", subtitle: title, image: cover.image, pic: cover.pic});
     slides.forEach((s, i) => { s.transition = DECK_TRANSITIONS[i % DECK_TRANSITIONS.length]; if (!s.image) delete s.image; if (!s.pic) delete s.pic; });
     return {type: "slides", title: title, slides: slides, theme: theme, neuro: true};
+  }
+  /** Тема презентации: из ответа Rai или из запроса без «сделай презентацию про…». */
+  function deckTopic(text, base) {
+    if (base && base.title) return base.title;
+    return String(text || "").replace(/^.*?(?:презентаци[а-яё]*|слайд[а-яё]*)\s+(?:про\s+|об?\s+|на\s+тему\s+|по\s+теме\s+)?/i, "")
+      .replace(/\s+(?:на|из|в)\s+\d+\s+слайд[а-яё]*.*$/i, "").trim().slice(0, 80) || String(text || "").slice(0, 80);
   }
   const wantsDeck = (data) => data && ([].concat(data.intent || []).includes("slides") || (data.attachments || []).some((a) => a.type === "slides"));
   /** Ответ Rai на просьбу о презентации → та же презентация, но тексты пишет нейросеть (если включена). */

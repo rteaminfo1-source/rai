@@ -1102,6 +1102,52 @@ class PlacesTest(unittest.TestCase):
         self.assertTrue(any(x["type"] == "photo" for x in enc["attachments"]))
 
 
+class SlidesQualityTest(unittest.TestCase):
+    """Презентация: оценка качества и переделка — мало материала или нет фото → текст с сайтов и фото из интернета."""
+
+    def test_weak_deck_is_redone_with_web_material(self):
+        import online
+        import creative
+        thin = {"title": "Тайга", "lead": "Тайга — хвойный лес.", "sections": [], "image": None,
+                "link": "https://ru.wikipedia.org/wiki/Тайга", "lang": "ru"}
+        sites = [{"title": "Тайга: природа и климат", "url": "https://example.ru/taiga", "text":
+                  "Тайга занимает огромные пространства Евразии и Северной Америки. Зимы в тайге долгие и холодные, а лето короткое. "
+                  "В тайге растут ель, пихта, сосна и лиственница. Животные тайги — бурый медведь, рысь, соболь и лось. "
+                  "Почвы тайги бедные и кислые из-за хвои. Тайгу называют лёгкими планеты: она поглощает много углекислого газа."},
+                 {"title": "Интересные факты о тайге", "url": "https://example.org/facts", "text":
+                  "Тайга — самая большая природная зона на суше. В России тайга покрывает больше половины территории страны. "
+                  "Лиственница сбрасывает хвою на зиму, в отличие от других хвойных деревьев. Лесные пожары в тайге случаются каждое лето. "
+                  "Древесина тайги идёт на строительство и бумагу."}]
+        photos = ["https://upload.wikimedia.org/taiga-%d.jpg" % i for i in range(6)]
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(online, "wiki_page", lambda q, langs=("ru", "en"): thin), \
+                mock.patch.object(online, "wiki_images", lambda t, lang="ru", limit=12: []), \
+                mock.patch.object(online, "web_article", lambda q, langs=("ru", "en"): None), \
+                mock.patch.object(online, "web_material", lambda q, pages=2, skip=(): calls.append(q) or [p for p in sites if p["url"] not in skip][:pages]), \
+                mock.patch.object(online, "photos_for", lambda q, limit=12: photos):
+            brain = Brain(learned_path=os.path.join(tmp, "learned.json"))
+            r = brain.answer(SUN, "сделай презентацию про тайгу", session_id="s")
+        deck = next(a for a in r["attachments"] if a["type"] == "slides")
+        q = creative.deck_quality(deck, None, "photo")
+        self.assertGreaterEqual(q["score"], 60)
+        self.assertIn("переделал", r["answer"])
+        self.assertIn("добавил текст из интернета", r["answer"])
+        self.assertIn("нашёл ещё фото", r["answer"])
+        text = json.dumps(deck["slides"], ensure_ascii=False)
+        self.assertIn("бурый медведь", text)                      # текст с сайта попал на слайды
+        self.assertTrue(any(s.get("pic", "").startswith("https://upload.wikimedia.org/taiga") for s in deck["slides"]))
+        self.assertTrue(calls)
+
+    def test_quality_score(self):
+        import creative
+        thin = creative.make_slides("Кошка", [{"title": "Кошка", "answers": ["Кошка — домашнее животное. Кошки любят спать."]}], max_slides=8)
+        q = creative.deck_quality(thin, 8, "photo")
+        self.assertLess(q["score"], 75)
+        self.assertTrue(q["needs_text"] and q["needs_pics"])
+        self.assertIn("нет фотографий", q["issues"])
+
+
 class ModerationTest(unittest.TestCase):
     """Правила Rai: мат, 18+, наркотики, насилие, взлом, экстремизм — диалог останавливается; обычные слова не задеваются."""
 

@@ -800,6 +800,36 @@ def context_for(query: str, limit_chars: int = 2600) -> dict:
     return {"text": "\n\n".join(parts)[:limit_chars], "sources": sources[:5]}
 
 
+def web_material(query: str, pages: int = 2, skip=()):
+    """Материал с сайтов из поиска (не только Википедия): [{"title", "text", "url"}] — нужные абзацы найденных страниц.
+
+    Ищет через посредник на хостинге и читает первые подходящие страницы. Без посредника — [].
+    """
+    out = []
+    for r in web_results(query, 8):
+        url = r.get("url", "")
+        if url in skip or "wikipedia.org" in url or not _relevant(query, r["title"] + " " + r.get("snippet", "")):
+            continue
+        try:
+            page = net.read(url)
+        except net.NetError:
+            continue
+        want = {w for w in nlp.tokens(query) if w not in nlp.GENERIC and len(w) > 2}
+        keep = []
+        for para in re.split(r"\n\s*\n|(?<=[.!?])\s+(?=[А-ЯЁA-Z])", page.get("text", "")):
+            para = " ".join(para.split())
+            if 60 <= len(para) <= 700 and (not want or want & set(nlp.tokens(para))) and not re.search(
+                    r"cookie|подпиш|реклам|©|войти|регистрац|корзин|скидк|купить|цена|₽|\$", para, re.I):
+                keep.append(para)
+        text = " ".join(keep)[:2400]
+        if len(text) >= 300:
+            title = re.split(r"\s+[|—–-]\s+", (page.get("title") or r["title"]).strip())[0][:70]
+            out.append({"title": title, "text": text, "url": url})
+        if len(out) >= pages:
+            break
+    return out
+
+
 def web_results(query: str, limit: int = 6):
     """Результаты поиска в интернете или [] (нет посредника или поиск не ответил)."""
     try:
