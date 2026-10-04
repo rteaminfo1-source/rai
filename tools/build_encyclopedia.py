@@ -439,13 +439,13 @@ def clean_extract(text):
 
 
 def ru_pages(titles):
-    """Русские статьи: {название: [текст, id Wikidata, картинка (файл на Викискладе)]}."""
+    """Русские статьи: {название: [текст, id Wikidata, картинка (файл на Викискладе), число других языков]}."""
     pages = {}
     for n, batch in enumerate(chunks(titles, 20)):
         if n % 50 == 0:
             log("  тексты статей:", n * 20, "из", len(titles))
         try:
-            responses = list(query_all(RU, {"prop": "extracts|pageprops|pageimages", "exintro": 1, "explaintext": 1, "exlimit": 20,
+            responses = list(query_all(RU, {"prop": "extracts|pageprops|pageimages|langlinkscount", "exintro": 1, "explaintext": 1, "exlimit": 20,
                                             "ppprop": "wikibase_item", "piprop": "name", "pilicense": "free", "pilimit": 20,
                                             "redirects": 1, "titles": "|".join(batch)}))
         except Exception as e:
@@ -456,33 +456,33 @@ def ru_pages(titles):
             for page in q.get("pages", []):
                 if page.get("missing"):
                     continue
-                cur = pages.setdefault(page["title"], ["", None, ""])
+                cur = pages.setdefault(page["title"], ["", None, "", 0])
                 if page.get("extract"):
                     cur[0] = page["extract"]
                 if page.get("pageprops", {}).get("wikibase_item"):
                     cur[1] = page["pageprops"]["wikibase_item"]
                 if page.get("pageimage"):
                     cur[2] = page["pageimage"]
+                if page.get("langlinkscount"):
+                    cur[3] = page["langlinkscount"]  # в скольких ещё Википедиях есть статья — мера известности
             for r in q.get("redirects", []) + q.get("normalized", []):
                 pages.setdefault("→" + r["from"], r["to"])
     return pages
 
 
 def wikidata(qids):
-    """{id: (описание, [другие названия], известность)} на русском; известность — в скольких Википедиях есть статья.
-    Сбой Wikidata не останавливает сборку — тема будет без описания."""
+    """{id: (описание, [другие названия])} на русском. Сбой Wikidata не останавливает сборку — тема будет без описания."""
     out = {}
     for batch in chunks(sorted(set(qids)), 50):
         try:
-            data = get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "descriptions|aliases|sitelinks", "languages": "ru"}, tries=8)
+            data = get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "descriptions|aliases", "languages": "ru"}, tries=8)
         except Exception as e:
             log("  Wikidata не ответила для", len(batch), "тем:", e)
             continue
         for qid, e in data.get("entities", {}).items():
             desc = e.get("descriptions", {}).get("ru", {}).get("value", "")
             aliases = [a["value"] for a in e.get("aliases", {}).get("ru", [])]
-            pop = sum(1 for k in e.get("sitelinks", {}) if k.endswith("wiki") and k not in ("commonswiki", "specieswiki"))
-            out[qid] = (desc, aliases, pop)
+            out[qid] = (desc, aliases)
     return out
 
 
@@ -535,7 +535,8 @@ def build(limit=None):
         if len(text) < 40:
             continue
         done.add(real)
-        desc, aliases, pop = wd.get(page[1], ("", [], 0))
+        desc, aliases = wd.get(page[1], ("", []))
+        pop = page[3] + 1 if len(page) > 3 else 0
         key = (section, cat)
         if key not in cat_index:
             cat_index[key] = len(cats)
