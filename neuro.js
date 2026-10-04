@@ -16,18 +16,18 @@
   };
   const STORE = "rai_neuro";
   // gpu: модели WebLLM (f16 быстрее, f32 — для видеокарт без half-float);
-  // cpu: модели в формате GGUF для процессора (открытые веса Qwen).
+  // cpu: модели в формате GGUF для процессора (открытые веса Qwen3 — умнее прежних Qwen2.5 того же размера).
   const HF = "https://huggingface.co/";
   const MODELS = {
     fast: {name: "Лайт", label: "Rai Нейро Лайт", base: "Qwen3.5 0.8B", size: "≈ 0,6 ГБ", memory: "1,7 ГБ",
            f16: "Qwen3.5-0.8B-q4f16_1-MLC", f32: "Qwen3.5-0.8B-q4f32_1-MLC",
-           cpu: {url: HF + "Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf", base: "Qwen2.5 0.5B", size: "≈ 0,4 ГБ"}},
+           cpu: {url: HF + "Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf", base: "Qwen3 0.6B", size: "≈ 0,6 ГБ"}},
     normal: {name: "Стандарт", label: "Rai Нейро", base: "Qwen3.5 2B", size: "≈ 1,4 ГБ", memory: "2,3 ГБ",
              f16: "Qwen3.5-2B-q4f16_1-MLC", f32: "Qwen3.5-2B-q4f32_1-MLC",
-             cpu: {url: HF + "Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf", base: "Qwen2.5 1.5B", size: "≈ 1,1 ГБ"}},
+             cpu: {url: HF + "unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf", base: "Qwen3 1.7B", size: "≈ 1,1 ГБ"}},
     strong: {name: "Про", label: "Rai Нейро Про", base: "Qwen3.5 4B", size: "≈ 2,6 ГБ", memory: "3,9 ГБ",
              f16: "Qwen3.5-4B-q4f16_1-MLC", f32: "Qwen3.5-4B-q4f32_1-MLC",
-             cpu: {url: HF + "Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf", base: "Qwen2.5 3B", size: "≈ 2 ГБ"}},
+             cpu: {url: HF + "Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf", base: "Qwen3 4B", size: "≈ 2,4 ГБ"}},
     max: {name: "Макс", label: "Rai Нейро Макс", base: "Qwen3.5 9B", size: "≈ 5,5 ГБ", memory: "6,5 ГБ",
           f16: "Qwen3.5-9B-q4f16_1-MLC", f32: "Qwen3.5-9B-q4f32_1-MLC"},
     coder: {name: "Код", label: "Rai Нейро Код", base: "Qwen2.5-Coder 7B", size: "≈ 4,5 ГБ", memory: "5,1 ГБ",
@@ -273,8 +273,14 @@
     const thinking = !!(opts && opts.thinking) && backend === "gpu";
     lastThought = "";
     try {
+      const msgs = messages.map((m) => ({role: m.role, content: m.content}));
+      // На процессоре Qwen3 отвечает без долгого «размышления» (иначе ответ ждать в разы дольше)
+      const last = msgs.length - 1;
+      if (backend === "cpu" && last >= 0 && msgs[last].role === "user" && !/\/no_think\s*$/.test(msgs[last].content)) {
+        msgs[last] = {role: "user", content: msgs[last].content + " /no_think"};
+      }
       const stream = await engine.chat.completions.create({
-        messages: [{role: "system", content: (opts && opts.system) || SYSTEM}].concat(messages.map((m) => ({role: m.role, content: m.content}))),
+        messages: [{role: "system", content: (opts && opts.system) || SYSTEM}].concat(msgs),
         // рекомендованные для Qwen3.5 настройки: с размышлением 0.6/0.95, без — 0.7/0.8 (код — точнее, 0.2)
         stream: true, temperature: (opts && opts.temperature) ?? (thinking ? 0.6 : 0.7), top_p: thinking ? 0.95 : 0.8,
         max_tokens: ((opts && opts.maxTokens) || 3000) + (thinking ? 3000 : 0),
