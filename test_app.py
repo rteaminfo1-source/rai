@@ -1149,6 +1149,23 @@ class SightTest(unittest.TestCase):
         self.assertIn("[[vision]]", page)
 
 
+class PageBootTest(unittest.TestCase):
+    """Python-код, который страница запускает в браузере (внутри JS-шаблона `...`), должен разбираться Python:
+    «\\n» внутри шаблона JavaScript превращает в перевод строки — так однажды сломался запуск Rai."""
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_embedded_python_parses(self):
+        import ast
+        import subprocess
+        base = os.path.dirname(os.path.abspath(__file__))
+        script = ("const h=require('fs').readFileSync(process.argv[1],'utf8');const i=h.indexOf('pyodide.runPython(`');"
+                  "const j=h.indexOf('`);',i);const body=h.slice(i+'pyodide.runPython(`'.length,j).replace(/\\$\\{[^}]*\\}/g,'None');"
+                  "process.stdout.write(eval('`'+body+'`'));")
+        src = subprocess.run(["node", "-e", script, os.path.join(base, "index.html")], capture_output=True, text=True, check=True).stdout
+        self.assertIn("def rai_ask", src)
+        ast.parse(src)
+
+
 class PptxMotionTest(unittest.TestCase):
     """Переходы и анимации попадают внутрь .pptx (PptxGenJS их не умеет — pptx.js дописывает XML слайдов)."""
 
