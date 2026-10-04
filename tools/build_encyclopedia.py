@@ -74,7 +74,8 @@ def log(*a):
 
 
 def get(url, params, tries=6):
-    """GET к API Википедии/Wikidata с повторами и паузами (вежливо: не больше ~10 запросов в секунду)."""
+    """Запрос к API Википедии/Wikidata с повторами и паузами (вежливо: не больше ~10 запросов в секунду).
+    Длинные списки названий уходят POST-ом — в адрес они не помещаются."""
     params = dict(params)
     if url in (EN, RU):
         params.update(format="json", formatversion="2", maxlag="10")
@@ -82,15 +83,20 @@ def get(url, params, tries=6):
         params.update(format="json", formatversion="2")
     else:
         params["format"] = "json"
-    full = url + "?" + urllib.parse.urlencode(params)
+    body = urllib.parse.urlencode(params)
     delay = 2
     for attempt in range(tries):
         try:
-            req = urllib.request.Request(full, headers={"User-Agent": UA, "Accept": "application/json"})
+            headers = {"User-Agent": UA, "Accept": "application/json"}
+            if url != SPARQL and len(body) > 1500:
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+                req = urllib.request.Request(url, data=body.encode(), headers=headers)
+            else:
+                req = urllib.request.Request(url + "?" + body, headers=headers)
             with urllib.request.urlopen(req, timeout=90) as r:
                 data = json.loads(r.read().decode("utf-8"))
-            if isinstance(data, dict) and data.get("error", {}).get("code") == "maxlag":
-                raise RuntimeError("maxlag")
+            if isinstance(data, dict) and data.get("error"):
+                raise RuntimeError(data["error"].get("code", "error") + ": " + str(data["error"].get("info", ""))[:200])
             time.sleep(0.1)
             return data
         except (urllib.error.URLError, OSError, ValueError, RuntimeError) as e:
@@ -243,8 +249,13 @@ def ru_titles(en_titles):
     found = {}
     for batch in chunks(en_titles, 50):
         rename = {}
-        for data in query_all(EN, {"prop": "langlinks", "lllang": "ru", "lllimit": "max", "redirects": 1, "titles": "|".join(batch)}):
-            q = data["query"]
+        try:
+            responses = list(query_all(EN, {"prop": "langlinks", "lllang": "ru", "lllimit": "max", "redirects": 1, "titles": "|".join(batch)}))
+        except Exception as e:
+            log("  пропускаю пачку из", len(batch), "названий:", e)
+            continue
+        for data in responses:
+            q = data.get("query", {})
             for n in q.get("normalized", []) + q.get("redirects", []):
                 rename[n["from"]] = n["to"]
             for page in q.get("pages", []):
@@ -317,10 +328,17 @@ def clean_extract(text):
 def ru_pages(titles):
     """Русские статьи: {название: (текст, id Wikidata)}."""
     pages = {}
-    for batch in chunks(titles, 20):
-        for data in query_all(RU, {"prop": "extracts|pageprops", "exintro": 1, "explaintext": 1, "exlimit": 20,
-                                   "ppprop": "wikibase_item", "redirects": 1, "titles": "|".join(batch)}):
-            q = data["query"]
+    for n, batch in enumerate(chunks(titles, 20)):
+        if n % 50 == 0:
+            log("  тексты статей:", n * 20, "из", len(titles))
+        try:
+            responses = list(query_all(RU, {"prop": "extracts|pageprops", "exintro": 1, "explaintext": 1, "exlimit": 20,
+                                            "ppprop": "wikibase_item", "redirects": 1, "titles": "|".join(batch)}))
+        except Exception as e:
+            log("  пропускаю пачку из", len(batch), "статей:", e)
+            continue
+        for data in responses:
+            q = data.get("query", {})
             for page in q.get("pages", []):
                 if page.get("missing"):
                     continue
