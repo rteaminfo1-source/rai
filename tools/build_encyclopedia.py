@@ -30,7 +30,7 @@ EN = "https://en.wikipedia.org/w/api.php"
 RU = "https://ru.wikipedia.org/w/api.php"
 WD = "https://www.wikidata.org/w/api.php"
 SPARQL = "https://query.wikidata.org/sparql"
-PREFIX = "Vital articles/Level/4"
+PREFIX = "Vital articles/Level 4"   # раньше было «Level/4» — эти страницы теперь перенаправления
 
 SECTIONS = {
     "People": "Люди",
@@ -145,7 +145,7 @@ def parse_vital(wikitext, default_cat):
             if name:
                 heads[level] = name
             continue
-        if not re.match(r"^\s*[#*]", line):
+        if not re.match(r"^\s*[#*:]", line):
             continue
         for link in _LINK_RE.findall(line):
             target = link.strip()
@@ -158,7 +158,7 @@ def parse_vital(wikitext, default_cat):
     return out
 
 
-CAT_ROOT = "Category:Wikipedia level-4 vital articles"
+CAT_ROOT = "Category:Wikipedia level-4 vital articles by topic"
 
 
 def vital_from_categories():
@@ -172,7 +172,7 @@ def vital_from_categories():
         tail = cat.split(" in ", 1)[1] if " in " in cat else ""
         section = next((k for k in SECTIONS if tail.lower() == k.lower()), None)
         if not section:
-            section = next((k for k in SECTIONS if k.split()[0].lower() in tail.lower()), None)
+            section = next((k for k in SECTIONS if k.split()[0].lower()[:5] in tail.lower()), None)  # «Biological…»
         if not section:
             log("  пропускаю категорию", cat)
             continue
@@ -195,7 +195,8 @@ def vital_from_categories():
 
 def vital_articles():
     titles = []
-    for data in query_all(EN, {"list": "allpages", "apnamespace": 4, "apprefix": PREFIX + "/", "aplimit": "max"}):
+    for data in query_all(EN, {"list": "allpages", "apnamespace": 4, "apprefix": PREFIX + "/", "aplimit": "max",
+                               "apfilterredir": "nonredirects"}):
         titles += [p["title"] for p in data["query"]["allpages"]]
     pages = [t for t in titles if not re.search(r"Removed|Archive|Statistics|Header|Template|Count|Talk|Sandbox|Tally", t, re.I)]
     log("страниц Vital articles:", len(pages), pages[:60])
