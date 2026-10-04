@@ -7,8 +7,10 @@
  */
 require __DIR__ . '/config.php';
 require __DIR__ . '/plans.php';
+require __DIR__ . '/moderation.php';
 
 $user = current_user();
+if (rai_current_ban($user)) json_out(['ok' => false, 'error' => 'Доступ к Rai заблокирован за нарушение правил.', 'banned' => true], 403);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_ok()) json_out(['ok' => false, 'error' => 'Страница устарела — обновите её.'], 403);

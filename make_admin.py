@@ -1,4 +1,4 @@
-"""Встроить вкладку «Rai: подписки» в admin.php основного сайта (rteam.info) — одним файлом.
+"""Встроить вкладки «Rai: подписки» и «Rai: правила» в admin.php основного сайта (rteam.info) — одним файлом.
 
     python make_admin.py путь/к/admin.php готовый/admin.php            # без ключа: ключ вводится в самой вкладке
     python make_admin.py admin.php out/admin.php --key 64-символьный-ключ  # ключ сразу внутри (ADMIN_API_KEY Rai)
@@ -22,9 +22,17 @@ PERMS = '''    // Rai (rai.rteam.info): подписки
     "rai_save" => "settings.manage", "rai_check" => "settings.manage", "rai_plans" => "settings.manage",
     "rai_plans_reset" => "settings.manage", "rai_platega" => "settings.manage",
 '''
+PERMS_RULES = '''    // Rai: правила — нарушения и блокировки
+    "rai_seen" => "users.manage", "rai_vdel" => "users.manage", "rai_ban" => "users.manage", "rai_unban" => "users.manage",
+'''
 TAB = '''    "rai"       => ["Rai: подписки",  "✨", ["users.manage", "settings.manage"],            "Работа"],
 '''
+TAB_RULES = '''    "rai_rules" => ["Rai: правила",   "🚫", ["users.manage"],                               "Работа"],
+'''
 RENDER = '''    <?php elseif ($tab === "rai"): rai_admin_render(); ?>
+
+'''
+RENDER_RULES = '''    <?php elseif ($tab === "rai_rules"): rai_rules_render(); ?>
 
 '''
 KPI = '''            if (tab_allowed("rai") && ($rai_kpi = rai_cached_stats())) {  // Rai: подписки
@@ -33,6 +41,12 @@ KPI = '''            if (tab_allowed("rai") && ($rai_kpi = rai_cached_stats())) 
             }
 '''
 NOTIF = '''                if (tab_allowed("rai") && ($rai_n = rai_cached_stats()) && $rai_n["expiring"]) $notif[] = ["rai", "⏳", $rai_n["expiring"], "подписок Rai кончаются"];
+'''
+NOTIF_RULES = '''                if (tab_allowed("rai_rules") && ($rai_v = rai_cached_stats()) && !empty($rai_v["violations_new"])) $notif[] = ["rai_rules", "🚫", $rai_v["violations_new"], "нарушений правил в Rai"];
+'''
+KPI_RULES = '''            if (tab_allowed("rai_rules") && ($rai_r = rai_cached_stats()) && !empty($rai_r["violations_new"])) {  // Rai: правила
+                $kpis[] = ["rai_rules", "🚫", $rai_r["violations_new"], "нарушений правил Rai", true];
+            }
 '''
 
 
@@ -72,7 +86,8 @@ def block(key=None):
                 f"if (!defined('RAI_ADMIN_KEY')) define('RAI_ADMIN_KEY', '{key}');\n\n") + code
     return (START + "\n" + code.rstrip() + "\n\n"
             "if ($tab === \"rai\") rai_admin_export();  // ?tab=rai&export=csv — файл вместо страницы\n"
-            "if ($_SERVER[\"REQUEST_METHOD\"] === \"POST\" && $tab === \"rai\") rai_admin_post();\n" + END + "\n\n")
+            "if ($_SERVER[\"REQUEST_METHOD\"] === \"POST\" && $tab === \"rai\") rai_admin_post();\n"
+            "if ($_SERVER[\"REQUEST_METHOD\"] === \"POST\" && $tab === \"rai_rules\") rai_rules_post();\n" + END + "\n\n")
 
 
 def patch(text, key=None):
@@ -86,10 +101,15 @@ def patch(text, key=None):
     else:
         text = insert_before(text, "/* POST ДЛЯ ОСТАЛЬНОГО */", block(key), START)
     text = insert_after(text, '"save_perms" => "perms.manage", "reset_perms" => "perms.manage",', PERMS, '"rai_order_check" =>')
+    text = insert_after(text, '"rai_plans_reset" => "settings.manage", "rai_platega" => "settings.manage",', PERMS_RULES, '"rai_ban" =>')
     text = insert_after(text, '"directors" => ["Директора школ"', TAB, '"rai"       => ["Rai')
+    text = insert_after(text, '"rai"       => ["Rai: подписки"', TAB_RULES, '"rai_rules" => ["Rai')
     text = insert_before(text, '<?php elseif ($tab === "directors"): ?>', RENDER, 'rai_admin_render(); ?>')
+    text = insert_before(text, '<?php elseif ($tab === "directors"): ?>', RENDER_RULES, 'rai_rules_render(); ?>')
     text = insert_after(text, 'if (can("projects.manage"))  $kpis[] = ["projects"', KPI, '$rai_kpi = rai_cached_stats()')
     text = insert_after(text, 'if ($my_unpaid_fines)                                 $notif[] = ["fines"', NOTIF, '$rai_n = rai_cached_stats()')
+    text = insert_after(text, '$rai_n = rai_cached_stats()', NOTIF_RULES, '$rai_v = rai_cached_stats()')
+    text = insert_after(text, '$kpis[] = ["rai", "💳"', KPI_RULES, '$rai_r = rai_cached_stats()')
     return text
 
 

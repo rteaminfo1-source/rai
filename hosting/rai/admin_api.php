@@ -1,7 +1,7 @@
 <?php
 /*
- * API для админ-панели (admin.php, вкладка «Rai»): статистика, поиск пользователя, выдача и снятие подписки,
- * тарифы и платежи. Принимает только подписанные запросы:
+ * API для админ-панели (admin.php, вкладки «Rai: подписки» и «Rai: правила»): статистика, поиск пользователя, выдача
+ * и снятие подписки, тарифы и платежи; нарушения правил, блокировка и разблокировка. Принимает только подписанные запросы:
  *   POST, тело JSON {"action": "...", "nonce": "...", ...}
  *   X-Rai-Time: unix-время, X-Rai-Signature: hex(HMAC-SHA256(время + "\n" + тело, ADMIN_API_KEY))
  * Запрос старше 5 минут или с уже использованным nonce отклоняется.
@@ -9,6 +9,7 @@
 require __DIR__ . '/config.php';
 require __DIR__ . '/plans.php';
 require __DIR__ . '/app.php';
+require __DIR__ . '/moderation.php';
 
 function admin_ready() { return ADMIN_API_KEY !== '' && strpos(ADMIN_API_KEY, 'ВСТАВЬТЕ') !== 0 && strlen(ADMIN_API_KEY) >= 32; }
 
@@ -102,7 +103,8 @@ switch ($action) {
             'plans' => plans(), 'platega' => platega_ready(), 'platega_source' => platega_conf()['source'], 'guest_limit' => guest_limit(),
             'revenue_days' => $revenue_days, 'neuro_days' => $neuro_days, 'expiring' => $expiring,
             'downloads' => (load_json('downloads.json', [])['total'] ?? []), 'app_version' => app_version(),
-            'pending' => count(array_filter($orders, function ($o) { return in_array($o['status'], ['new', 'pending'], true) && $o['created'] > time() - 3 * 86400; }))]);
+            'pending' => count(array_filter($orders, function ($o) { return in_array($o['status'], ['new', 'pending'], true) && $o['created'] > time() - 3 * 86400; })),
+            'violations_new' => count(array_filter(rai_violations(), function ($v) { return empty($v['seen']); }))]);
 
     case 'subs_all':  // для выгрузки в CSV
         $out = [];
@@ -188,6 +190,73 @@ switch ($action) {
         });
         sub_log('plans', '', '', 0, 'Тарифы изменены', $by);
         json_out(['ok' => true, 'saved' => $saved]);
+
+    // ---------------------------------------------------------------- правила: нарушения и блокировки
+    case 'violations':
+        $all = rai_violations();
+        $per_login = [];
+        $per_ip = [];
+        foreach ($all as $v) {
+            if (!empty($v['login'])) $per_login[$v['login']] = ($per_login[$v['login']] ?? 0) + 1;
+            $per_ip[$v['ip'] ?? ''] = ($per_ip[$v['ip'] ?? ''] ?? 0) + 1;
+        }
+        $filter = (string)($req['filter'] ?? '');
+        $list = array_reverse($all);
+        if ($filter === 'new') $list = array_values(array_filter($list, function ($v) { return empty($v['seen']); }));
+        $bans = rai_bans();
+        foreach ($list as &$v) {
+            $v['count'] = !empty($v['login']) ? ($per_login[$v['login']] ?? 1) : ($per_ip[$v['ip'] ?? ''] ?? 1);
+            $v['banned'] = (bool)rai_ban_of($v['login'] ?? null, empty($v['login']) ? ($v['ip'] ?? null) : null);
+        }
+        unset($v);
+        $by_cat = array_fill_keys(array_keys(RULE_LABELS), 0);
+        foreach ($all as $v) if (isset($by_cat[$v['category']])) $by_cat[$v['category']]++;
+        json_out(['ok' => true, 'items' => array_slice($list, 0, 300), 'total' => count($all),
+                  'new' => count(array_filter($all, function ($v) { return empty($v['seen']); })),
+                  'by_category' => $by_cat, 'labels' => RULE_LABELS, 'bans' => $bans, 'now' => time()]);
+
+    case 'violations_seen':
+        $ids = array_map('strval', (array)($req['ids'] ?? []));
+        $all_seen = !empty($req['all']);
+        update_json('violations.json', function (&$list) use ($ids, $all_seen) {
+            foreach ($list as &$v) if ($all_seen || in_array($v['id'], $ids, true)) $v['seen'] = true;
+        });
+        json_out(['ok' => true]);
+
+    case 'violations_delete':
+        $ids = array_map('strval', (array)($req['ids'] ?? []));
+        update_json('violations.json', function (&$list) use ($ids) {
+            $list = array_values(array_filter($list, function ($v) use ($ids) { return !in_array($v['id'], $ids, true); }));
+        });
+        json_out(['ok' => true]);
+
+    case 'ban':
+        $login = strtolower(trim((string)($req['login'] ?? '')));
+        $ip = trim((string)($req['ip'] ?? ''));
+        if ($login === '' && $ip === '') json_out(['ok' => false, 'error' => 'Укажите логин или IP-адрес.'], 400);
+        if ($login !== '' && !isset(users()[$login])) json_out(['ok' => false, 'error' => "Пользователь «{$login}» не найден."], 404);
+        if ($ip !== '' && !filter_var($ip, FILTER_VALIDATE_IP)) json_out(['ok' => false, 'error' => 'Неверный IP-адрес.'], 400);
+        $days = max(0, min(3650, (int)($req['days'] ?? 0)));
+        $ban = ['reason' => mb_substr(trim((string)($req['reason'] ?? '')), 0, 200) ?: 'нарушение правил Rai',
+                'until' => $days ? time() + $days * 86400 : 0, 'at' => time(), 'by' => $by];
+        update_json('bans.json', function (&$b) use ($login, $ip, $ban) {
+            $b += ['users' => [], 'ips' => []];
+            if ($login !== '') $b['users'][$login] = $ban;
+            if ($ip !== '') $b['ips'][$ip] = $ban;
+        }, ['users' => [], 'ips' => []]);
+        sub_log('ban', $login ?: $ip, '', $days, 'Блокировка: ' . $ban['reason'] . ($days ? " ({$days} дн.)" : ' (навсегда)'), $by);
+        json_out(['ok' => true, 'ban' => $ban]);
+
+    case 'unban':
+        $login = strtolower(trim((string)($req['login'] ?? '')));
+        $ip = trim((string)($req['ip'] ?? ''));
+        update_json('bans.json', function (&$b) use ($login, $ip) {
+            $b += ['users' => [], 'ips' => []];
+            if ($login !== '') unset($b['users'][$login]);
+            if ($ip !== '') unset($b['ips'][$ip]);
+        }, ['users' => [], 'ips' => []]);
+        sub_log('unban', $login ?: $ip, '', 0, 'Разблокировка', $by);
+        json_out(['ok' => true]);
 
     case 'plans_reset':
         save_json('plans.json', []);

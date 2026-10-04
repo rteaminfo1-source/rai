@@ -509,7 +509,33 @@
   .md a, figure.photo a { color: #ff7aa8; }
   .md li::marker { color: var(--pink); }
   .table-wrap { border-radius: 14px; background: rgba(0, 0, 0, .15); }
-  .md th, .md td { overflow-wrap: normal; word-break: normal; hyphens: auto; -webkit-hyphens: auto; }  /* без «Сложн/ость» на телефоне */
+  .md th, .md td { overflow-wrap: normal; word-break: normal; hyphens: auto; -webkit-hyphens: auto; }
+  .stop-note { margin: 0 auto 10px; max-width: 860px; padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.5;
+    background: rgba(255,61,129,.1); border: 1px solid rgba(255,61,129,.45); color: var(--ink, #f5f5f7); }
+  .stop-note a { color: #ff7aa8; }
+  .stop-note button { margin-left: 8px; padding: 6px 14px; border-radius: 999px; border: 0; cursor: pointer; font: inherit; font-weight: 600;
+    color: #fff; background: linear-gradient(120deg, #ff2d2d, #ff3d81 45%, #8b5cff); }
+  #input:disabled { opacity: .5; cursor: not-allowed; }
+  .legal-mini { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .sign-gate { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px;
+    background: radial-gradient(600px circle at 20% 10%, rgba(255,45,45,.22), transparent 60%), radial-gradient(600px circle at 90% 90%, rgba(139,92,255,.22), transparent 60%), rgba(7,7,11,.86);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .sign-gate[hidden] { display: none; }
+  .sign-card { width: min(440px, 100%); padding: 30px 26px; border-radius: 24px; text-align: center; background: rgba(13,13,20,.94);
+    border: 1px solid rgba(255,255,255,.12); box-shadow: 0 40px 120px -30px rgba(255,45,45,.5); }
+  .sign-logo { width: 58px; height: 58px; margin: 0 auto 16px; border-radius: 17px; display: grid; place-items: center; font: 800 28px/1 var(--font-display, sans-serif);
+    color: #fff; background: linear-gradient(120deg, #ff2d2d, #ff3d81 45%, #8b5cff); box-shadow: 0 10px 34px -8px rgba(255,45,45,.65); }
+  .sign-card h2 { margin: 0 0 10px; font: 800 22px/1.2 var(--font-display, sans-serif); letter-spacing: -.02em; }
+  .sign-card p { margin: 0 0 18px; color: var(--muted); font-size: 15px; line-height: 1.55; }
+  .sign-actions { display: grid; gap: 10px; margin-bottom: 16px; }
+  .sign-actions a, .sign-actions button { display: block; padding: 13px 18px; border-radius: 999px; font: 600 15px/1.2 inherit; text-decoration: none; cursor: pointer; border: 0; }
+  .sign-main { color: #fff; background: linear-gradient(120deg, #ff2d2d, #ff3d81 45%, #8b5cff); box-shadow: 0 10px 34px -10px rgba(255,45,45,.65); }
+  .sign-alt { color: var(--ink, #f5f5f7); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.16) !important; }
+  .sign-google { color: #1f1f1f; background: #fff; }
+  .sign-google b { color: #4285f4; margin-right: 6px; }
+  .sign-card .sign-legal { margin: 0; font-size: 12px; }
+  .sign-legal a { color: #ff7aa8; }
+  .legal-mini a { color: inherit; }  /* без «Сложн/ость» на телефоне */
   .md th { background: rgba(255, 255, 255, .05); color: #ff7aa8; border-bottom: 2px solid var(--pink); }
   .codeblock { border-radius: 14px; background: rgba(0, 0, 0, .45); }
   .codehead { background: rgba(255, 255, 255, .05); }
@@ -714,7 +740,10 @@
     <div class="side-foot"><div id="accountBox"></div><a class="back-link" id="studioLink" href="https://aistudio.rteam.info/">AI Studio — сайты по описанию →</a>
       <a class="app-link" id="appLink" href="https://rai.rteam.info/" target="_blank" rel="noopener">💻 Приложение для Windows, macOS и Linux</a>
       <script>if (window.RaiApp && window.RaiApp.isApp) document.getElementById("appLink").remove();  // уже в приложении</script>
-      <span id="storeNote">Чаты и проекты Code хранятся в этом браузере.</span></div>
+      <span id="storeNote">Чаты и проекты Code хранятся в этом браузере.</span>
+      <span class="legal-mini"><a href="https://rai.rteam.info/rules.php" target="_blank" rel="noopener">Правила</a> ·
+        <a href="https://rai.rteam.info/terms.php" target="_blank" rel="noopener">Соглашение</a> ·
+        <a href="https://rai.rteam.info/privacy.php" target="_blank" rel="noopener">Конфиденциальность</a></span></div>
   </aside>
   <div id="backdrop"></div>
 
@@ -744,7 +773,19 @@
 
     <div id="log" aria-live="polite"></div>
 
+    <div id="signGate" class="sign-gate" hidden role="dialog" aria-modal="true" aria-labelledby="signGateTitle">
+      <div class="sign-card">
+        <div class="sign-logo">R</div>
+        <h2 id="signGateTitle">Войдите, чтобы пользоваться Rai</h2>
+        <p id="signGateText">Чат, нейросеть, презентации и AI Studio доступны после входа. Регистрация бесплатная и занимает минуту.</p>
+        <div class="sign-actions" id="signGateActions"></div>
+        <p class="sign-legal">Регистрируясь, вы принимаете <a href="https://rai.rteam.info/terms.php" target="_blank" rel="noopener">Пользовательское соглашение</a>,
+          <a href="https://rai.rteam.info/rules.php" target="_blank" rel="noopener">Правила</a> и
+          <a href="https://rai.rteam.info/privacy.php" target="_blank" rel="noopener">Политику конфиденциальности</a>.</p>
+      </div>
+    </div>
     <div class="composer" id="composer">
+      <p id="stopNote" class="stop-note" hidden role="status"></p>
       <p id="listening" hidden></p>
       <div id="recBar" class="rec-bar" hidden role="status"><span class="dot"></span>Идёт запись экрана <b id="recTime">00:00</b>
         <button class="btn red" id="recStop" type="button">Остановить</button></div>
@@ -823,7 +864,7 @@
   if (params.get("py")) CFG.pyBase = params.get("py");
 
   const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
-                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "brain.py", "knowledge.json", "glossary.json"];
+                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "moderation.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -1646,6 +1687,7 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     if (!chat.messages.length) renderWelcome();
     for (const m of chat.messages) renderMessage(m);
     log.scrollTop = chat.messages.length ? log.scrollHeight : 0;  // новый чат — с приветствия, а не с конца подсказок
+    updateComposer();
   }
   function renderAll() { renderSidebar(); renderVersions(); renderChat(); }
 
@@ -1942,6 +1984,13 @@ def rai_context(query, force=False):
     sources += [x for x in found["sources"] if x["url"] not in {y["url"] for y in sources}]
     return json.dumps({"text": text[:3200], "sources": sources[:6]}, ensure_ascii=False)
 
+def rai_moderate(text):
+    """Правила Rai: нарушение ({"category", "label", "word", "answer"}) или null. Человеку в беде — не нарушение."""
+    import moderation, talk
+    if talk.is_crisis(text or ""):
+        return "null"
+    return json.dumps(moderation.check(text or ""), ensure_ascii=False)
+
 def rai_code(action, code, lang, prompt):
     import codeai
     try:
@@ -1959,6 +2008,7 @@ def rai_code(action, code, lang, prompt):
     const pyCode = pyodide.globals.get("rai_code");
     const pySlides = pyodide.globals.get("rai_slides");
     const pyContext = pyodide.globals.get("rai_context");
+    const pyModerate = pyodide.globals.get("rai_moderate");
     // посредник нашёлся позже или страница оказалась в окне просмотра — сообщаем Python на ходу
     netWatchers.push((attrs) => {
       const lines = Object.entries(attrs).map(([k, v]) => `net.${k} = ${typeof v === "boolean" ? (v ? "True" : "False") : JSON.stringify(v)}`);
@@ -1970,7 +2020,8 @@ def rai_code(action, code, lang, prompt):
       async ask(v, message, sessionId, history) { return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history))); },
       async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); },
       async slides(action, args) { return JSON.parse(pySlides(action, JSON.stringify(args || {}))); },
-      async context(query, force) { return JSON.parse(pyContext(query, !!force)); }
+      async context(query, force) { return JSON.parse(pyContext(query, !!force)); },
+      async moderate(text) { return JSON.parse(pyModerate(text || "")); }
     };
   }
 
@@ -1998,6 +2049,7 @@ def rai_code(action, code, lang, prompt):
     const screen = window.RaiScreen;
     const hasShots = !opts.regen && !!(screen && screen.items().length);
     if ((!text && !hasShots) || busy) return;
+    if (blockedReason(current())) { updateComposer(); return; }  // диалог остановлен или аккаунт заблокирован
     if (screen && screen.recording()) { toast("Сначала остановите запись экрана"); return; }
     if (recording && rec) rec.stop();
     const shots = hasShots ? screen.take() : [];
@@ -2038,6 +2090,9 @@ def rai_code(action, code, lang, prompt):
     let reply;
     try {
       const engine = await enginePromise;
+      // Правила Rai: мат, 18+, наркотики, насилие, взлом, экстремизм — до любого ответа (и до нейросети)
+      const broken = engine.moderate ? await engine.moderate(text).catch(() => null) : null;
+      if (broken) throw {violation: broken};
       await new Promise((r) => setTimeout(r, 40));  // успеть показать «печатает…»
       const t0 = performance.now();
       let message = text, ocr = "", seen = [];
@@ -2139,13 +2194,19 @@ def rai_code(action, code, lang, prompt):
         const ms = Math.max(1, Math.round(performance.now() - t0));
         reply = {role: "rai", text: data.answer || "Результат не получен.", attachments: data.attachments || [],
                  meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс"};
+        if (data.violation) reply.violation = data.violation;
       }
     } catch (e) {
+      if (e && e.violation) {
+        reply = {role: "rai", text: e.violation.answer, meta: "Rai · правила", violation: e.violation};
+      } else {
       const ocrFail = e && String(e.message).startsWith("ocr:");
       reply = {role: "rai", text: ocrFail
         ? "Не получилось распознать текст на картинке: " + e.message.slice(4) + ". Проверьте интернет (при первом запуске скачивается распознавание ~8 МБ) и попробуйте снова."
         : "Не удалось получить ответ. Попробуйте ещё раз.", meta: "ошибка"};
+      }
     }
+    if (reply.violation) stopDialog(chat, reply.violation, text);
     pending.remove();
     chat.messages.push(reply);
     chat.updated = Date.now();
@@ -2154,12 +2215,83 @@ def rai_code(action, code, lang, prompt):
     busy = false;
     sendBtn.disabled = false;
     log.scrollTop = log.scrollHeight;
-    input.focus();
+    updateComposer();
+    if (!blockedReason(chat)) input.focus();
+  }
+
+  // ---------------------------------------------------------------- правила Rai: остановка диалога и блокировка
+  // Нарушение правил (rules.php) — этот чат больше не продолжается; на сайте об этом узнаёт админ-панель (report.php),
+  // где пользователя можно заблокировать. Заблокированному (me.php → banned) Rai не отвечает совсем.
+  const RULES_URL = "https://rai.rteam.info/rules.php";
+  // Обязательная регистрация: на сайте (me.php ответил, а входа нет) и в приложении без интернета, если вход ещё не делали
+  function signInNeeded() {
+    if (account) return !account.user && !!account.login;
+    const app = window.RaiApp && window.RaiApp.isApp;
+    if (app && !/^https?:$/.test(location.protocol)) {
+      try { return !localStorage.getItem("rai_signed_in"); } catch (e) { return false; }
+    }
+    return false;
+  }
+  function renderSignGate() {
+    const gate = $("signGate");
+    if (!gate) return;
+    const need = signInNeeded();
+    gate.hidden = !need;
+    document.body.classList.toggle("need-sign", need);
+    if (!need) return;
+    const box = $("signGateActions");
+    if (account && account.login) {
+      box.innerHTML = `<a class="sign-main" href="${esc(account.login)}">Войти</a>` +
+        `<a class="sign-alt" href="${esc(account.register)}">Создать аккаунт</a>` +
+        (account.google ? `<a class="sign-google" href="${esc(account.google)}"><b>G</b> Войти через Google</a>` : "");
+    } else {
+      $("signGateText").textContent = "Чтобы пользоваться Rai, войдите в аккаунт. Для первого входа нужен интернет — подключитесь и откройте приложение снова.";
+      box.innerHTML = `<button class="sign-main" type="button" id="signRetry">Проверить снова</button>`;
+      $("signRetry").addEventListener("click", () => location.reload());
+    }
+  }
+  function blockedReason(chat) {
+    if (signInNeeded()) return "signin";
+    if (account && account.banned) return "banned";
+    return chat && chat.stopped ? "stopped" : "";
+  }
+  function stopDialog(chat, v, text) {
+    chat.stopped = {category: v.category, label: v.label, at: Date.now()};
+    if (chat.messages.length <= 2) {          // не показывать нарушение в названии чата
+      chat.title = "⛔ Диалог остановлен";
+      if (currentId === chat.id) $("chatTitle").textContent = chat.title;
+    }
+    save();
+    if (!/^https?:$/.test(location.protocol) || window.RAI_SANDBOX) return;
+    fetch("report.php", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({category: v.category, text: String(text || "").slice(0, 500), chat: chat.id, version: chat.version})})
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d && d.banned) { account = Object.assign(account || {}, {banned: d.banned}); updateComposer(); } })
+      .catch(() => { /* нет сайта рядом (приложение, просмотр) — диалог всё равно остановлен */ });
+  }
+  function updateComposer() {
+    const why = blockedReason(current());
+    const note = $("stopNote");
+    if (!note) return;
+    renderSignGate();
+    note.hidden = !why || why === "signin";
+    input.disabled = !!why;
+    if (why === "banned") {
+      const b = account.banned || {};
+      note.innerHTML = `<b>⛔ Доступ к Rai заблокирован</b> за нарушение <a href="${RULES_URL}" target="_blank" rel="noopener">правил</a>` +
+        (b.reason ? `: ${esc(b.reason)}` : "") + (b.until ? ` — до ${esc(new Date(b.until * 1000).toLocaleDateString("ru-RU"))}` : "") + ".";
+    } else if (why === "stopped") {
+      note.innerHTML = `<b>⛔ Диалог остановлен</b> — нарушение <a href="${RULES_URL}" target="_blank" rel="noopener">правил</a>` +
+        ` (${esc(current().stopped.label || "")}). <button type="button" id="stopNew">Новый чат</button>`;
+      $("stopNew").addEventListener("click", () => $("newChat").click());
+    }
+    if (why) sendBtn.disabled = true;
+    else if (!busy) sendBtn.disabled = false;
   }
 
   // ---------------------------------------------------------------- нейросеть в чате
   // Ответ «из интернета» (web) нейросеть переписывает связным текстом со ссылками, остальное — точные инструменты Rai
-  const TOOL_INTENTS = new Set(["crisis", "tool", "game", "tools_list", "weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory"]);
+  const TOOL_INTENTS = new Set(["violation", "crisis", "tool", "game", "tools_list", "weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory"]);
   // Имя и личные факты при включённой нейросети запоминает она сама — навсегда и для всех чатов
   const NEURO_MEMORY_INTENTS = new Set(["set_name", "get_name", "memory"]);
   function isToolAnswer(data) {
@@ -2734,6 +2866,7 @@ def rai_code(action, code, lang, prompt):
     const box = $("accountBox");
     if (!account) { box.innerHTML = ""; return; }
     const u = account.user;
+    try { if (u) localStorage.setItem("rai_signed_in", u.login); else localStorage.removeItem("rai_signed_in"); } catch (e) { /* без памяти браузера */ }
     if (u) {
       const initial = esc((u.name || u.login || "?").trim().charAt(0).toUpperCase());
       box.className = "account";
@@ -2759,6 +2892,7 @@ def rai_code(action, code, lang, prompt):
       account = await r.json();
     } catch (e) { return; }
     renderAccount();
+    updateComposer();
     const q = new URLSearchParams(location.search);
     if (q.get("login") === "ok" && account.user) toast("Вы вошли: " + (account.user.name || account.user.login));
     if (q.get("login_error")) toast("Не получилось войти — попробуйте ещё раз");

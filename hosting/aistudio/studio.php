@@ -113,7 +113,8 @@ curl "<?= h(STUDIO_URL) ?>/api.php?a=site" -H "Authorization: Bearer ВАШ_КЛ
     <iframe src="<?= h($chat) ?>" title="Чат Rai" allow="microphone; clipboard-read; clipboard-write; fullscreen" loading="lazy"></iframe>
   </aside>
 </main>
-<footer class="foot"><span>© <?= date('Y') ?> Rteam</span><a href="<?= h(RAI_URL) ?>">rai.rteam.info</a><a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a></footer>
+<footer class="foot"><span>© <?= date('Y') ?> Rteam</span><a href="<?= h(RAI_URL) ?>">rai.rteam.info</a><a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
+  <a href="<?= h(rtrim(RAI_URL, '/')) ?>/rules.php">Правила</a><a href="<?= h(rtrim(RAI_URL, '/')) ?>/terms.php">Соглашение</a><a href="<?= h(rtrim(RAI_URL, '/')) ?>/privacy.php">Конфиденциальность</a></footer>
 <?php include __DIR__ . '/assets/script.php'; ?>
 </body>
 </html>

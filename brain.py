@@ -23,6 +23,7 @@ import creative
 import net
 import nlp
 import memes
+import moderation
 import online
 import proglangs
 import skills
@@ -253,6 +254,15 @@ class Brain:
         link = LINK_MARK in message
         if len(message) > (MAX_SCREEN_CHARS if screen else MAX_LINK_CHARS if link else MAX_MESSAGE_CHARS):
             raise RaiError(f"Запрос слишком длинный (больше {MAX_MESSAGE_CHARS} символов).", 413)
+
+        # Правила Rai (rules.php): мат, 18+, наркотики, насилие, взлом, экстремизм — диалог останавливается.
+        # Проверяется только то, что написал сам человек (не текст со скриншота и не данные по ссылке).
+        typed = message.split(SCREEN_MARK)[0].split(LINK_MARK)[0]
+        if not talk.is_crisis(typed):
+            broken = moderation.check(typed)
+            if broken:
+                return {"answer": broken["answer"], "version": version.id, "version_name": version.name, "intent": "violation",
+                        "violation": {k: broken[k] for k in ("category", "label", "word")}, "attachments": []}
 
         session = self.sessions.get(_clean_session_id(session_id)) if version.context else {}
         if version.context and not session.get("name"):

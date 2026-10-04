@@ -1,6 +1,6 @@
 <?php
 /*
- * Вкладка «Rai: подписки» админ-панели rteam.info (встраивается прямо в admin.php — отдельный файл не нужен).
+ * Вкладки «Rai: подписки» и «Rai: правила» админ-панели rteam.info (встраиваются прямо в admin.php — отдельный файл не нужен).
  * Всё остальное — на rai.rteam.info (admin_api.php).
  *   — статистика: пользователи, подписчики, доход, нейросеть сегодня;
  *   — выдать или снять подписку по логину пользователя Rai;
@@ -62,7 +62,8 @@ function rai_cached_stats() {
     if ($cache && time() - $cache['t'] < 60) return $cache['data'];
     $r = rai_api('stats', [], 4);
     $data = !empty($r['ok']) ? ['subscribers' => $r['subscribers'], 'revenue_month' => $r['revenue_month'], 'expiring' => $r['expiring'] ?? 0,
-                                 'neuro_today' => $r['neuro_today'], 'pending' => $r['pending'] ?? 0] : null;
+                                 'neuro_today' => $r['neuro_today'], 'pending' => $r['pending'] ?? 0,
+                                 'violations_new' => $r['violations_new'] ?? 0] : null;
     $_SESSION['rai_stats_cache'] = ['t' => time(), 'data' => $data];
     return $data;
 }
@@ -489,5 +490,220 @@ function rai_admin_render() {
       </ol>
     </div>
     <?php endif; ?>
+    <?php
+}
+
+// ======================================================================= вкладка «Rai: правила»
+// Нарушения правил в чате Rai (мат, 18+, наркотики, насилие, взлом, экстремизм): Rai останавливает диалог и сообщает сюда.
+// Здесь их видно с текстом сообщения; пользователя (или гостя по IP) можно заблокировать на время или навсегда.
+
+function rai_rules_back($extra = '') {
+    header('Location: admin.php?tab=rai_rules' . $extra);
+    exit;
+}
+
+/** Адрес сайта Rai (для ссылок на документы) — из адреса admin_api.php. */
+function rai_site_url() {
+    return preg_replace('~/admin_api\.php$~', '', rai_conf()['url']);
+}
+
+/** Формы вкладки «Rai: правила» (POST на ?tab=rai_rules). */
+function rai_rules_post() {
+    global $user;
+    $action = (string)($_POST['action'] ?? '');
+    $back = !empty($_POST['f']) ? '&f=' . rawurlencode((string)$_POST['f']) : '';
+    if ($action === 'rai_seen') {
+        $r = rai_api('violations_seen', !empty($_POST['all']) ? ['all' => true] : ['ids' => [(string)($_POST['id'] ?? '')]]);
+        unset($_SESSION['rai_stats_cache']);
+        if (empty($r['ok'])) flash('Не получилось: ' . ($r['error'] ?? '?'), 'error');
+        rai_rules_back($back);
+    }
+    if ($action === 'rai_vdel') {
+        $r = rai_api('violations_delete', ['ids' => [(string)($_POST['id'] ?? '')]]);
+        unset($_SESSION['rai_stats_cache']);
+        flash(!empty($r['ok']) ? 'Запись удалена.' : 'Не получилось: ' . ($r['error'] ?? '?'), !empty($r['ok']) ? 'success' : 'error');
+        rai_rules_back($back);
+    }
+    if ($action === 'rai_ban') {
+        $login = trim((string)($_POST['login'] ?? ''));
+        $ip = trim((string)($_POST['ip'] ?? ''));
+        $days = (int)($_POST['days'] ?? 0);
+        $reason = trim((string)($_POST['reason'] ?? '')) ?: 'нарушение правил Rai';
+        $r = rai_api('ban', ['login' => $login, 'ip' => $login === '' ? $ip : '', 'days' => $days, 'reason' => $reason]);
+        if (!empty($r['ok'])) {
+            if (!empty($_POST['id'])) rai_api('violations_seen', ['ids' => [(string)$_POST['id']]]);
+            unset($_SESSION['rai_stats_cache']);
+            rai_log("$user заблокировал в Rai " . ($login ?: "IP $ip") . ($days ? " на $days дн." : ' навсегда') . ": $reason");
+            flash('🚫 Заблокирован: ' . ($login ?: "IP $ip") . ($days ? " на $days дн." : ' навсегда'), 'success');
+        } else {
+            flash('Не получилось заблокировать: ' . ($r['error'] ?? '?'), 'error');
+        }
+        rai_rules_back($back);
+    }
+    if ($action === 'rai_unban') {
+        $login = trim((string)($_POST['login'] ?? ''));
+        $ip = trim((string)($_POST['ip'] ?? ''));
+        $r = rai_api('unban', ['login' => $login, 'ip' => $ip]);
+        if (!empty($r['ok'])) rai_log("$user разблокировал в Rai " . ($login ?: "IP $ip"));
+        flash(!empty($r['ok']) ? '✅ Разблокирован: ' . ($login ?: "IP $ip") : 'Не получилось: ' . ($r['error'] ?? '?'), !empty($r['ok']) ? 'success' : 'error');
+        rai_rules_back($back);
+    }
+}
+
+function rai_rules_render() {
+    $c = rai_conf();
+    $filter = ($_GET['f'] ?? '') === 'new' ? 'new' : '';
+    $r = $c['ready'] ? rai_api('violations', ['filter' => $filter]) : ['ok' => false, 'error' => 'Сначала подключите Rai во вкладке «Rai: подписки».'];
+    $ok = !empty($r['ok']);
+    $site = rai_site_url();
+    $labels = $ok ? $r['labels'] : [];
+    $icons = ['мат' => '🤬', '18+' => '🔞', 'наркотики' => '💊', 'насилие' => '💣', 'взлом' => '🕵️', 'экстремизм' => '🚫'];
+    $durations = [1 => '1 день', 7 => '7 дней', 30 => '30 дней', 0 => 'навсегда'];
+    $bans = $ok ? $r['bans'] : ['users' => [], 'ips' => []];
+    $ban_count = count($bans['users']) + count($bans['ips']);
+    ?>
+    <style>
+      .rr-hero { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 18px 20px; border-radius: 16px; border: 1px solid var(--line);
+        background: radial-gradient(120% 140% at 100% 0%, rgba(255, 61, 129, .18), transparent 55%), radial-gradient(100% 120% at 0% 100%, rgba(139, 92, 255, .14), transparent 60%), var(--panel); }
+      .rr-logo { width: 52px; height: 52px; border-radius: 15px; display: grid; place-items: center; font-size: 26px;
+        background: linear-gradient(135deg, #ff2d2d, #ff3d81 55%, #8b5cff); box-shadow: 0 10px 30px -10px rgba(255, 45, 45, .7); }
+      .rr-hero h2 { margin: 0; } .rr-hero p { margin: 4px 0 0; }
+      .rr-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+      .rr-kpi { padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); }
+      .rr-kpi b { display: block; font-size: 26px; line-height: 1.1; } .rr-kpi span { color: var(--muted); font-size: 13px; }
+      .rr-kpi.hot { border-color: rgba(255, 61, 129, .6); background: rgba(255, 61, 129, .1); }
+      .rr-cats { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+      .rr-cats span { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; }
+      .rr-msg { max-width: 420px; white-space: pre-wrap; word-break: break-word; font-size: 13px; background: rgba(0,0,0,.25); padding: 8px 10px; border-radius: 10px; }
+      tr.rr-new td { background: rgba(255, 61, 129, .07); }
+      .rr-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+      .rr-actions form { margin: 0; display: inline-flex; gap: 6px; align-items: center; }
+      .rr-actions select { width: auto; margin: 0; padding: 6px 8px; }
+      .rr-docs { display: flex; gap: 8px; flex-wrap: wrap; }
+      .rr-filter { display: flex; gap: 6px; margin: 0 0 10px; }
+      .rr-filter a { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); text-decoration: none; color: inherit; font-size: 13px; }
+      .rr-filter a.on { background: linear-gradient(120deg, #ff2d2d, #ff3d81 45%, #8b5cff); border-color: transparent; color: #fff; }
+    </style>
+
+    <div class="rr-hero">
+      <div class="rr-logo">🚫</div>
+      <div style="flex:1; min-width:220px;">
+        <h2>Rai — правила</h2>
+        <p class="muted">Мат, 18+, наркотики, насилие, взлом, экстремизм: Rai останавливает такой диалог и сообщает сюда. Здесь можно заблокировать нарушителя.</p>
+      </div>
+      <div class="rr-docs">
+        <a class="btn" href="<?= rai_h($site) ?>/rules.php" target="_blank" rel="noopener">📜 Правила</a>
+        <a class="btn" href="<?= rai_h($site) ?>/terms.php" target="_blank" rel="noopener">📄 Соглашение</a>
+        <a class="btn" href="<?= rai_h($site) ?>/privacy.php" target="_blank" rel="noopener">🔒 Конфиденциальность</a>
+      </div>
+    </div>
+
+    <?php if (!$ok): ?>
+      <div class="card" style="margin-top:14px;"><p class="meta">⚠️ <?= rai_h($r['error'] ?? 'Нет связи с rai.rteam.info') ?></p></div>
+    <?php return; endif; ?>
+
+    <div class="rr-kpis">
+      <div class="rr-kpi <?= $r['new'] ? 'hot' : '' ?>"><b><?= (int)$r['new'] ?></b><span>новых нарушений</span></div>
+      <div class="rr-kpi"><b><?= (int)$r['total'] ?></b><span>нарушений всего</span></div>
+      <div class="rr-kpi"><b><?= $ban_count ?></b><span>заблокировано</span></div>
+    </div>
+    <div class="rr-cats">
+      <?php foreach ($r['by_category'] as $cat => $n): ?><span><?= $icons[$cat] ?? '•' ?> <?= rai_h($labels[$cat] ?? $cat) ?>: <b><?= (int)$n ?></b></span><?php endforeach; ?>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <h3 style="margin:0;">🔔 Нарушения</h3>
+        <?php if ($r['new']): ?>
+          <form method="POST" action="?tab=rai_rules"><input type="hidden" name="action" value="rai_seen"><input type="hidden" name="all" value="1">
+            <input type="hidden" name="f" value="<?= rai_h($filter) ?>"><button class="btn" type="submit">✓ Отметить все просмотренными</button></form>
+        <?php endif; ?>
+      </div>
+      <div class="rr-filter" style="margin-top:10px;">
+        <a href="?tab=rai_rules" class="<?= $filter === '' ? 'on' : '' ?>">Все</a>
+        <a href="?tab=rai_rules&f=new" class="<?= $filter === 'new' ? 'on' : '' ?>">Новые (<?= (int)$r['new'] ?>)</a>
+      </div>
+      <?php if (!$r['items']): ?>
+        <p class="meta"><?= $filter ? 'Новых нарушений нет. 🎉' : 'Нарушений пока не было.' ?></p>
+      <?php else: ?>
+      <div class="table-wrap" style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Когда</th><th>Кто</th><th>Нарушение</th><th>Сообщение</th><th>Действия</th></tr></thead>
+        <tbody>
+        <?php foreach ($r['items'] as $v): $who = $v['login'] ?? ''; ?>
+          <tr class="<?= empty($v['seen']) ? 'rr-new' : '' ?>">
+            <td style="white-space:nowrap;"><?= date('d.m.Y H:i', (int)$v['time']) ?><?= empty($v['seen']) ? '<br><span class="badge badge-warn">новое</span>' : '' ?></td>
+            <td><?php if ($who): ?><b><?= rai_h($v['name'] ?? $who) ?></b><br><span class="muted">@<?= rai_h($who) ?></span><?php else: ?><b>Гость</b><?php endif; ?>
+              <br><span class="muted" style="font-size:12px;">IP <?= rai_h($v['ip'] ?? '') ?></span>
+              <?php if (($v['count'] ?? 1) > 1): ?><br><span class="badge badge-dec"><?= (int)$v['count'] ?> нарушений</span><?php endif; ?></td>
+            <td><?= $icons[$v['category']] ?? '•' ?> <?= rai_h($labels[$v['category']] ?? $v['category']) ?></td>
+            <td><div class="rr-msg"><?= rai_h($v['text'] ?? '') ?></div></td>
+            <td><div class="rr-actions">
+              <?php if (!empty($v['banned'])): ?>
+                <span class="badge badge-dec">🚫 заблокирован</span>
+                <form method="POST" action="?tab=rai_rules"><input type="hidden" name="action" value="rai_unban">
+                  <input type="hidden" name="login" value="<?= rai_h($who) ?>"><input type="hidden" name="ip" value="<?= $who ? '' : rai_h($v['ip'] ?? '') ?>">
+                  <input type="hidden" name="f" value="<?= rai_h($filter) ?>"><button class="btn" type="submit">Разбанить</button></form>
+              <?php else: ?>
+                <form method="POST" action="?tab=rai_rules"><input type="hidden" name="action" value="rai_ban">
+                  <input type="hidden" name="login" value="<?= rai_h($who) ?>"><input type="hidden" name="ip" value="<?= rai_h($v['ip'] ?? '') ?>">
+                  <input type="hidden" name="id" value="<?= rai_h($v['id']) ?>"><input type="hidden" name="f" value="<?= rai_h($filter) ?>">
+                  <input type="hidden" name="reason" value="<?= rai_h($labels[$v['category']] ?? 'нарушение правил') ?>">
+                  <select name="days"><?php foreach ($durations as $d => $l): ?><option value="<?= $d ?>"<?= $d === 7 ? ' selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select>
+                  <button class="btn primary" type="submit">🚫 Забанить</button></form>
+              <?php endif; ?>
+              <?php if (empty($v['seen'])): ?>
+                <form method="POST" action="?tab=rai_rules"><input type="hidden" name="action" value="rai_seen"><input type="hidden" name="id" value="<?= rai_h($v['id']) ?>">
+                  <input type="hidden" name="f" value="<?= rai_h($filter) ?>"><button class="btn" type="submit" title="Отметить просмотренным">✓</button></form>
+              <?php endif; ?>
+              <form method="POST" action="?tab=rai_rules" onsubmit="return confirm('Удалить запись?')"><input type="hidden" name="action" value="rai_vdel">
+                <input type="hidden" name="id" value="<?= rai_h($v['id']) ?>"><input type="hidden" name="f" value="<?= rai_h($filter) ?>"><button class="btn" type="submit" title="Удалить запись">🗑</button></form>
+            </div></td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+      </div>
+      <?php endif; ?>
+    </div>
+
+    <div class="rai-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px;">
+      <div class="card" style="margin-top:14px;">
+        <h3>🚫 Заблокированные (<?= $ban_count ?>)</h3>
+        <?php if (!$ban_count): ?><p class="meta">Никто не заблокирован.</p><?php else: ?>
+        <table>
+          <thead><tr><th>Кто</th><th>Причина</th><th>До</th><th></th></tr></thead>
+          <tbody>
+          <?php foreach (['users' => 'login', 'ips' => 'ip'] as $kind => $field): foreach ($bans[$kind] as $key => $b): ?>
+            <tr>
+              <td><?= $kind === 'users' ? '@' . rai_h($key) : 'IP ' . rai_h($key) ?><br><span class="muted" style="font-size:12px;"><?= date('d.m.Y', (int)($b['at'] ?? 0)) ?> · <?= rai_h($b['by'] ?? '') ?></span></td>
+              <td><?= rai_h($b['reason'] ?? '') ?></td>
+              <td><?= !empty($b['until']) ? date('d.m.Y', (int)$b['until']) : 'навсегда' ?></td>
+              <td><form method="POST" action="?tab=rai_rules" style="margin:0;"><input type="hidden" name="action" value="rai_unban">
+                <input type="hidden" name="<?= $field ?>" value="<?= rai_h($key) ?>"><button class="btn" type="submit">Разбанить</button></form></td>
+            </tr>
+          <?php endforeach; endforeach; ?>
+          </tbody>
+        </table>
+        <?php endif; ?>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <h3>✋ Заблокировать вручную</h3>
+        <p class="meta">По логину Rai или, для гостя, по IP-адресу.</p>
+        <form method="POST" action="?tab=rai_rules">
+          <input type="hidden" name="action" value="rai_ban">
+          <label>Логин пользователя Rai</label>
+          <input type="text" name="login" placeholder="например: anya" autocomplete="off">
+          <label>или IP-адрес</label>
+          <input type="text" name="ip" placeholder="например: 203.0.113.7" autocomplete="off">
+          <label>Срок</label>
+          <select name="days"><?php foreach ($durations as $d => $l): ?><option value="<?= $d ?>"<?= $d === 7 ? ' selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select>
+          <label>Причина (видит пользователь)</label>
+          <input type="text" name="reason" maxlength="200" placeholder="нарушение правил Rai">
+          <button class="btn primary" type="submit" style="margin-top:10px;">🚫 Заблокировать</button>
+        </form>
+      </div>
+    </div>
     <?php
 }

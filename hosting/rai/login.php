@@ -17,6 +17,7 @@ $errors = [
     'google' => 'Google не подтвердил вход. Попробуйте ещё раз.', 'google_cancel' => 'Вход через Google отменён.',
     'google_off' => 'Вход через Google ещё не настроен: впишите секрет в config.php на хостинге.',
     'deleted' => 'Аккаунт удалён.', 'sso' => 'Сначала войдите в аккаунт Rai.',
+    'banned' => 'Аккаунт заблокирован за нарушение правил Rai. Если это ошибка — напишите в поддержку.',
 ];
 $error = $errors[$_GET['error'] ?? ''] ?? null;
 $sso = strpos($next, 'sso.php') === 0;
@@ -55,6 +56,8 @@ page_head($tab === 'register' ? 'Регистрация — Rai' : 'Вход —
         <label class="field">Почта (необязательно)<input name="email" type="email" autocomplete="email"></label>
         <label class="field">Пароль (от 8 символов)<input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
         <button class="btn" type="submit">Создать аккаунт</button>
+        <p class="muted small">Регистрируясь, вы принимаете <a href="terms.php">Пользовательское соглашение</a>,
+          <a href="rules.php">Правила</a> и <a href="privacy.php">Политику конфиденциальности</a>.</p>
       </form>
       <p class="muted small">Уже есть аккаунт? <a href="?tab=login">Войдите</a>.</p>
     <?php endif; ?>

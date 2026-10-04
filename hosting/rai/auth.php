@@ -1,6 +1,7 @@
 <?php
 /* Обработчик форм: регистрация, вход, выход, изменение профиля и пароля, удаление аккаунта. */
 require __DIR__ . '/config.php';
+require __DIR__ . '/moderation.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrf_ok()) redirect('login.php?error=csrf');
 $action = $_POST['action'] ?? '';
@@ -47,6 +48,7 @@ if ($action === 'login') {
     if (!$user || empty($user['password']) || !password_verify($password, $user['password'])) {
         redirect('login.php?error=' . ($user && empty($user['password']) ? 'google_only' : 'login'));
     }
+    if (rai_ban_of($user['login'], null)) redirect('login.php?error=banned');  // заблокирован за нарушение правил
     if (password_needs_rehash($user['password'], PASSWORD_DEFAULT)) {
         update_json('users.json', function (&$users) use ($user, $password) {
             $users[$user['login']]['password'] = password_hash($password, PASSWORD_DEFAULT);

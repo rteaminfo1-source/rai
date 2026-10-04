@@ -56,6 +56,7 @@ $error = $errors[$_GET['error'] ?? ''] ?? null;
     <p class="muted" style="margin:0;font-size:13px">Можно войти и через Google — на странице входа Rai.</p>
   </section>
 </main>
-<footer class="foot"><span>© <?= date('Y') ?> Rteam</span><a href="<?= h(RAI_URL) ?>">rai.rteam.info</a><a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a></footer>
+<footer class="foot"><span>© <?= date('Y') ?> Rteam</span><a href="<?= h(RAI_URL) ?>">rai.rteam.info</a><a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
+  <a href="<?= h(rtrim(RAI_URL, '/')) ?>/rules.php">Правила</a><a href="<?= h(rtrim(RAI_URL, '/')) ?>/terms.php">Соглашение</a><a href="<?= h(rtrim(RAI_URL, '/')) ?>/privacy.php">Конфиденциальность</a></footer>
 </body>
 </html>

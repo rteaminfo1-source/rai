@@ -1,6 +1,7 @@
 <?php
 /* Возврат от Google. В Google Cloud Console → Authorized redirect URIs: https://rai.rteam.info/google_callback.php */
 require __DIR__ . '/config.php';
+require __DIR__ . '/moderation.php';
 
 // Google вернул ответ после # (response_mode=fragment): сервер его не видит. Страничка берёт из адреса только code, state
 // и error и открывает этот же файл уже с ними — без ссылок accounts.google.com и googleapis.com, которые защита
@@ -87,6 +88,7 @@ if ($user) {
         $users[$user['login']]['google_id'] = $gid;
         $users[$user['login']]['avatar'] = $p['picture'] ?? null;
     });
+    if (rai_ban_of($user['login'], null)) redirect($back . '?error=banned');  // заблокирован за нарушение правил
     login_user($user['login']);
     redirect($next);
 }

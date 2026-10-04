@@ -1102,6 +1102,42 @@ class PlacesTest(unittest.TestCase):
         self.assertTrue(any(x["type"] == "photo" for x in enc["attachments"]))
 
 
+class ModerationTest(unittest.TestCase):
+    """Правила Rai: мат, 18+, наркотики, насилие, взлом, экстремизм — диалог останавливается; обычные слова не задеваются."""
+
+    def test_catches(self):
+        import moderation
+        for text, cat in [("иди нахуй", "мат"), ("х*й тебе", "мат"), ("xyй", "мат"), ("б**ть", "мат"), ("заебал уже", "мат"),
+                          ("скинь порно", "18+"), ("п0рно видео", "18+"), ("голые девушки фото", "18+"),
+                          ("где купить мефедрон", "наркотики"), ("как вырастить коноплю", "наркотики"),
+                          ("как сделать бомбу", "насилие"), ("как убить человека", "насилие"),
+                          ("взломать аккаунт вк", "взлом"), ("как украсть пароль", "взлом"), ("зиг хайль", "экстремизм")]:
+            found = moderation.check(text)
+            self.assertIsNotNone(found, text)
+            self.assertEqual(found["category"], cat, text)
+        self.assertEqual(moderation.check("иди нахуй")["word"], "н***й")   # в админку — без мата целиком
+
+    def test_ordinary_words_pass(self):
+        import moderation
+        for text in ["какое сегодня небо", "купи хлеба себе", "как употреблять витамины", "жидкость для стекла", "хохлома роспись",
+                     "художник Шишкин", "хуже некуда", "что такое сексуальная революция", "кто такая Мэрилин Монро", "теракт 11 сентября",
+                     "чем опасны наркотики", "как убить время", "хачапури рецепт", "защита сайта от взлома", "1488 год", "бляха муха",
+                     "мандарины", "что такое секстант", "голой рукой", "напиши код на python", "сделай презентацию про космос", "Ебург"]:
+            self.assertIsNone(moderation.check(text), text)
+
+    def test_brain_stops_dialog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain = Brain(learned_path=os.path.join(tmp, "learned.json"))
+            r = brain.answer(SUN, "иди нахуй", session_id="m")
+            self.assertEqual(r["intent"], "violation")
+            self.assertEqual(r["violation"]["category"], "мат")
+            self.assertIn("Диалог остановлен", r["answer"])
+            self.assertIn("rules.php", r["answer"])
+            self.assertEqual(brain.answer(SUN, "хочу умереть", session_id="m")["intent"], "crisis")  # помощь, а не бан
+            # текст со скриншота — не слова человека
+            self.assertNotEqual(brain.answer(SUN, "что на скриншоте\n[[screen]]\nпорно сайт", session_id="m")["intent"], "violation")
+
+
 class CompareTest(unittest.TestCase):
     """«Сравни A и B», «чем отличается A от B», «что лучше A или B» — таблица по двум темам, а не готовый ответ про Python и PHP."""
 
@@ -1724,6 +1760,63 @@ class HostingTest(unittest.TestCase):
                 self.assertIn("3 МБ", home)
                 stats = admin("stats")[1]
                 self.assertEqual((stats["app_version"], stats["downloads"]), ("1.0.7", {"win": 2, "mac": 1}))
+
+                # документы: правила, соглашение, политика — с сегодняшней датой
+                import datetime
+                d = datetime.date.today()
+                months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+                today = f"{d.day} {months[d.month - 1]} {d.year} г."
+                for path, title in (("rules.php", "Правила Rai"), ("terms.php", "Пользовательское соглашение"),
+                                    ("privacy.php", "Политика конфиденциальности")):
+                    page = get(path)
+                    self.assertIn(title, page)
+                    self.assertIn(today, page)
+                self.assertIn("8-800-2000-122", get("rules.php"))  # человеку в беде — помощь, а не бан
+                self.assertIn("terms.php", get("login.php?tab=register"))
+
+                # нарушение правил → уведомление в админке → блокировка → Rai не отвечает и не пускает → разблокировка
+                def report(category, text):
+                    req = urllib.request.Request(url + "report.php", method="POST", headers={"Content-Type": "application/json"},
+                                                 data=json.dumps({"category": category, "text": text, "chat": "c-1", "version": "pro"}).encode())
+                    try:
+                        r = web.open(req)
+                        return r.status, json.loads(r.read())
+                    except urllib.error.HTTPError as e:
+                        return e.code, json.loads(e.read())
+                self.assertEqual(report("что-то", "текст")[0], 400)
+                self.assertEqual(report("мат", "плохое слово"), (200, {"ok": True, "banned": None}))
+                self.assertEqual(admin("stats")[1]["violations_new"], 1)
+                v = admin("violations")[1]
+                self.assertEqual((v["total"], v["new"], v["by_category"]["мат"]), (1, 1, 1))
+                item = v["items"][0]
+                self.assertEqual((item["login"], item["category"], item["text"], item["count"], item["banned"]), ("anya", "мат", "плохое слово", 1, False))
+                self.assertTrue(admin("violations_seen", ids=[item["id"]])[1]["ok"])
+                self.assertEqual(admin("stats")[1]["violations_new"], 0)
+                self.assertEqual(admin("violations", filter="new")[1]["items"], [])
+                self.assertEqual(admin("ban", login="nobody")[0], 404)
+                self.assertTrue(admin("ban", login="anya", days=7, reason="мат в чате")[1]["ok"])
+                me = json.loads(get("me.php"))
+                self.assertEqual(me["banned"]["reason"], "мат в чате")
+                self.assertGreater(me["banned"]["until"], time.time() + 6 * 86400)
+                self.assertEqual(post("limits.php", {}, {"X-CSRF-Token": me["csrf"]})[0], 403)   # нейросеть не отвечает
+                self.assertTrue(admin("violations")[1]["items"][0]["banned"])
+                post("auth.php", {"csrf": me["csrf"], "action": "logout"})
+                csrf_token = json.loads(get("me.php"))["csrf"]
+                code, _, headers = post("auth.php", {"csrf": csrf_token, "action": "login", "login": "anya", "password": "secret123"}, opener=raw)
+                self.assertEqual((code, headers["Location"]), (302, "login.php?error=banned"))   # войти тоже нельзя
+                self.assertIn("заблокирован", get("login.php?error=banned"))
+                self.assertTrue(admin("unban", login="anya")[1]["ok"])
+                csrf_token = json.loads(get("me.php"))["csrf"]
+                post("auth.php", {"csrf": csrf_token, "action": "login", "login": "anya", "password": "secret123"})
+                me = json.loads(get("me.php"))
+                self.assertEqual((me["user"]["login"], me["banned"]), ("anya", None))
+                # гостя блокируют по IP
+                post("auth.php", {"csrf": me["csrf"], "action": "logout"})
+                self.assertTrue(admin("ban", ip="127.0.0.1", days=0)[1]["ok"])
+                self.assertEqual(json.loads(get("me.php"))["banned"], {"reason": "нарушение правил Rai", "until": 0})
+                self.assertEqual(admin("ban", ip="not-an-ip")[0], 400)
+                admin("unban", ip="127.0.0.1")
+                self.assertIsNone(json.loads(get("me.php"))["banned"])
             finally:
                 php.terminate()
                 php.wait()
@@ -1745,7 +1838,9 @@ class HostingTest(unittest.TestCase):
         once = make_admin.patch(sample, key="a" * 64)
         self.assertEqual(make_admin.patch(once, key="a" * 64), once)
         for part in ("RAI: НАЧАЛО", "function rai_admin_render", '"rai_order_check" => "users.manage"', '"rai"       => ["Rai: подписки"',
-                     'elseif ($tab === "rai"): rai_admin_render();', "rai_cached_stats()", "define('RAI_ADMIN_KEY', '" + "a" * 64 + "')"):
+                     'elseif ($tab === "rai"): rai_admin_render();', "rai_cached_stats()", "define('RAI_ADMIN_KEY', '" + "a" * 64 + "')",
+                     '"rai_rules" => ["Rai: правила"', 'elseif ($tab === "rai_rules"): rai_rules_render();', '"rai_ban" => "users.manage"',
+                     '$tab === "rai_rules") rai_rules_post();', '"нарушений правил в Rai"', "function rai_rules_render"):
             self.assertIn(part, once)
         self.assertNotIn("require_once __DIR__ . '/admin_rai.php'", once)  # отдельный файл не нужен
         with self.assertRaises(make_admin.PatchError):
