@@ -66,6 +66,8 @@ _RECALL_RE = re.compile(r"что ты (?:помнишь|запомнил|зна�
 _FORGET_RE = re.compile(r"^\s*забудь (?:вс[её]|об? мне)", re.I)
 _ARCHIVE_RE = re.compile(r"(сделай|собери|скачай|создай|упакуй|сохрани)\w*\s+(?:мне\s+)?(?:весь\s+)?(?:чат\s+)?(?:в\s+)?(архив|zip)|"
                          r"^\s*(архив|zip)(?:\s+чата)?\s*[.!?]*$", re.I)
+_ABOUT_ME = {"bot_age", "bot_feelings", "who_are_you"}
+_YOU_RE = re.compile(r"\b(?:ты|тебя|тебе|тобой|твой|твоя|твоё|твое|твои|твоих|вы|вас|вам|ваш|rai|рай|раи|бот\w*)\b", re.I)
 # Темы-реплики: отвечают, только когда весь вопрос про них (иначе «что посмотреть вечером» = «добрый вечер»).
 _ALL_TOOLS_RE = re.compile(r"(?:все|список|покажи)\s+(?:твои\s+|свои\s+)?(?:функци|возможност|команд)|(?:100|сто)\s+функци|какие\s+(?:у\s+тебя\s+)?(?:есть\s+)?функци", re.I)
 _SMALL_TALK = {"greeting", "how_are_you", "thanks", "bye", "ok", "compliment", "insult", "bot_feelings"}
@@ -233,6 +235,9 @@ class Brain:
                     continue
                 # Темы про Python не отвечают на вопрос про другой язык: «цикл в javascript».
                 if other_lang and k.startswith("python"):
+                    continue
+                # Ответы о самом Rai — только если спрашивают его: «где ТЫ родился», а не «где родился Эйнштейн»
+                if k in _ABOUT_ME and not _YOU_RE.search(text):
                     continue
                 kept.append((k, s))
             results = kept
@@ -415,8 +420,9 @@ class Brain:
             focus, phrase = place_req
             topic = encyclopedia.lookup(phrase)
             if topic and not places.is_settlement(topic["desc"]) and focus != "sights":
-                # страна, регион, река — отвечает энциклопедия (там и население)
-                return self._known(encyclopedia.reply("что такое " + phrase), attachments), "encyclopedia"
+                # страна, регион, река — отвечает энциклопедия: сначала точный ответ («сколько жителей в Китае»), иначе статья
+                asked = encyclopedia.question(text)
+                return self._known(asked or encyclopedia.reply("что такое " + phrase), attachments), "encyclopedia"
             if "web" in version.skills:
                 try:
                     found = places.card(phrase, focus)

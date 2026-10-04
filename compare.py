@@ -64,7 +64,7 @@ def _languages(a, b):
 
 
 def _first(text):
-    return re.split(r"(?<=[.!?])\s+", text or "")[0]
+    return encyclopedia.tidy((encyclopedia._sentences(text) or [""])[0])
 
 
 def _topics(a, b, question):

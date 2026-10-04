@@ -9,6 +9,8 @@ SSO_SECRET, они вписываются в config.php собранных па�
 """
 
 import argparse
+import base64
+import gzip
 import hashlib
 import os
 import shutil
@@ -112,24 +114,44 @@ def copy_tree(src, dst):
             shutil.copy2(os.path.join(root, name), os.path.join(dst, rel, name))
 
 
-def write_kb(path, name="encyclopedia.json", title="Энциклопедия Rai (~10 000 тем из Википедии, CC BY-SA). Собирает GitHub: tools/build_encyclopedia.py"):
+def write_kb(path, name="encyclopedia.json", title="Энциклопедия Rai (~15 000 тем из Википедии, CC BY-SA). Собирает GitHub: tools/build_encyclopedia.py"):
     """JSON для хостинга (энциклопедия → kb.php, зрение → vision.php): отдаётся как JSON с кэшем в браузере.
-    На хостинге только PHP и HTML, поэтому JSON лежит внутри .php после короткого заголовка."""
+    На хостинге только PHP и HTML, поэтому данные лежат внутри .php после __halt_compiler(): заранее сжатые (gzip)
+    и записанные текстом (base64) — файл в 3 раза меньше, браузер получает сжатое, а загрузка по FTP в любом
+    режиме (текстовом или двоичном) его не портит. Браузер без gzip получает обычный JSON."""
     src = os.path.join(BASE, name)
     if not os.path.exists(src):
         return False
-    with open(src, encoding="utf-8") as f:
+    with open(src, "rb") as f:
         data = f.read()
-    tag = hashlib.sha1(data.encode("utf-8")).hexdigest()[:16]
-    body = data.replace("<", "\\u003c")  # «<?» внутри данных не должно открыть PHP
-    with open(path, "w", encoding="utf-8") as f:
+    tag = hashlib.sha1(data).hexdigest()[:16]
+    packed = base64.b64encode(gzip.compress(data, 9, mtime=0)).decode("ascii")
+    lines = "\n".join(packed[i:i + 76] for i in range(0, len(packed), 76))
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(f"<?php\n// {title}\n"
                 "header('Content-Type: application/json; charset=utf-8');\n"
                 "header('Cache-Control: public, max-age=86400');\n"
+                "header('Vary: Accept-Encoding');\n"
                 f"header('ETag: \"{tag}\"');\n"
                 f"if (trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === '\"{tag}\"') {{ http_response_code(304); exit; }}\n"
-                "?>" + body)
+                "$gz = base64_decode(file_get_contents(__FILE__, false, null, __COMPILER_HALT_OFFSET__));\n"
+                "// сервер сам сжимает ответы (zlib.output_compression) или браузер не понимает gzip — отдаём обычный JSON\n"
+                "if (ini_get('zlib.output_compression') || stripos($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '', 'gzip') === false) {\n"
+                "    echo gzdecode($gz);\n"
+                "} else {\n"
+                "    header('Content-Encoding: gzip');\n"
+                "    header('Content-Length: ' . strlen($gz));\n"
+                "    echo $gz;\n"
+                "}\n"
+                "__halt_compiler();\n" + lines + "\n")
     return True
+
+
+def read_kb(path):
+    """Данные из kb.php / vision.php обратно в байты JSON (для проверок)."""
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    return gzip.decompress(base64.b64decode(text.split("__halt_compiler();", 1)[1]))
 
 
 def build_admin(out, admin_path):

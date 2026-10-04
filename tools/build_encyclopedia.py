@@ -205,6 +205,7 @@ _SKIP_NS = ("file:", "image:", "category:", "wikipedia:", "template:", "help:", 
 
 
 def clean_heading(text):
+    text = re.sub(r"<[^>]+>", "", text)                          # <span id="…"></span>
     text = re.sub(r"\{\{[^{}]*\}\}", "", text)
     text = re.sub(r"\[\[[^\]|]*\|([^\]]*)\]\]", r"\1", text)   # [[Статья|подпись]] → подпись
     text = re.sub(r"\[\[([^\]]*)\]\]", r"\1", text)

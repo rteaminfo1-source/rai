@@ -330,8 +330,8 @@ class CreativeTest(unittest.TestCase):
         self.assertIn("Париж", self.brain.answer(PRO, "столица франции")["answer"])
         self.assertIn("Сеул", self.brain.answer(PRO, "какая столица южной кореи?")["answer"])
         self.assertIn("| 7 × 3 | **21** |", self.brain.answer(PRO, "таблица умножения на 7")["answer"])
-        unknown = self.brain.answer(SUN, "что такое квазар")["answer"]
-        self.assertIn("запомни, что квазар", unknown)
+        unknown = self.brain.answer(SUN, "что такое флюмбрикс")["answer"]
+        self.assertIn("запомни, что флюмбрикс", unknown)
 
 
 class OnlineTest(unittest.TestCase):
@@ -435,8 +435,12 @@ class OnlineTest(unittest.TestCase):
         self.assertEqual(r["intent"], "web")
         self.assertIn("Парижа", r["answer"])
         self.assertEqual(r["attachments"][0]["type"], "photo")
-        # неизвестное — Rai сам идёт искать
-        self.assertEqual(self.ask("что такое эйфелева башня")["intent"], "web")
+        # неизвестное — Rai сам идёт искать (энциклопедии нет); знакомое по энциклопедии — отвечает сам, без интернета
+        import encyclopedia
+        with mock.patch.object(encyclopedia, "_data", None):
+            self.assertEqual(self.ask("что такое эйфелева башня")["intent"], "web")
+        if encyclopedia.lookup("Эйфелева башня"):
+            self.assertEqual(self.ask("что такое эйфелева башня")["intent"], "encyclopedia")
         self.assertIn("умеют Rai Pro", self.ask("найди в интернете эйфелева башня", FAST)["answer"])
 
     def test_no_internet(self):
@@ -450,8 +454,8 @@ class OnlineTest(unittest.TestCase):
             self.assertIn("net.php", r["answer"])             # подсказка: посредник на хостинге
             self.assertIn("нет связи", self.ask("курс доллара")["answer"])
             self.assertIn("не получилось перевести", self.ask("переведи на английский: доброе утро")["answer"].lower())
-            answer = self.ask("что такое квазар", SUN)["answer"]
-            self.assertIn("запомни, что квазар", answer)
+            answer = self.ask("что такое флюмбрикс", SUN)["answer"]
+            self.assertIn("запомни, что флюмбрикс", answer)
             self.assertIn("не получилось", answer)
             # окно просмотра, где интернет закрыт: сразу объясняем, куда идти
             with mock.patch.object(net, "SANDBOX", True):
@@ -1162,6 +1166,14 @@ class QuestionTest(unittest.TestCase):
          "и передачи информации. Работает на основе стека протоколов TCP/IP.", [], 200, ""],
         ["Небо", "пространство над Землёй", 1, "Небо — пространство над поверхностью Земли. Днём небо голубое из-за рассеяния "
          "солнечного света в атмосфере.", [], 120, ""],
+        ["Эйнштейн, Альберт", "физик-теоретик", 0, "Альберт Эйнштейн (нем. Albert Einstein МФА:, 14 марта 1879, Ульм, Германская империя — "
+         "18 апреля 1955, Принстон, США) — физик-теоретик, один из основателей современной теоретической физики.", [], 250, ""],
+        ["Сталин, Иосиф Виссарионович", "советский государственный деятель", 0, "Иосиф Виссарионович Сталин (фамилия при рождении — "
+         "Джугашвили, груз. იოსებ ჯუღაშვილი; 6 [18] декабря 1878, Гори — 5 марта 1953, Ближняя дача) — советский политический деятель.", [], 220, ""],
+        ["Екатерина II", "императрица Всероссийская", 0, "Екатерина II Алексеевна (нем. Sophie Auguste Friederike; 21 апреля [2 мая] 1729, "
+         "Штеттин — 6 [17] ноября 1796, Санкт-Петербург) — Императрица и Самодержица Всероссийская.", [], 180, ""],
+        ["Нил", "река в Африке", 1, "Нил (араб. النيل, англ. Nile) — крупнейшая по протяжённости река в Африке (6670 км). "
+         "Впадает в Средиземное море.", [], 150, ""],
     ]}
 
     def setUp(self):
@@ -1202,6 +1214,20 @@ class QuestionTest(unittest.TestCase):
         self.assertIn("из-за рассеяния солнечного света", self.q("почему небо голубое"))
         self.assertTrue(self.q("как работает интернет").startswith("Интернет — всемирная система"))
         self.assertIn("Гималаях", self.q("где находится Эверест") or self.q("где расположен Эверест"))
+
+    def test_dates_after_other_text_and_monarchs(self):
+        self.assertEqual(self.q("где родился Эйнштейн"), "Место рождения — **Ульм, Германская империя** (Альберт Эйнштейн, 14 марта 1879).")
+        self.assertEqual(self.q("когда родился Сталин"), "**Иосиф Сталин** родился **18 декабря 1878 (по старому стилю — 6 декабря)** (Гори).")
+        self.assertIn("**Екатерина II** прожила **67 лет**", self.q("сколько лет прожила Екатерина II"))
+        self.assertIn("**Екатерина II** умерла **17 ноября 1796", self.q("когда умерла Екатерина"))
+        # скобки с написанием на других языках убираются; «длины» — вопрос, а не тема
+        self.assertEqual(self.q("какой длины Нил"), "Нил — крупнейшая по протяжённости река в Африке (6670 км).")
+
+    def test_questions_about_rai_need_you(self):
+        self.assertEqual(self.brain.answer(SUN, "где ты родился", session_id="q")["intent"], "bot_age")
+        r = self.brain.answer(SUN, "где родился Эйнштейн", session_id="q")
+        self.assertEqual(r["intent"], "encyclopedia")
+        self.assertIn("Ульм", r["answer"])
 
     def test_no_guessing(self):
         self.assertIsNone(self.q("когда умер Эверест"))            # не человек — не выдумываем
@@ -1409,13 +1435,14 @@ class HostingTest(unittest.TestCase):
             self.assertNotIn('id="rai-kb"', page)
             self.assertIn('window.RAI_VISION_URL = "vision.php"', page)  # словарь зрения — отдельным файлом
             if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "vision_labels.json")):
-                with open(os.path.join(rai, "vision.php"), encoding="utf-8") as fh:
-                    self.assertEqual(len(json.loads(fh.read().split("?>", 1)[1])["labels"]), 502)
+                self.assertEqual(len(json.loads(make_hosting.read_kb(os.path.join(rai, "vision.php")))["labels"]), 502)
             if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "encyclopedia.json")):
                 with open(os.path.join(rai, "kb.php"), encoding="utf-8") as fh:
                     kb = fh.read()
                 self.assertEqual(kb.count("<?"), 1)  # внутри данных PHP не открывается
-                self.assertTrue(json.loads(kb.split("?>", 1)[1])["items"])
+                self.assertIn("__halt_compiler();", kb)  # данные — сжатые, текстом после __halt_compiler
+                self.assertRegex(kb.split("__halt_compiler();", 1)[1], r"^[A-Za-z0-9+/=\n]+$")
+                self.assertTrue(json.loads(make_hosting.read_kb(os.path.join(rai, "kb.php")))["items"])
 
     @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
     def test_php_servers(self):

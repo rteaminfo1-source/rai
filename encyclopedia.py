@@ -56,6 +56,9 @@ _ENDS = sorted("""иями ями ами ыми ими ием ией иях ия
 _ROMAN = {"i": "перв", "ii": "втор", "iii": "трет", "iv": "четверт", "v": "пят", "vi": "шест", "vii": "седьм",
           "viii": "восьм", "ix": "девят", "x": "десят", "xi": "одиннадцат", "xii": "двенадцат"}
 _PERSON_RE = re.compile(r"^[^,()]+,\s*[^,()]+(?:\s*\([^)]*\))?$")
+_MONARCH_RE = re.compile(r"^([А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)?)\s+[IVX]+$")
+_RULER_RE = re.compile(r"\b(?:император|императрица|король|королева|царь|царица|князь|княгиня|султан|фараон|папа\s+римский|"
+                       r"правител|монарх|полководец)", re.I)
 
 
 def _norm(word):
@@ -92,6 +95,10 @@ def _names(title, aliases):
         if len(parts) >= 2:
             yield f"{parts[0]} {last}", 1
         yield last, 1          # просто фамилия: из однофамильцев победит самый известный
+    # «Наполеон I», «Пётр I», «Елизавета II» → «Наполеон», «Пётр»: из тёзок победит самый известный
+    m = _MONARCH_RE.match(base)
+    if m:
+        yield m.group(1), 1
     for a in aliases:
         yield a, 2
 
@@ -144,12 +151,25 @@ def page_url(title):
 
 
 def cat_ru(name):
-    """Подразделы списка важнейших статей названы по-английски — переводим по частям («Writers / Russian»)."""
-    return " / ".join(CAT_RU.get(part.strip(), part.strip()) for part in name.split(" / ")) if name else name
+    """Подразделы списка важнейших статей названы по-английски — переводим по частям («Writers / Russian»);
+    «Chemistry: General» → «Химия — общее»."""
+    if not name:
+        return name
+    out = []
+    for part in name.split(" / "):
+        part = re.sub(r"<[^>]+>", "", part).strip()
+        general = re.search(r":\s*General$", part)
+        base = re.sub(r":\s*General$", "", part)
+        ru = CAT_RU.get(base, base)
+        out.append(ru + (" — общее" if general else ""))
+    # «Космос → Космос / …» — повтор раздела не нужен
+    return " / ".join(dict.fromkeys(out))
 
 
 def _is_person(i):
-    return bool(_PERSON_RE.match(_data["items"][i][0]))
+    """Человек: «Фамилия, Имя» или правитель с номером («Наполеон I», «Елизавета II»)."""
+    title, desc = _data["items"][i][0], _data["items"][i][1]
+    return bool(_PERSON_RE.match(title) or (_MONARCH_RE.match(title) and _RULER_RE.search(desc or _data["items"][i][3][:200])))
 
 
 def _best(key, raw, kind=None):
@@ -397,6 +417,13 @@ _CAUSE_RE = re.compile(r"\b(?:потому|поскольку|так\s+как|и
 _UNIT_RE = re.compile(r"\d[\d\s,.]*\s*(?:м|км|метр\w*|километр\w*|чел\w*|жител\w*|кг|тонн\w*|т|°|градус\w*|%|млн|млрд|тыс\w*|"
                       r"км²|км2|кв\.|га|лет|год\w*|световых|а\.\s*е\.|км/[чс]|м/с)\b", re.I)
 _MONTH_GEN = "|".join(_MONTHS)
+_Q_WORD_RE = re.compile(r"^(?:высот|длин|глубин|площад|насел|жител|масс|вес|температур|скорост|расстоян|численност|возраст|"
+                        r"лет$|год|родил|рожд|умер|умир|погиб|скончал|прожил|жил|работа|устро|появил|возник|образова|"
+                        r"находи|располож|основа|изобр|придума|открыл|знамени|извест|прославил|был|была|было|были|являе|"
+                        r"сейчас|всего|примерно|на\s|в$|во$|на$|у$|с$|из$|до$|от$)")
+_DATE = r"(?:около\s+|ок\.\s+)?(?:\d{1,2}(?:\s*\[\d{1,2}\])?\s+(?:" + _MONTH_GEN + r")(?:\s*\[[^\]]*\])?\s+)?\d{3,4}(?:\s*\[\d{3,4}\])?(?:\s*(?:года|г\.))?(?:\s+до\s+н\.\s*э\.)?"
+_LIFE_RE = re.compile(r"(?<![\w\d])(?P<b>" + _DATE + r")(?:,\s*(?P<bp>[^—–;]+?))?\s+[—–]\s+(?P<d>" + _DATE + r")(?:,\s*(?P<dp>[^;]+?))?\s*$", re.I)
+_BORN_RE = re.compile(r"(?:род\.|родил(?:ся|ась))\s*(?P<b>" + _DATE + r")(?:,\s*(?P<bp>[^;]+?))?\s*$", re.I)
 _DATE_PART_RE = re.compile(r"^(?P<date>(?:около\s+|ок\.\s+)?(?:\d{1,2}\s+(?:" + _MONTH_GEN + r")\s*(?:\[[^\]]*\]\s*)?)?\d{3,4}(?:\s*\[[^\]]*\])?"
                            r"(?:\s*(?:года|г\.|до\s+н\.\s*э\.))?)\s*(?:,\s*(?P<place>.+))?$", re.I)
 _MEASURE = {"высот": ("высот", "высок", "метр", " м"), "длин": ("длин", "протяж", "км"), "глубин": ("глубин",),
@@ -405,9 +432,10 @@ _MEASURE = {"высот": ("высот", "высок", "метр", " м"), "дл
             "расстоян": ("расстоян", "км", "световых"), "численност": ("численност", "насел", "чел"), "возраст": ("возраст", "лет")}
 
 
-def _mentions(query, limit=2, kind=None):
+def _mentions(query, limit=2, kind=None, aliases=False):
     """Темы, названные в тексте (сначала длинные названия): [(номер темы, слова из текста)].
-    kind="who" — при равных названиях предпочитать человека («Пушкин» — поэт, а не город Пушкино)."""
+    kind="who" — при равных названиях предпочитать человека («Пушкин» — поэт, а не город Пушкино).
+    aliases — одно слово может быть и другим именем темы («Эверест» → Джомолунгма)."""
     if not _data:
         return []
     words, raw = _key(query), _words(query)
@@ -417,7 +445,7 @@ def _mentions(query, limit=2, kind=None):
             if any(j in used for j in range(i, i + size)):
                 continue
             hit = _best(tuple(words[i:i + size]), tuple(raw[i:i + size]), kind)
-            if hit and (size > 1 or hit[0] <= 1) and nlp.stem(raw[i]) not in nlp.GENERIC:
+            if hit and (size > 1 or hit[0] <= (2 if aliases else 1)) and nlp.stem(raw[i]) not in nlp.GENERIC:
                 if all(n != hit[1] for n, _ in found):
                     found.append((hit[1], set(raw[i:i + size])))
                     used.update(range(i, i + size))
@@ -426,8 +454,35 @@ def _mentions(query, limit=2, kind=None):
     return found
 
 
+_ABBR = {"англ", "лат", "нем", "фр", "франц", "греч", "др", "араб", "кит", "трад", "упр", "букв", "род", "ок", "см", "т", "е",
+         "г", "гг", "в", "вв", "н", "э", "им", "св", "ст", "яп", "исп", "итал", "тиб", "палл", "санскр", "евр", "укр", "белор",
+         "польск", "непальск", "перс", "тур", "инд", "хинди", "груз", "арм", "азерб", "каз", "тат", "башк", "шв", "норв", "фин",
+         "венг", "чеш", "рум", "болг", "серб", "дат", "голл", "нидерл", "порт", "кор", "вьетн", "монг", "мн", "ед", "ч", "англо",
+         "e", "g", "i", "vs", "пр", "проч"}
+
+
 def _sentences(text):
-    return [x.strip() for x in _SENT_RE.split(text or "") if x.strip()]
+    """Предложения: точка внутри скобок и после сокращений («англ.», «лат.», «т. е.», «г.») — не конец предложения."""
+    out, cur, depth = [], [], 0
+    text = text or ""
+    for k, ch in enumerate(text):
+        cur.append(ch)
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        elif ch in ".!?" and depth == 0:
+            nxt = text[k + 1:k + 3]
+            if not (nxt[:1] == " " and (nxt[1:2].isupper() or nxt[1:2] in "«\"(")) and k + 1 < len(text):
+                continue
+            word = re.search(r"([\wё]+)$", "".join(cur[:-1]))
+            if ch == "." and word and (word.group(1).lower() in _ABBR or (len(word.group(1)) == 1 and word.group(1).isupper())):
+                continue
+            out.append("".join(cur).strip())
+            cur = []
+    if "".join(cur).strip():
+        out.append("".join(cur).strip())
+    return [x for x in out if x]
 
 
 def _top_parens(text):
@@ -458,6 +513,10 @@ def _parse_date(s):
         if m_new in _MONTHS:
             text = f"{d_new} {m_new} {y_new} (по старому стилю — {d_old} {m_old})"
             return y_new, _MONTHS.index(m_new) + 1, int(d_new), text
+    m = re.match(r"^(?:около\s+|ок\.\s+)?(\d{1,2})\s*\[(\d{1,2})\]\s+(\w+)\s+(\d{3,4})$", s)
+    if m and m.group(3) in _MONTHS:          # «6 [18] декабря 1878» — старый [новый] стиль в одном месяце
+        d_old, d_new, mon, y = m.groups()
+        return int(y), _MONTHS.index(mon) + 1, int(d_new), f"{d_new} {mon} {y} (по старому стилю — {d_old} {mon})"
     m = re.match(r"^(?:около\s+|ок\.\s+)?(?:(\d{1,2})\s+(\w+)\s+)?(\d{3,4})(\s+до\s+н\.\s*э\.)?$", s)
     if not m:
         return None
@@ -471,31 +530,37 @@ def _parse_date(s):
 
 
 def life(title_or_text):
-    """Даты жизни человека из начала статьи: {"born", "born_place", "died", "died_place", "age", "alive"} или None."""
+    """Даты жизни человека из начала статьи: {"born", "born_place", "died", "died_place", "age", "alive"} или None.
+    Ищет «дата, место — дата, место» (или «род. дата, место») в первых скобках: перед датами бывает что угодно —
+    «нем. Albert Einstein», «фамилия при рождении — Джугашвили; …»."""
     inner = _top_parens(title_or_text)
     if not inner:
         return None
-    inner = re.sub(r"^(?:[^;]*?;\s*)?", "", inner) if ";" in inner.split("—")[0] else inner  # «англ. Isaac Newton; 25 декабря…»
-    alive = bool(re.match(r"^род\.\s*", inner))
-    inner = re.sub(r"^род\.\s*", "", inner)
-    parts = [p.strip() for p in re.split(r"\s+—\s+|\s+–\s+", inner)]
-    born = _DATE_PART_RE.match(parts[0]) if parts else None
-    if not born:
+    m, alive = None, False
+    for part in reversed(inner.split(";")):        # даты — обычно в последней части после «;»
+        m = _LIFE_RE.search(part.strip())
+        if m:
+            break
+        m = _BORN_RE.search(part.strip())
+        if m:
+            alive = True
+            break
+    if not m:
         return None
-    b = _parse_date(born.group("date"))
+    b = _parse_date(m.group("b"))
     if not b:
         return None
-    out = {"born": b, "born_place": (born.group("place") or "").strip(" ,"), "died": None, "died_place": "", "alive": alive}
-    if len(parts) > 1 and not alive:
-        died = _DATE_PART_RE.match(parts[1])
-        if died:
-            out["died"] = _parse_date(died.group("date"))
-            out["died_place"] = (died.group("place") or "").strip(" ,")
+    out = {"born": b, "born_place": (m.group("bp") or "").strip(" ,"), "died": None, "died_place": "", "alive": alive}
+    if not alive:
+        out["died"] = _parse_date(m.group("d"))
+        out["died_place"] = (m.group("dp") or "").strip(" ,")
+        if not out["died"]:
+            return None
     end = out["died"]
-    if not end and alive:
+    if alive:
         t = datetime.date.today()
         end = (t.year, t.month, t.day, "")
-    if end and b[0] > 0 and end[0] > 0:
+    if b[0] > 0 and end[0] > 0:
         age = end[0] - b[0]
         if b[1] and end[1] and (end[1], end[2] or 1) < (b[1], b[2] or 1):
             age -= 1
@@ -503,6 +568,16 @@ def life(title_or_text):
     else:
         out["age"] = None
     return out
+
+
+_FOREIGN_RE = re.compile(r"\s*\((?=[^()]*\b(?:англ|лат|нем|фр|франц|греч|др\.-греч|араб|кит|тиб|яп|исп|итал|непальск|МФА|копт|егип|"
+                         r"перс|санскр|евр|ивр|кор|вьетн|монг|тур|груз|арм|польск|чеш|венг|шв|норв|фин|порт|голл|нидерл|"
+                         r"укр|белор|каз|узб|тат|хинди)\b)[^()]*(?:\([^()]*\)[^()]*)*\)")
+
+
+def tidy(sentence):
+    """Без скобок с написанием на других языках: «Джомолунгма (тиб. …, кит. …) — …» → «Джомолунгма — …»."""
+    return re.sub(r"\s{2,}", " ", _FOREIGN_RE.sub("", sentence)).replace(" ,", ",").strip()
 
 
 def _years(n):
@@ -541,7 +616,7 @@ def _life_answer(word, rest, t):
         if died_q:
             if info["alive"]:
                 return f"{name} жив{_fem(t, 'а')} — родил{_fem(t, 'ась', 'ся')} {info['born'][3]}."
-            return f"**{name}** умер{_fem(t)} **{info['died'][3]}**" + (f" ({info['died_place']})." if info["died_place"] else ".") if info["died"] else None
+            return f"**{name}** умер{_fem(t, 'ла')} **{info['died'][3]}**" + (f" ({info['died_place']})." if info["died_place"] else ".") if info["died"] else None
         if born_q or not rest.strip():
             return f"**{name}** родил{_fem(t, 'ась', 'ся')} **{info['born'][3]}**" + (f" ({info['born_place']})." if info["born_place"] else ".")
         return None
@@ -554,9 +629,14 @@ def _life_answer(word, rest, t):
 
 
 def _fem(t, fem="а", masc=""):
-    """Окончание по полу: в описании женщины первое слово — «русская», «советская», «американская»…"""
-    first = (t.get("desc") or "").split(" ", 1)[0]
-    return fem if re.fullmatch(r"\w+(?:ая|яя)", first) else masc
+    """Окончание по полу: в описании женщины первое слово — «русская», «советская», «американская»…
+    или она императрица, королева, царица, княгиня."""
+    desc = t.get("desc") or ""
+    first = desc.split(" ", 1)[0]
+    head = desc + " " + (t.get("text") or "")[:300]
+    female = re.fullmatch(r"\w+(?:ая|яя)", first) or re.search(r"\b(?:[Ии]мператрица|[Кк]оролева|[Цц]арица|[Кк]нягиня|[Гг]ерцогиня|"
+                                                             r"[Пп]ринцесса|[Сс]амодержица)\b", head)
+    return fem if female else masc
 
 
 def _score(sentence, kind, content, measure, idx):
@@ -606,15 +686,21 @@ def question(text):
     word, rest = re.sub(r"\s+", " ", m.group("w").lower()), m.group("rest")
     about_life = bool(re.search(r"\b(?:родил\w*|рожд\w*|умер\w*|погиб\w*|скончал\w*|прожил\w*|жил|жила)\b", rest, re.I)
                       or re.match(r"кем|чем|как\s+(?:умер|погиб)", word))
-    hits = _mentions(rest, limit=1, kind="who" if about_life or word.startswith("сколько") else None)
+    # тема — не слова вопроса («высоты», «родился», «жителей»), и имена собственные важнее: «какой высоты Эверест»
+    subject = " ".join(w for w in re.findall(r"[\w-]+", rest) if not _Q_WORD_RE.match(w.lower())) or rest
+    who = "who" if about_life or word.startswith(("сколько", "кем", "чем")) else None
+    hits = _mentions(subject, limit=3, kind=who) or _mentions(subject, limit=3, kind=who, aliases=True)
     if not hits:
         return None
-    n, topic_words = hits[0]
+    proper = {nlp.normalize(w) for w in re.findall(r"\b[А-ЯЁA-Z][\w-]*", subject)}
+    n, topic_words = next((h for h in hits if h[1] & proper), hits[0])
     t = _item(n)
     kind = _kind(word)
     answer = life_answer = _life_answer(word, rest, t) if _is_person(n) else None
     if not answer and about_life and not re.match(r"кем|чем", word):
-        return None              # «когда умер …» не про человека или без дат — не выдумываем
+        if not _is_person(n):
+            return None          # «когда умер Эверест» — не про человека, не выдумываем
+        answer = tidy(_sentences(t["text"])[0])   # даты не разобрались — первое предложение, где они обычно и есть
     if not answer:
         # кем был / как умер у человека без дат — не отвечаем общим текстом
         content = {nlp.stem(w) for w in _words(rest) if w not in topic_words} - nlp.GENERIC - nlp.FILLER - {nlp.stem(w) for w in nlp.STOPWORDS}
@@ -635,9 +721,9 @@ def question(text):
         if best < need:
             return None
         if kind in ("how", "who"):
-            answer = " ".join(sents[:2])
+            answer = tidy(" ".join(sents[:2]))
         else:
-            answer = sents[i]
+            answer = tidy(sents[i])
             name = _short_name(t["title"])
             if i and not set(_key(name)) & set(_key(answer)):   # «Высота — 8848 м.» — добавим, о чём речь
                 answer = f"**{name}:** {answer}"
@@ -645,6 +731,359 @@ def question(text):
     photo = {"url": t["image"], "title": t["title"], "source": url} if t["image"] else None
     body = f"{answer}\n\n📚 Из статьи «{t['title']}» · [Википедия]({url}) (CC BY-SA)"
     return {"text": body, "photo": photo, "title": t["title"], "life": bool(life_answer)}
+
+
+# ------------------------------------------------------------------ подразделы по-русски
+CAT_RU.update({
+    "Sexuality and gender": "Сексуальность и гендер",
+    "Machinery and tools": "Машины и инструменты",
+    "Abrahamic religions": "Авраамические религии",
+    "Academic journals": "Научные журналы",
+    "Actors": "Актёры",
+    "Africa": "Африка",
+    "Agriculture": "Сельское хозяйство",
+    "Agronomy and horticulture": "Агрономия и садоводство",
+    "Air": "Воздушный транспорт",
+    "Algebra": "Алгебра",
+    "Americas": "Америка",
+    "Ammunition": "Боеприпасы",
+    "Analytical chemistry": "Аналитическая химия",
+    "Anatomy and morphology": "Анатомия и морфология",
+    "Ancient": "Древний мир",
+    "Animal": "Животные",
+    "Animal husbandry": "Животноводство",
+    "Animal ontogeny": "Развитие животных",
+    "Animal reproduction": "Размножение животных",
+    "Animal-powered transport": "Гужевой транспорт",
+    "Animals": "Животные",
+    "Animators and puppeteers": "Аниматоры и кукольники",
+    "Anthropology": "Антропология",
+    "Architecture": "Архитектура",
+    "Armour": "Доспехи",
+    "Artillery and siege": "Артиллерия и осадные орудия",
+    "Arts": "Искусство",
+    "Asia": "Азия",
+    "Astronomical objects": "Астрономические объекты",
+    "Astronomy": "Астрономия",
+    "Atomic, molecular and optical physics": "Атомная, молекулярная и оптическая физика",
+    "Auxiliary historical sciences": "Вспомогательные исторические дисциплины",
+    "Aviation": "Авиация",
+    "Banking and finance": "Банки и финансы",
+    "Basic concepts": "Основные понятия",
+    "Basics": "Основы",
+    "Biochemistry and molecular biology": "Биохимия и молекулярная биология",
+    "Biological processes and physiology": "Биологические процессы и физиология",
+    "Biological reproduction": "Размножение",
+    "Biology": "Биология",
+    "Biology and health sciences": "Биология и медицина",
+    "Biotechnology": "Биотехнологии",
+    "Bodies of water": "Водоёмы",
+    "Botany": "Ботаника",
+    "Building materials": "Строительные материалы",
+    "Buildings and infrastructure": "Здания и инфраструктура",
+    "Business and economics": "Бизнес и экономика",
+    "Businesspeople": "Предприниматели",
+    "Calculus and analysis": "Математический анализ",
+    "Cartography": "Картография",
+    "Celestial mechanics and astrometry": "Небесная механика и астрометрия",
+    "Cell biology": "Клеточная биология",
+    "Cell processes": "Процессы в клетке",
+    "Cellular division": "Деление клеток",
+    "Chemical bonds": "Химические связи",
+    "Chemical reactions": "Химические реакции",
+    "Chemical substances": "Химические вещества",
+    "Chemistry": "Химия",
+    "Cinema by country": "Кино по странам",
+    "Cities": "Города",
+    "Clothing and fashion": "Одежда и мода",
+    "Colonial empires": "Колониальные империи",
+    "Color": "Цвет",
+    "Comedians": "Комики",
+    "Companies": "Компании",
+    "Components": "Компоненты",
+    "Computer hardware": "Компьютерное железо",
+    "Computer science": "Информатика",
+    "Computer scientists": "Учёные-информатики",
+    "Computer software": "Программное обеспечение",
+    "Computing and information technology": "Компьютеры и ИТ",
+    "Concepts": "Понятия",
+    "Concepts and forms": "Понятия и формы",
+    "Condensed matter physics": "Физика конденсированного состояния",
+    "Continents": "Континенты",
+    "Cooking and eating": "Кулинария и еда",
+    "Cooking, food and drink": "Кулинария, еда и напитки",
+    "Countries": "Страны",
+    "Countries and other regions": "Страны и регионы",
+    "Crewed spacecraft": "Пилотируемые космические корабли",
+    "Crime": "Преступность",
+    "Criminals": "Преступники",
+    "Cryptography": "Криптография",
+    "Cuisine": "Кухня",
+    "Cultural venues": "Культурные места",
+    "Culture": "Культура",
+    "Dancers and choreographers": "Танцоры и хореографы",
+    "Data storage": "Хранение данных",
+    "Deserts": "Пустыни",
+    "Development": "Развитие",
+    "Devices": "Устройства",
+    "Dharmic religions": "Дхармические религии",
+    "Diagnostic technologies": "Диагностика",
+    "Directors": "Режиссёры",
+    "Directors, producers and screenwriters": "Режиссёры, продюсеры и сценаристы",
+    "Disciplines": "Дисциплины",
+    "Discrete mathematics": "Дискретная математика",
+    "Drinks": "Напитки",
+    "Drugs and pharmacology": "Лекарства и фармакология",
+    "Early modern": "Раннее Новое время",
+    "Earth": "Земля",
+    "Earth science": "Науки о Земле",
+    "Earth science and physical geography": "Науки о Земле и физическая география",
+    "Eastern folklore": "Восточный фольклор",
+    "Eastern religions": "Восточные религии",
+    "Ecology": "Экология",
+    "Economists": "Экономисты",
+    "Education": "Образование",
+    "Educational institutions": "Учебные заведения",
+    "Electromagnetism": "Электромагнетизм",
+    "Electronics": "Электроника",
+    "Emotions and traits": "Эмоции и черты характера",
+    "Employment": "Работа и занятость",
+    "Energy and fuel": "Энергия и топливо",
+    "Engineering": "Инженерия",
+    "Entertainers": "Артисты",
+    "Entertainment": "Развлечения",
+    "Equipment": "Снаряжение",
+    "Ethnic groups": "Народы",
+    "Ethnology": "Этнология",
+    "Ethology": "Этология",
+    "Europe": "Европа",
+    "Europe and Russia": "Европа и Россия",
+    "Evolution": "Эволюция",
+    "Explorers": "Путешественники и исследователи",
+    "Explosive weapons": "Взрывчатое оружие",
+    "Fabrics and fibers": "Ткани и волокна",
+    "Family and kinship": "Семья и родство",
+    "Family members": "Члены семьи",
+    "Family, kinship and interpersonal relationships": "Семья, родство и отношения",
+    "Festivals, holidays, and observances": "Праздники и памятные дни",
+    "Fictional and legendary characters": "Вымышленные и легендарные персонажи",
+    "Film and television": "Кино и телевидение",
+    "Film and television festival and awards": "Кинофестивали и премии",
+    "Film and television genres": "Жанры кино и телевидения",
+    "Film, television, and games": "Кино, телевидение и игры",
+    "Filmmaking": "Кинопроизводство",
+    "Food types": "Виды еды",
+    "Food, water and health": "Еда, вода и здоровье",
+    "Forests": "Леса",
+    "Forms": "Формы",
+    "Forms of government": "Формы правления",
+    "Fortification": "Фортификация",
+    "Fungi": "Грибы",
+    "Fungus": "Грибы",
+    "Furniture and interior design": "Мебель и интерьер",
+    "Galactic astronomy and extragalactic astronomy": "Галактики и внегалактическая астрономия",
+    "Genetics and taxonomy": "Генетика и систематика",
+    "Geometry": "Геометрия",
+    "Governmental organizations": "Государственные организации",
+    "Ground-based observatories": "Наземные обсерватории",
+    "Groups": "Группы",
+    "Health and fitness": "Здоровье и фитнес",
+    "Health, medicine and disease": "Здоровье, медицина и болезни",
+    "Historians and archaeologists": "Историки и археологи",
+    "Historical cities": "Исторические города",
+    "History by continent and region": "История по континентам и регионам",
+    "History by country": "История по странам",
+    "History by subject matter": "История по темам",
+    "History of art": "История искусства",
+    "History of games and sport": "История игр и спорта",
+    "History of philosophy and religion": "История философии и религии",
+    "History of science and technology": "История науки и техники",
+    "History of society and the social sciences": "История общества и общественных наук",
+    "Hosts and performers": "Ведущие и исполнители",
+    "Household items": "Предметы быта",
+    "Housing": "Жильё",
+    "Ideology and political theory": "Идеологии и политическая теория",
+    "Imaging": "Визуализация",
+    "Incendiary weapons": "Зажигательное оружие",
+    "Individual sports": "Индивидуальные виды спорта",
+    "Industry": "Промышленность",
+    "Infrastructure": "Инфраструктура",
+    "Infrastructure by type": "Инфраструктура по видам",
+    "Institutions and professions": "Учреждения и профессии",
+    "International organizations": "Международные организации",
+    "Internet": "Интернет",
+    "Internet media": "Интернет-СМИ",
+    "Interpersonal relations": "Отношения между людьми",
+    "Interpersonal relationships": "Отношения между людьми",
+    "Inventors and engineers": "Изобретатели и инженеры",
+    "Islands": "Острова",
+    "Issues": "Проблемы общества",
+    "Jazz": "Джаз",
+    "Journalists": "Журналисты",
+    "Land relief": "Рельеф",
+    "Language": "Язык",
+    "Language families": "Языковые семьи",
+    "Law": "Право",
+    "Libraries": "Библиотеки",
+    "Linguists": "Лингвисты",
+    "Literature": "Литература",
+    "Literature and drama": "Литература и драматургия",
+    "Literatures by language and area": "Литература по языкам и регионам",
+    "Machinery": "Машины и механизмы",
+    "Magazines": "Журналы",
+    "Maritime transport": "Морской транспорт",
+    "Marriage and parenting": "Брак и воспитание детей",
+    "Mass media": "СМИ",
+    "Material and chemical": "Материалы и химия",
+    "Mathematicians": "Математики",
+    "Measurement": "Измерения",
+    "Measurement systems": "Системы мер",
+    "Mechanics": "Механика",
+    "Media and communication": "СМИ и коммуникации",
+    "Medical technology": "Медицинская техника",
+    "Medicine": "Медицина",
+    "Melee weapons": "Холодное оружие",
+    "Metallurgy": "Металлургия",
+    "Military": "Военное дело",
+    "Military aviation": "Военная авиация",
+    "Military leaders and theorists": "Полководцы и военные теоретики",
+    "Military technology": "Военная техника",
+    "Modern": "Новейшее время",
+    "Morbidity": "Болезни",
+    "Mountain peaks": "Горные вершины",
+    "Music": "Музыка",
+    "Music genres and forms": "Музыкальные жанры и формы",
+    "Musical instruments": "Музыкальные инструменты",
+    "Musicians and composers": "Музыканты и композиторы",
+    "Mythology": "Мифология",
+    "Natural disasters": "Стихийные бедствия",
+    "Naval warfare": "Морская война",
+    "Navigation": "Навигация",
+    "Navigation and timekeeping": "Навигация и измерение времени",
+    "Networks": "Сети",
+    "Newspapers": "Газеты",
+    "Non-Western art": "Незападное искусство",
+    "Non-Western art music": "Незападная академическая музыка",
+    "Non-governmental organizations": "Негосударственные организации",
+    "Nuclear physics": "Ядерная физика",
+    "Oceania": "Океания",
+    "Operating systems": "Операционные системы",
+    "Optical instruments": "Оптические приборы",
+    "Optical technology": "Оптические технологии",
+    "Optics": "Оптика",
+    "Organelles and other cell parts": "Органеллы и части клетки",
+    "Organisms": "Организмы",
+    "Other": "Другое",
+    "Other eukaryotes": "Другие эукариоты",
+    "Other hydrologic features": "Другие водные объекты",
+    "Other religions": "Другие религии",
+    "Other visual arts": "Другие изобразительные искусства",
+    "Others": "Другие",
+    "Parks and preserves": "Парки и заповедники",
+    "Particle physics": "Физика элементарных частиц",
+    "Peninsulas": "Полуострова",
+    "Performing arts": "Исполнительские искусства",
+    "Philosophers": "Философы",
+    "Philosophers, historians, political and social scientists": "Философы, историки, политологи и социологи",
+    "Philosophical branches, approaches and concepts": "Разделы, подходы и понятия философии",
+    "Philosophical schools and traditions": "Философские школы и традиции",
+    "Philosophy": "Философия",
+    "Philosophy by region and period": "Философия по регионам и эпохам",
+    "Physical cosmology": "Космология",
+    "Physical geography": "Физическая география",
+    "Physics": "Физика",
+    "Planetary science": "Планетология",
+    "Plant anatomy": "Анатомия растений",
+    "Plant cells": "Клетки растений",
+    "Plant reproduction": "Размножение растений",
+    "Plants": "Растения",
+    "Political writers": "Политические писатели",
+    "Politicians and leaders": "Политики и правители",
+    "Politics": "Политика",
+    "Politics and government": "Политика и государство",
+    "Popular music": "Популярная музыка",
+    "Post-classical": "Средние века",
+    "Pre-modern figures": "Деятели до Нового времени",
+    "Prehistory": "Доисторическая эпоха",
+    "Preparation and serving": "Приготовление и подача",
+    "Producers and executives": "Продюсеры и руководители",
+    "Programming": "Программирование",
+    "Programs": "Программы",
+    "Projectile weapons": "Метательное и стрелковое оружие",
+    "Prokaryotes": "Прокариоты",
+    "Psychologists": "Психологи",
+    "Psychology": "Психология",
+    "Psychology schools": "Школы психологии",
+    "Rebels, revolutionaries and activists": "Бунтари, революционеры и активисты",
+    "Regions and country subdivisions": "Регионы и административные единицы",
+    "Religion and spirituality": "Религия и духовность",
+    "Religious figures": "Религиозные деятели",
+    "Research methods": "Методы исследования",
+    "Residential and housing units": "Жилые помещения",
+    "Road transport": "Автомобильный транспорт",
+    "Rooms and spaces": "Комнаты и помещения",
+    "Science basics": "Основы науки",
+    "Scientists, inventors and mathematicians": "Учёные, изобретатели и математики",
+    "Separation processes": "Процессы разделения",
+    "Services and institutions": "Службы и учреждения",
+    "Social scientists": "Обществоведы",
+    "Social status": "Социальный статус",
+    "Societal adaptations": "Общественные адаптации",
+    "Society": "Общество",
+    "Society and social sciences": "Общество и общественные науки",
+    "Sociology": "Социология",
+    "Space": "Космос",
+    "Specific documents": "Документы",
+    "Specific films": "Фильмы",
+    "Specific languages": "Языки",
+    "Specific musical works": "Музыкальные произведения",
+    "Specific structures": "Сооружения",
+    "Specific television shows": "Телепередачи",
+    "Specific works": "Произведения",
+    "Specific works of fiction": "Художественные произведения",
+    "Specific works of nonfiction": "Документальные произведения",
+    "Specific works of poetry": "Поэтические произведения",
+    "Sports": "Спорт",
+    "Sports and recreation": "Спорт и отдых",
+    "Sports figures": "Спортсмены",
+    "Stages of life": "Этапы жизни",
+    "State structure and administration": "Государственное устройство и управление",
+    "Statistics and probability": "Статистика и теория вероятностей",
+    "Stellar astronomy": "Звёздная астрономия",
+    "Styles": "Стили",
+    "Subjects": "Темы",
+    "Superheroes": "Супергерои",
+    "Team sports": "Командные виды спорта",
+    "Techniques": "Техники",
+    "Technology": "Технологии",
+    "Television": "Телевидение",
+    "Textiles": "Текстиль",
+    "Thermodynamics": "Термодинамика",
+    "Timekeeping": "Измерение времени",
+    "Tools": "Инструменты",
+    "Trains": "Поезда",
+    "Transport": "Транспорт",
+    "Transportation": "Транспорт",
+    "Uncrewed spacecraft": "Беспилотные космические аппараты",
+    "United Nations organizations": "Организации ООН",
+    "Units of measurement": "Единицы измерения",
+    "Urban studies and planning": "Урбанистика и градостроительство",
+    "User interface": "Пользовательский интерфейс",
+    "Visual artists": "Художники",
+    "Visual arts": "Изобразительное искусство",
+    "War and military": "Война и армия",
+    "Warfare by type": "Виды военных действий",
+    "Wars by type": "Войны по видам",
+    "Water": "Вода",
+    "Waves": "Волны",
+    "Weapons of mass destruction": "Оружие массового поражения",
+    "Western art music": "Западная академическая музыка",
+    "Western folklore": "Западный фольклор",
+    "Western painters and illustrators": "Западные художники и иллюстраторы",
+    "Writers": "Писатели",
+    "Writing systems": "Системы письма",
+    "Zoology": "Зоология",
+})
 
 
 load()
