@@ -1098,6 +1098,50 @@ class PlacesTest(unittest.TestCase):
         self.assertTrue(any(x["type"] == "photo" for x in enc["attachments"]))
 
 
+class CompareTest(unittest.TestCase):
+    """«Сравни A и B», «чем отличается A от B», «что лучше A или B» — таблица по двум темам, а не готовый ответ про Python и PHP."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_parse_phrasings(self):
+        import compare
+        for text, pair in [("сравни python и javascript", ("python", "javascript")),
+                           ("чем отличается java от c++", ("java", "c++")),
+                           ("чем Марс отличается от Венеры?", ("Марс", "Венеры")),
+                           ("разница между Пушкиным и Лермонтовым", ("Пушкиным", "Лермонтовым")),
+                           ("что лучше кофе или чай", ("кофе", "чай")),
+                           ("python vs go", ("python", "go"))]:
+            self.assertEqual(compare.parse(text), pair, text)
+        self.assertIsNone(compare.parse("привет как дела"))
+        self.assertIsNone(compare.parse("сравни python и python"))
+
+    def test_languages_table(self):
+        r = self.brain.answer(SUN, "сравни python и javascript", session_id="c")
+        a = r["answer"]
+        self.assertEqual(r["intent"], "compare")
+        self.assertIn("| | **Python** | **JavaScript** |", a)
+        self.assertIn("| Появился | 1991 г. | 1995 г. |", a)
+        self.assertIn('print("Привет, мир!")', a)
+        self.assertNotIn("PHP", a)
+        self.assertIn("Python — боты, ИИ;", a)  # чем отличаются, а не «оба — сайты»
+        a = self.brain.answer(SUN, "чем отличается java от c++", session_id="c")["answer"]
+        self.assertIn("**Java** | **C++**", a)
+
+    def test_unknown_pair_falls_through(self):
+        import compare
+        self.assertIsNone(compare.answer("сравни флюмбрик и шмаргалку"))
+
+    def test_lifespan_question_is_not_days_calculator(self):
+        r = self.brain.answer(SUN, "сколько лет прожил Гагарин", session_id="c")
+        self.assertNotIn("дн", r["answer"][:40])
+        self.assertNotEqual(r["intent"], "tool")
+
+
 class SightTest(unittest.TestCase):
     """Зрение Rai: что на картинке (понятия от модели CLIP в браузере) — ответ движка и вместе с текстом."""
 

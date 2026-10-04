@@ -1137,6 +1137,9 @@ def chinese(text, low, s):
 def days_lived(text, low, s):
     if not re.search(r"прожил|прожила|сколько\s+мне\s+дней|мой\s+возраст\s+в\s+дн", low):
         return None
+    # «сколько лет прожил Гагарин» — это про другого человека, а не про вас
+    if not re.search(r"\b(?:я|мне|меня|мой|моя)\b|\d", low):
+        return None
     parsed = skills._parse_date(low, skills._now())
     if not parsed or not parsed[1]:
         return "Напишите дату рождения полностью: «сколько дней я прожил, если родился 5 мая 2008»."

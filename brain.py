@@ -18,6 +18,7 @@ from collections import OrderedDict
 
 import codeai
 import codelib
+import compare
 import creative
 import net
 import nlp
@@ -401,6 +402,12 @@ class Brain:
                     return found[0], "meme"
             return ("Этого мема пока нет в моей базе. Спросите иначе («что за мем …» с точным названием) "
                     "или включите нейросеть — она поищет и объяснит."), "meme"
+
+        # ---- «сравни Python и JavaScript», «чем отличается Марс от Венеры», «что лучше кофе или чай» — таблица
+        if not codeai.is_build_request(text):
+            compared = compare.answer(text)
+            if compared:
+                return compared, "compare"
 
         # ---- город, посёлок, деревня: население, достопримечательности, фото, погода, местное время
         place_req = places.kind(text) if not codeai.is_build_request(text) else None
