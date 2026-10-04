@@ -124,6 +124,21 @@ test("черновик для сотрудника", async () => {
   assert.ok(!r.reply.includes("Позвать администратора"));
 });
 
+test("Rai (rai.rteam.info) и тема тикета", async () => {
+  const opts = { sitePages: [] };
+  for (const [q, id] of [["rai не отвечает", "rai_help"], ["как войти в раи через google", "rai_account"], ["что такое rai", "rai_about"],
+    ["нейросеть rai не загружается", "rai_neuro"], ["rai сделай презентацию", "rai_slides"], ["как запустить python в rai code", "rai_code"]]) {
+    assert.strictEqual((await Rai.reply(q, opts)).intent, id, q);
+  }
+  // короткий вопрос понятен по теме тикета, а «спасибо» и «можно закрывать» тема не перебивает
+  assert.strictEqual((await Rai.reply("как сделать презентацию", Object.assign({ topic: "Rai: Слайды" }, opts))).intent, "rai_slides");
+  assert.strictEqual((await Rai.reply("не загружается", Object.assign({ topic: "Rai: нейросеть" }, opts))).intent, "rai_neuro");
+  assert.strictEqual((await Rai.reply("спасибо", Object.assign({ topic: "Rai: Code" }, opts))).intent, "thanks");
+  const r = await Rai.reply("всё решилось, можно закрывать", Object.assign({ topic: "Rai: Code" }, opts));
+  assert.ok(r.close);
+  assert.strictEqual((await Rai.reply("не работает кнопка", Object.assign({ topic: "Багги" }, opts))).intent, "bugs");
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

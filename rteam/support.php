@@ -342,8 +342,17 @@ $topics = [
     "Тех вопрос Rteamvisuals"   => ["🛠️", "Тех. вопрос Rteamvisuals", "Как что-то сделать"],
     "Багги/Ошибки Rteamvisuals" => ["🎨", "Ошибки Rteamvisuals", "Баги в Rteamvisuals"],
     "Вопросы по Дневнику"       => ["📒", "Дневник", "Электронный журнал школы"],
+    // Rai — ИИ-ассистент на rai.rteam.info
+    "Rai: ответы и ошибки"      => ["🤖", "Rai: ответы и ошибки", "Не отвечает, ошибается, не грузится"],
+    "Rai: аккаунт и чаты"       => ["👤", "Rai: аккаунт и чаты", "Вход, Google, пропали чаты"],
+    "Rai: нейросеть"            => ["🧠", "Rai: нейросеть", "Модели Qwen в браузере"],
+    "Rai: Code"                 => ["💻", "Rai Code", "Запуск и проверка кода"],
+    "Rai: Слайды"               => ["📽️", "Rai: Слайды", "Презентации, PowerPoint"],
+    "AI Studio"                 => ["🎛️", "AI Studio", "Сайты в aistudio.rteam.info"],
     "other"                     => ["✏️", "Другое", "Своя тема"],
 ];
+/* Перед какими темами показать заголовок группы */
+$topic_groups = ["Багги" => "RTeam · rteam.info", "Rai: ответы и ошибки" => "Rai · rai.rteam.info", "other" => ""];
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -548,6 +557,8 @@ label.lbl { display: block; font-size: 12.5px; color: var(--soft); margin: 16px 
 .new-wrap .sub { color: var(--muted); margin: 0 0 6px; }
 .topics { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 .topic { position: relative; }
+.topics-head { grid-column: 1 / -1; margin: 6px 0 -2px; color: var(--muted); font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.topics-head:first-child { margin-top: 0; }
 .topic input { position: absolute; opacity: 0; pointer-events: none; }
 .topic > span { display: flex; gap: 11px; align-items: center; height: 100%; padding: 12px 13px; border-radius: 13px; cursor: pointer; border: 1px solid var(--line); background: rgba(255,255,255,.03); transition: border-color .15s, background .15s; }
 .topic > span:hover { border-color: var(--line-2); background: rgba(255,255,255,.05); }
@@ -664,6 +675,7 @@ label.lbl { display: block; font-size: 12.5px; color: var(--soft); margin: 16px 
                 <label class="lbl">Тема</label>
                 <div class="topics">
                     <?php $sel = (string)($_POST["topic"] ?? ($_GET["topic"] ?? "")); /* помощник Rai открывает форму с темой и текстом */ foreach ($topics as $val => [$ico, $name, $hint]): ?>
+                    <?php if (isset($topic_groups[$val]) && $topic_groups[$val] !== ""): ?><div class="topics-head"><?=htmlspecialchars($topic_groups[$val])?></div><?php endif; ?>
                     <label class="topic"><input type="radio" name="topic" value="<?=htmlspecialchars($val)?>" <?= $sel === $val ? "checked" : "" ?> required onchange="toggleTopic()">
                         <span><em><?=$ico?></em><span><b><?=htmlspecialchars($name)?></b><small><?=htmlspecialchars($hint)?></small></span></span></label>
                     <?php endforeach; ?>

@@ -276,7 +276,13 @@
   "payment": "Подписка или платёж",
   "appeal": "Апеляция Rteamvisuals",
   "visuals": "Тех вопрос Rteamvisuals",
-  "diary": "Вопросы по Дневнику"
+  "diary": "Вопросы по Дневнику",
+  "rai_help": "Rai: ответы и ошибки",
+  "rai_about": "Rai: ответы и ошибки",
+  "rai_account": "Rai: аккаунт и чаты",
+  "rai_neuro": "Rai: нейросеть",
+  "rai_code": "Rai: Code",
+  "rai_slides": "Rai: Слайды"
  },
  "guides": {
   "apply": [

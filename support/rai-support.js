@@ -304,6 +304,13 @@
           }
         }
       }
+      // Тема тикета подсказывает, о чём вопрос: «как сделать презентацию» в теме «Rai: Слайды» — про Слайды в Rai
+      const topic = String(opts.topic || "").trim();
+      const keep = ["thanks", "greeting", "close_ticket", "human", "secret"].includes(pred[0].id) && pred[0].p >= CONFIDENT;
+      if (topic && topic !== "other" && !keep && (["other", "bugs"].includes(pred[0].id) || pred[0].p < 0.75)) {
+        const p3 = m.predict(topic + " " + text, 3);
+        if (p3[0].id !== "other" && p3[0].p >= CONFIDENT && (["other", "bugs"].includes(pred[0].id) || p3[0].p > pred[0].p)) { pred = p3; used = topic + " " + text; }
+      }
       const best = pred[0], it = m.intent(best.id);
       const sure = best.p >= CONFIDENT;
 
