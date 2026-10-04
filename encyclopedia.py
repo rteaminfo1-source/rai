@@ -377,4 +377,274 @@ def popular(text):
             "\n".join(rows) + "\n\nСпросите про любую: «расскажи о …».")
 
 
+# ------------------------------------------------------------------ вопросы: когда, где, сколько, почему, как
+# «Когда родился Гагарин», «сколько лет прожил Пушкин», «где родился Наполеон», «какой высоты Эверест»,
+# «почему Луна светит», «как работает интернет», «чем знаменит Тесла» — точный ответ из статьи о теме:
+# даты жизни разбираются, а в остальном выбирается предложение, которое отвечает именно на этот вопрос.
+_Q_RE = re.compile(
+    r"^\s*(?:а\s+|и\s+|слушай,?\s+|скажи,?\s+|подскажи,?\s+|не\s+знаешь,?\s+|интересно,?\s+)?(?P<w>"
+    r"когда|в\s+каком\s+(?:году|веке)|где|откуда|"
+    r"сколько|какой\s+(?:высоты|длины|глубины|площади|величины|массы|ширины|толщины|возраст)|"
+    r"какова?\s+(?:высота|длина|глубина|площадь|масса|население|температура|ширина|скорость|численность)|"
+    r"какое\s+(?:население|расстояние)|"
+    r"почему|зачем|отчего|для\s+чего|"
+    r"как\s+(?:работает|работают|устроен[аоы]?|появил\w*|образ\w*|возник\w*|действует|получа\w*|умер\w*|погиб\w*)|"
+    r"кем\s+(?:был|была|были|было|является|работал\w*)|чем\s+(?:знаменит\w*|известен|известна|известно|известны|прославил\w*))"
+    r"\b\s*(?P<rest>.*?)[\s?!.]*$", re.I)
+_SENT_RE = re.compile(r"(?<=[.!?])(?<![\s(][А-ЯЁA-Z]\.)(?<!\sг\.)(?<!\sвв\.)(?<!\sгг\.)\s+(?=[А-ЯЁA-Z«\"(])")
+_CAUSE_RE = re.compile(r"\b(?:потому|поскольку|так\s+как|из-за|вследствие|благодаря|поэтому|причин\w*|в\s+результате|"
+                       r"объясняется|связан\w*\s+с|за\s+сч[её]т|чтобы|для\s+того)\b", re.I)
+_UNIT_RE = re.compile(r"\d[\d\s,.]*\s*(?:м|км|метр\w*|километр\w*|чел\w*|жител\w*|кг|тонн\w*|т|°|градус\w*|%|млн|млрд|тыс\w*|"
+                      r"км²|км2|кв\.|га|лет|год\w*|световых|а\.\s*е\.|км/[чс]|м/с)\b", re.I)
+_MONTH_GEN = "|".join(_MONTHS)
+_DATE_PART_RE = re.compile(r"^(?P<date>(?:около\s+|ок\.\s+)?(?:\d{1,2}\s+(?:" + _MONTH_GEN + r")\s*(?:\[[^\]]*\]\s*)?)?\d{3,4}(?:\s*\[[^\]]*\])?"
+                           r"(?:\s*(?:года|г\.|до\s+н\.\s*э\.))?)\s*(?:,\s*(?P<place>.+))?$", re.I)
+_MEASURE = {"высот": ("высот", "высок", "метр", " м"), "длин": ("длин", "протяж", "км"), "глубин": ("глубин",),
+            "площад": ("площад", "км²", "км2"), "насел": ("насел", "жител", "чел"), "жител": ("насел", "жител", "чел"),
+            "масс": ("масс", "вес", "кг", "тонн"), "температур": ("температур", "°", "градус"), "скорост": ("скорост", "км/", "м/с"),
+            "расстоян": ("расстоян", "км", "световых"), "численност": ("численност", "насел", "чел"), "возраст": ("возраст", "лет")}
+
+
+def _mentions(query, limit=2, kind=None):
+    """Темы, названные в тексте (сначала длинные названия): [(номер темы, слова из текста)].
+    kind="who" — при равных названиях предпочитать человека («Пушкин» — поэт, а не город Пушкино)."""
+    if not _data:
+        return []
+    words, raw = _key(query), _words(query)
+    found, used = [], set()
+    for size in range(min(6, len(words)), 0, -1):
+        for i in range(len(words) - size + 1):
+            if any(j in used for j in range(i, i + size)):
+                continue
+            hit = _best(tuple(words[i:i + size]), tuple(raw[i:i + size]), kind)
+            if hit and (size > 1 or hit[0] <= 1) and nlp.stem(raw[i]) not in nlp.GENERIC:
+                if all(n != hit[1] for n, _ in found):
+                    found.append((hit[1], set(raw[i:i + size])))
+                    used.update(range(i, i + size))
+            if len(found) >= limit:
+                return found
+    return found
+
+
+def _sentences(text):
+    return [x.strip() for x in _SENT_RE.split(text or "") if x.strip()]
+
+
+def _top_parens(text):
+    """Первые скобки после названия — там у людей даты и места жизни (вложенные скобки убираем)."""
+    start = text.find("(")
+    if start < 0 or start > 160:
+        return None
+    depth, out = 0, []
+    for ch in text[start:]:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        elif depth == 1:
+            out.append(ch)
+    return re.sub(r"\s+([,)])", r"\1", re.sub(r"\s{2,}", " ", "".join(out))).strip()
+
+
+def _parse_date(s):
+    """«26 мая [6 июня] 1799» → (1799, 6, 6, «6 июня 1799 (26 мая по старому стилю)»); «1452» → (1452, None, None, «1452»)."""
+    s = re.sub(r"\s*(?:года|г\.)$", "", s.strip())
+    m = re.match(r"^(?:около\s+|ок\.\s+)?(\d{1,2})\s+(\w+)\s*\[(\d{1,2})\s+(\w+)(?:\s+(\d{3,4}))?\]\s*(\d{3,4})?(?:\s*\[(\d{3,4})\])?$", s)
+    if m:
+        d_old, m_old, d_new, m_new, y_in, y_out, y_br = m.groups()
+        y_new = int(y_in or y_br or y_out)
+        if m_new in _MONTHS:
+            text = f"{d_new} {m_new} {y_new} (по старому стилю — {d_old} {m_old})"
+            return y_new, _MONTHS.index(m_new) + 1, int(d_new), text
+    m = re.match(r"^(?:около\s+|ок\.\s+)?(?:(\d{1,2})\s+(\w+)\s+)?(\d{3,4})(\s+до\s+н\.\s*э\.)?$", s)
+    if not m:
+        return None
+    d, mon, y, bc = m.groups()
+    if mon and mon not in _MONTHS:
+        return None
+    text = f"{d} {mon} {y}" if mon else y
+    if bc:
+        return -int(y), None, None, text + " до н. э."
+    return int(y), (_MONTHS.index(mon) + 1 if mon else None), (int(d) if d else None), text
+
+
+def life(title_or_text):
+    """Даты жизни человека из начала статьи: {"born", "born_place", "died", "died_place", "age", "alive"} или None."""
+    inner = _top_parens(title_or_text)
+    if not inner:
+        return None
+    inner = re.sub(r"^(?:[^;]*?;\s*)?", "", inner) if ";" in inner.split("—")[0] else inner  # «англ. Isaac Newton; 25 декабря…»
+    alive = bool(re.match(r"^род\.\s*", inner))
+    inner = re.sub(r"^род\.\s*", "", inner)
+    parts = [p.strip() for p in re.split(r"\s+—\s+|\s+–\s+", inner)]
+    born = _DATE_PART_RE.match(parts[0]) if parts else None
+    if not born:
+        return None
+    b = _parse_date(born.group("date"))
+    if not b:
+        return None
+    out = {"born": b, "born_place": (born.group("place") or "").strip(" ,"), "died": None, "died_place": "", "alive": alive}
+    if len(parts) > 1 and not alive:
+        died = _DATE_PART_RE.match(parts[1])
+        if died:
+            out["died"] = _parse_date(died.group("date"))
+            out["died_place"] = (died.group("place") or "").strip(" ,")
+    end = out["died"]
+    if not end and alive:
+        t = datetime.date.today()
+        end = (t.year, t.month, t.day, "")
+    if end and b[0] > 0 and end[0] > 0:
+        age = end[0] - b[0]
+        if b[1] and end[1] and (end[1], end[2] or 1) < (b[1], b[2] or 1):
+            age -= 1
+        out["age"] = age if (b[1] and end[1]) else f"{age - 1}–{age}"
+    else:
+        out["age"] = None
+    return out
+
+
+def _years(n):
+    if isinstance(n, str):
+        return n + " лет"
+    tail = "лет" if 11 <= n % 100 <= 14 else {1: "год", 2: "года", 3: "года", 4: "года"}.get(n % 10, "лет")
+    return f"{n} {tail}"
+
+
+def _short_name(title):
+    if _PERSON_RE.match(title):
+        base = re.sub(r"\s*\([^)]*\)$", "", title)
+        last, first = [x.strip() for x in base.split(",", 1)]
+        return f"{first.split()[0]} {last}"
+    return re.sub(r"\s*\([^)]*\)$", "", title)
+
+
+def _life_answer(word, rest, t):
+    """Ответ про даты жизни: когда родился/умер, где родился/умер, сколько лет прожил / сколько лет сейчас."""
+    info = life(t["text"])
+    if not info:
+        return None
+    name = _short_name(t["title"])
+    low = rest.lower()
+    died_q = re.search(r"\b(?:умер|умерла|погиб|погибла|скончал\w*|не\s+стало|смерт)", low) or re.match(r"как\s+(?:умер|погиб)", word)
+    born_q = re.search(r"\b(?:родил\w*|рожд|появил\w*\s+на\s+свет)", low)
+    age_q = re.match(r"сколько", word) and re.search(r"\b(?:лет|год)", low)
+    if age_q:
+        if info["age"] is None:
+            return None
+        if info["alive"]:
+            return f"**{name}** родил{_fem(t, 'ась', 'ся')} {info['born'][3]} — сейчас {_fem(t, 'ей', 'ему')} **{_years(info['age'])}**."
+        return (f"**{name}** прожил{_fem(t)} **{_years(info['age'])}**: {info['born'][3]} — {info['died'][3]}."
+                if info["died"] else None)
+    if word.startswith("когда") or word.startswith("в каком"):
+        if died_q:
+            if info["alive"]:
+                return f"{name} жив{_fem(t, 'а')} — родил{_fem(t, 'ась', 'ся')} {info['born'][3]}."
+            return f"**{name}** умер{_fem(t)} **{info['died'][3]}**" + (f" ({info['died_place']})." if info["died_place"] else ".") if info["died"] else None
+        if born_q or not rest.strip():
+            return f"**{name}** родил{_fem(t, 'ась', 'ся')} **{info['born'][3]}**" + (f" ({info['born_place']})." if info["born_place"] else ".")
+        return None
+    if word in ("где", "откуда"):
+        if died_q and info["died_place"]:
+            return f"Место смерти — **{info['died_place']}** ({name}, {info['died'][3]})."
+        if (born_q or word == "откуда") and info["born_place"]:
+            return f"Место рождения — **{info['born_place']}** ({name}, {info['born'][3]})."
+    return None
+
+
+def _fem(t, fem="а", masc=""):
+    """Окончание по полу: в описании женщины первое слово — «русская», «советская», «американская»…"""
+    first = (t.get("desc") or "").split(" ", 1)[0]
+    return fem if re.fullmatch(r"\w+(?:ая|яя)", first) else masc
+
+
+def _score(sentence, kind, content, measure, idx):
+    low = sentence.lower()
+    stems = {nlp.stem(w) for w in re.findall(r"[а-яёa-z0-9]+", low)}
+    s = len(content & stems) * 2.0
+    if kind == "when":
+        s += 2.5 if re.search(r"\b(?:1[0-9]{3}|20[0-9]{2}|[1-9][0-9]{2})\b|\b[IVX]+\s+век", sentence) else 0
+        s += 1 if re.search(_MONTH_GEN, low) else 0
+    elif kind == "num":
+        s += 2 if re.search(r"\d", sentence) else 0
+        s += 1.5 if _UNIT_RE.search(sentence) else 0
+        if measure:
+            s += 3 if any(m in low for m in measure) else -2
+    elif kind == "where":
+        s += 2 if re.search(r"\b(?:располож\w*|находит\w*|расположен\w*|протека\w*|в\s+[А-ЯЁ]\w+|на\s+[А-ЯЁ]\w+|"
+                            r"столиц\w*|страны|материк\w*|континент\w*|океан\w*|регион\w*)", sentence) else 0
+    elif kind == "why":
+        s += 3 if _CAUSE_RE.search(sentence) else 0
+    elif kind in ("how", "who"):
+        s += 2 if idx == 0 else 0
+    return s - idx * 0.15
+
+
+def _kind(word):
+    w = word.lower()
+    if w.startswith(("когда", "в каком")):
+        return "when"
+    if w in ("где", "откуда"):
+        return "where"
+    if w.startswith(("сколько", "какой", "какова", "каков", "какое")):
+        return "num"
+    if w in ("почему", "зачем", "отчего", "для чего"):
+        return "why"
+    if w.startswith("как"):
+        return "how"
+    return "who"
+
+
+def question(text):
+    """Ответ на вопрос о теме энциклопедии: {"text", "photo", "title"} или None (тогда отвечает кто-то другой)."""
+    if not _data:
+        return None
+    m = _Q_RE.match(text or "")
+    if not m or not m.group("rest").strip():
+        return None
+    word, rest = re.sub(r"\s+", " ", m.group("w").lower()), m.group("rest")
+    about_life = bool(re.search(r"\b(?:родил\w*|рожд\w*|умер\w*|погиб\w*|скончал\w*|прожил\w*|жил|жила)\b", rest, re.I)
+                      or re.match(r"кем|чем|как\s+(?:умер|погиб)", word))
+    hits = _mentions(rest, limit=1, kind="who" if about_life or word.startswith("сколько") else None)
+    if not hits:
+        return None
+    n, topic_words = hits[0]
+    t = _item(n)
+    kind = _kind(word)
+    answer = life_answer = _life_answer(word, rest, t) if _is_person(n) else None
+    if not answer and about_life and not re.match(r"кем|чем", word):
+        return None              # «когда умер …» не про человека или без дат — не выдумываем
+    if not answer:
+        # кем был / как умер у человека без дат — не отвечаем общим текстом
+        content = {nlp.stem(w) for w in _words(rest) if w not in topic_words} - nlp.GENERIC - nlp.FILLER - {nlp.stem(w) for w in nlp.STOPWORDS}
+        content -= {nlp.stem(w) for w in ("было", "была", "был", "есть", "это", "всего", "примерно", "лет", "год")} if kind != "num" else set()
+        measure = None
+        for key, signs in _MEASURE.items():
+            if key in word or any(nlp.stem(w).startswith(key) for w in _words(rest)):
+                measure = signs
+                break
+        if kind == "num" and not measure and not content:
+            return None
+        sents = _sentences(t["text"])
+        if not sents:
+            return None
+        ranked = sorted(((_score(x, kind, content, measure, i), i) for i, x in enumerate(sents)), reverse=True)
+        best, i = ranked[0]
+        need = {"when": 2.5, "num": 3.5, "where": 2.0, "why": 3.0, "how": 1.5, "who": 1.5}[kind]
+        if best < need:
+            return None
+        if kind in ("how", "who"):
+            answer = " ".join(sents[:2])
+        else:
+            answer = sents[i]
+            name = _short_name(t["title"])
+            if i and not set(_key(name)) & set(_key(answer)):   # «Высота — 8848 м.» — добавим, о чём речь
+                answer = f"**{name}:** {answer}"
+    url = page_url(t["title"])
+    photo = {"url": t["image"], "title": t["title"], "source": url} if t["image"] else None
+    body = f"{answer}\n\n📚 Из статьи «{t['title']}» · [Википедия]({url}) (CC BY-SA)"
+    return {"text": body, "photo": photo, "title": t["title"], "life": bool(life_answer)}
+
+
 load()

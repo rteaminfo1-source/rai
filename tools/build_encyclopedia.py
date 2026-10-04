@@ -92,6 +92,26 @@ EXTRA = [
 ]
 
 MAX_TEXT = 420
+# Время на сборку: Википедия иногда сильно замедляет ответы (429, maxlag). Когда время подходит к концу,
+# оставшиеся пачки пропускаются и сохраняется то, что собрано, — лучше 13 000 тем сегодня, чем ничего.
+START = time.monotonic()
+BUDGET = float(os.environ.get("RAI_BUILD_MINUTES", "100")) * 60
+DAYS_LIMIT = 15 * 60           # «этот день в истории» — не дольше 15 минут, остальное — из прошлой сборки
+_warned = set()
+
+
+def time_left():
+    return BUDGET - (time.monotonic() - START)
+
+
+def out_of_time(stage, reserve):
+    """Пора остановить этап (оставив reserve секунд на следующие)? Сообщает об этом один раз."""
+    if time_left() > reserve:
+        return False
+    if stage not in _warned:
+        _warned.add(stage)
+        log(f"  время на исходе ({int((time.monotonic() - START) // 60)} мин) — {stage}: пропускаю оставшееся")
+    return True
 
 
 def log(*a):
@@ -371,14 +391,21 @@ def _valid(m, d):
         return False
 
 
-def on_this_day():
-    """«Этот день в истории»: {"ММ-ДД": [[год, событие], …]} на все 366 дней (русская Википедия)."""
+def on_this_day(previous=None):
+    """«Этот день в истории»: {"ММ-ДД": [[год, событие], …]} на все 366 дней (русская Википедия).
+    Дни, которые не успели загрузиться, берутся из прошлой сборки (previous)."""
     days = {}
     dates = [(m, d) for m in range(1, 13) for d in range(1, 32) if _valid(m, d)]
     if rest("https://api.wikimedia.org/feed/v1/wikipedia/ru/onthisday/events/01/01") is None:
         log("  «этот день в истории» недоступен на русском")
-        return {}
-    feeds = pmap(lambda md: rest(f"https://api.wikimedia.org/feed/v1/wikipedia/ru/onthisday/events/{md[0]:02d}/{md[1]:02d}"), dates)
+        return dict(previous or {})
+    t0 = time.monotonic()
+
+    def fetch(md):
+        if time.monotonic() - t0 > DAYS_LIMIT or out_of_time("этот день", BUDGET * 0.6):
+            return None
+        return rest(f"https://api.wikimedia.org/feed/v1/wikipedia/ru/onthisday/events/{md[0]:02d}/{md[1]:02d}")
+    feeds = pmap(fetch, dates)
     for (month, day), data in zip(dates, feeds):
         events = []
         for ev in (data or {}).get("events", []):
@@ -386,9 +413,12 @@ def on_this_day():
             if ev.get("year") and 15 <= len(text) <= 300:
                 events.append([ev["year"], text])
         events.sort(key=lambda e: -e[0])
+        key = f"{month:02d}-{day:02d}"
         if events:
-            days[f"{month:02d}-{day:02d}"] = events[:12]
-    log("событий по дням:", sum(len(v) for v in days.values()))
+            days[key] = events[:12]
+        elif (previous or {}).get(key):
+            days[key] = previous[key]
+    log("событий по дням:", sum(len(v) for v in days.values()), f"(загрузка {int(time.monotonic() - t0)} с)")
     return days
 
 
@@ -458,8 +488,10 @@ def ru_pages(titles):
 
     def fetch(item):
         n, batch = item
+        if out_of_time("тексты статей", 6 * 60):   # 6 минут — на описания из Wikidata и сохранение
+            return []
         if n % 100 == 0:
-            log("  тексты статей:", n * 20, "из", len(titles))
+            log("  тексты статей:", n * 20, "из", len(titles), f"({int((time.monotonic() - START) // 60)} мин)")
         try:
             return list(query_all(RU, {"prop": "extracts|pageprops|pageimages|langlinkscount", "exintro": 1, "explaintext": 1, "exlimit": 20,
                                        "ppprop": "wikibase_item", "piprop": "name", "pilicense": "free", "pilimit": 20,
@@ -492,6 +524,8 @@ def wikidata(qids):
     out = {}
 
     def fetch(batch):
+        if out_of_time("описания Wikidata", 90):
+            return {}
         try:
             return get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "descriptions|aliases", "languages": "ru"}, tries=8)
         except Exception as e:
@@ -506,7 +540,7 @@ def wikidata(qids):
 
 
 # ------------------------------------------------------------------ сборка
-def build(limit=None):
+def build(limit=None, previous=None):
     topics = vital_articles()
     if limit:
         topics = topics[:limit]
@@ -524,7 +558,7 @@ def build(limit=None):
             titles = search_category(root, n)
             log(SPACE_SECTION, "/", cat + ":", len(titles))
             wanted += [(SPACE_SECTION, cat, t) for t in titles]
-        days = on_this_day()
+        days = on_this_day((previous or {}).get("days"))
         for cat, query in EXTRA:
             try:
                 titles = sparql_ru(query)
@@ -579,7 +613,14 @@ def main():
     parser.add_argument("-o", "--output", default=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "encyclopedia.json"))
     parser.add_argument("--limit", type=int, help="только первые N тем (для проверки)")
     args = parser.parse_args()
-    data = build(args.limit)
+    previous = None
+    if os.path.exists(args.output):        # прошлая сборка — запас для того, что сегодня не успело загрузиться
+        try:
+            with open(args.output, encoding="utf-8") as f:
+                previous = json.load(f)
+        except ValueError:
+            previous = None
+    data = build(args.limit, previous)
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     log("Готово:", len(data["items"]), "тем,", len(data["cats"]), "подразделов →", args.output,

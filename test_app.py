@@ -1142,6 +1142,100 @@ class CompareTest(unittest.TestCase):
         self.assertNotEqual(r["intent"], "tool")
 
 
+class QuestionTest(unittest.TestCase):
+    """Вопросы о темах энциклопедии: даты жизни, «какой высоты», «почему», «как работает» — точный ответ из статьи."""
+
+    DATA = {"sections": ["Люди", "География", "Технологии"], "cats": [[0, "Люди"], [1, "Места"], [2, "Техника"]], "items": [
+        ["Гагарин, Юрий Алексеевич", "советский космонавт", 0,
+         "Юрий Алексеевич Гагарин (9 марта 1934, Клушино, Гжатский (ныне Гагаринский) район, Западная область — 27 марта 1968, "
+         "возле села Новосёлово) — советский космонавт и военный лётчик, первый человек, совершивший космический полёт.", [], 200, ""],
+        ["Пушкино", "город в России", 1, "Пушкино — город в России. Население — 112 807 чел.", [], 50, ""],
+        ["Пушкин, Александр Сергеевич", "русский поэт", 0, "Александр Сергеевич Пушкин (26 мая [6 июня] 1799, Москва — "
+         "29 января [10 февраля] 1837, Санкт-Петербург) — русский поэт, драматург и прозаик.", [], 150, ""],
+        ["Ахматова, Анна Андреевна", "русская поэтесса", 0, "Анна Андреевна Ахматова (11 июня 1889, Одесса — 5 марта 1966, Домодедово) — "
+         "русская поэтесса, переводчица и литературовед.", [], 100, ""],
+        ["Путин, Владимир Владимирович", "российский государственный деятель", 0, "Владимир Владимирович Путин (род. 7 октября 1952, "
+         "Ленинград) — российский государственный и политический деятель.", [], 300, ""],
+        ["Эверест", "высочайшая гора Земли", 1, "Эверест (Джомолунгма) — высочайшая вершина Земли. Высота над уровнем моря — 8848,86 м. "
+         "Расположен в Гималаях, на границе Непала и Китая.", [], 150, ""],
+        ["Интернет", "всемирная система компьютерных сетей", 2, "Интернет — всемирная система объединённых компьютерных сетей для хранения "
+         "и передачи информации. Работает на основе стека протоколов TCP/IP.", [], 200, ""],
+        ["Небо", "пространство над Землёй", 1, "Небо — пространство над поверхностью Земли. Днём небо голубое из-за рассеяния "
+         "солнечного света в атмосфере.", [], 120, ""],
+    ]}
+
+    def setUp(self):
+        import encyclopedia
+        self.enc = encyclopedia
+        self.saved = (encyclopedia._data, encyclopedia._index)
+        encyclopedia.load(data=self.DATA)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+
+    def tearDown(self):
+        self.enc._data, self.enc._index = self.saved
+        self.tmp.cleanup()
+
+    def q(self, text):
+        r = self.enc.question(text)
+        return r["text"].split("\n\n📚")[0] if r else None
+
+    def test_life_dates(self):
+        self.assertEqual(self.q("когда родился Гагарин"), "**Юрий Гагарин** родился **9 марта 1934** (Клушино, Гжатский район, Западная область).")
+        self.assertEqual(self.q("сколько лет прожил Гагарин"), "**Юрий Гагарин** прожил **34 года**: 9 марта 1934 — 27 марта 1968.")
+        self.assertEqual(self.q("где родился Гагарин"), "Место рождения — **Клушино, Гжатский район, Западная область** (Юрий Гагарин, 9 марта 1934).")
+        self.assertIn("**Анна Ахматова** родилась **11 июня 1889**", self.q("когда родилась Ахматова"))
+        # «Пушкин» в вопросе о жизни — поэт, а не город Пушкино; дата по новому стилю
+        self.assertEqual(self.q("когда умер Пушкин"), "**Александр Пушкин** умер **10 февраля 1837 (по старому стилю — 29 января)** (Санкт-Петербург).")
+        self.assertIn("прожил **37 лет**", self.q("сколько лет прожил Пушкин"))
+
+    def test_age_of_living_person(self):
+        import datetime
+        t = datetime.date.today()
+        age = t.year - 1952 - ((t.month, t.day) < (10, 7))
+        a = self.q("сколько лет Путину")
+        self.assertTrue(a.startswith("**Владимир Путин** родился 7 октября 1952 — сейчас ему **"), a)
+        self.assertIn(f"**{age} ", a)
+
+    def test_best_sentence(self):
+        self.assertEqual(self.q("какой высоты Эверест"), "**Эверест:** Высота над уровнем моря — 8848,86 м.")
+        self.assertIn("из-за рассеяния солнечного света", self.q("почему небо голубое"))
+        self.assertTrue(self.q("как работает интернет").startswith("Интернет — всемирная система"))
+        self.assertIn("Гималаях", self.q("где находится Эверест") or self.q("где расположен Эверест"))
+
+    def test_no_guessing(self):
+        self.assertIsNone(self.q("когда умер Эверест"))            # не человек — не выдумываем
+        self.assertIsNone(self.q("почему Эверест"))                # нет предложения-причины
+        self.assertIsNone(self.q("сколько стоит флюмбрик"))
+        self.assertIsNone(self.q("привет"))
+
+    def test_brain_routing(self):
+        r = self.brain.answer(SUN, "как работает интернет", session_id="q")
+        self.assertEqual(r["intent"], "encyclopedia")       # а не «как искать ошибку в коде»
+        r = self.brain.answer(SUN, "когда родился Гагарин", session_id="q")
+        self.assertIn("9 марта 1934", r["answer"])           # день рождения, а не дата полёта из справочника
+        self.assertEqual(self.brain.answer(SUN, "почему не работает код", session_id="q")["intent"], "debug")
+        self.assertEqual(self.brain.answer(SUN, "сколько тебе лет", session_id="q")["intent"], "bot_age")
+        self.assertIn("Нового года", self.brain.answer(SUN, "когда новый год", session_id="q")["answer"])
+
+    def test_compare_people(self):
+        import compare
+        a = compare.answer("сравни Пушкина и Ахматову")
+        self.assertIn("| | **Александр Пушкин** | **Анна Ахматова** |", a)
+        self.assertNotIn("Пушкино", a)
+
+    def test_builder_keeps_old_days_when_slow(self):
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+        import build_encyclopedia as b
+        with mock.patch.object(b, "rest", lambda url, tries=4: {"events": []}), mock.patch.object(b, "DAYS_LIMIT", -1):
+            days = b.on_this_day({"02-03": [[1999, "Событие из прошлой сборки."]]})
+        self.assertEqual(days["02-03"], [[1999, "Событие из прошлой сборки."]])
+        with mock.patch.object(b, "BUDGET", 0):
+            self.assertEqual(b.ru_pages(["Москва"]), {})
+            self.assertEqual(b.wikidata(["Q649"]), {})
+
+
 class SightTest(unittest.TestCase):
     """Зрение Rai: что на картинке (понятия от модели CLIP в браузере) — ответ движка и вместе с текстом."""
 

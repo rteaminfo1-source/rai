@@ -459,6 +459,12 @@ class Brain:
             if converted:
                 return converted, "skill"
 
+        # ---- даты жизни: «когда родился Гагарин» — день рождения, а не дата полёта из справочника
+        if not codeai.is_build_request(text):
+            asked = encyclopedia.question(text)
+            if asked and asked.get("life"):
+                return self._known(asked, attachments), "encyclopedia"
+
         # ---- 100+ точных функций: математика, деньги, здоровье, время, текст, справочник, игры (toolbox, facts, games)
         if not codeai.is_build_request(text) and not online.explicit_search(text):  # «найди …» — это интернет
             reply, cat = toolbox.find(text, play)
@@ -537,6 +543,11 @@ class Brain:
 
         results = self.search(version, text)
         best = results[0][1] if results else 0.0
+        # Вопрос о теме энциклопедии: «когда родился Гагарин», «какой высоты Эверест», «как работает интернет».
+        # Готовая тема из базы знаний важнее, только если она про то же самое (а не «как работает» → отладка кода).
+        asked = None if code_answer else encyclopedia.question(text)
+        if asked and not (best >= version.threshold and self._about(results[0][0], asked["title"])):
+            return self._known(asked, attachments), "encyclopedia"
 
         if version.memory:
             fact, score = self._find_fact(text, session)
@@ -592,6 +603,12 @@ class Brain:
         if art["image"]:
             attachments.append({"type": "photo", "url": art["image"], "title": art["title"], "source": art["link"]})
         return answer + "\n\n**Из интернета:** " + " ".join(extra) + (f"\n\nИсточник: [Википедия]({art['link']})" if art["link"] else "")
+
+    def _about(self, intent_id, title):
+        """Тема базы знаний говорит о том же, что статья энциклопедии (есть общее значимое слово)?"""
+        name = re.sub(r"\s*\([^)]*\)$", "", title)
+        words = set(nlp.tokens(name)) - nlp.GENERIC
+        return bool(words & self.intent_tokens.get(intent_id, set()))
 
     @staticmethod
     def _known(found, attachments):

@@ -69,10 +69,18 @@ def _first(text):
 
 def _topics(a, b, question):
     ta, tb = encyclopedia.lookup(a), encyclopedia.lookup(b)
-    if not ta or not tb or ta["title"] == tb["title"]:
+    if not ta or not tb:
         return None
-    name = lambda t: re.sub(r"\s*\([^)]*\)$", "", re.sub(r"^(.+?), (.+)$", r"\2 \1", t["title"]) if encyclopedia._PERSON_RE.match(t["title"]) else t["title"])
-    na, nb = name(ta), name(tb)
+    # Сравнивают людей — и вторую тему ищем среди людей: «Пушкина и Лермонтова» — поэт, а не город Пушкино
+    person = lambda t: bool(encyclopedia._PERSON_RE.match(t["title"]))
+    if person(ta) != person(tb):
+        if person(ta):
+            tb = encyclopedia.lookup(b, "who") or tb
+        else:
+            ta = encyclopedia.lookup(a, "who") or ta
+    if ta["title"] == tb["title"]:
+        return None
+    na, nb = encyclopedia._short_name(ta["title"]), encyclopedia._short_name(tb["title"])
     cap = lambda s: (s[:1].upper() + s[1:]) if s else "—"
     rows = [("Что это", cap(ta["desc"]), cap(tb["desc"])),
             ("Коротко", _first(ta["text"]), _first(tb["text"])),
