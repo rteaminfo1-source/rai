@@ -4,7 +4,7 @@ require __DIR__ . '/config.php';
 $user = require_user();
 $name = $user['username'];
 $csrf = csrf_token();
-$chat = RAI_URL;  // Rai с rai.rteam.info прямо в студии
+$chat = rtrim(RAI_URL, '/') . '/chat.html';  // сам чат Rai с rai.rteam.info прямо в студии (а не главная с тарифами)
 $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
 ?>
 <!DOCTYPE html>
@@ -15,12 +15,13 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
 <title>Студия — AI Studio Rteam</title>
 <meta name="csrf" content="<?= h($csrf) ?>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Onest:wght@400;500;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Onest:wght@400;500;600;700&family=JetBrains+Mono&display=swap">
+<meta name="theme-color" content="#07070b">
 <?php include __DIR__ . '/assets/style.php'; ?>
 </head>
-<body>
+<body class="studio-page">
 <header class="topbar">
-  <a class="brand" href="studio.php">AI <span>Studio</span></a>
+  <a class="brand" href="studio.php"><i>✦</i>AI <span>Studio</span></a>
   <nav>
     <a href="<?= h(RAI_URL) ?>">Rai — основной ИИ</a>
     <a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
@@ -60,7 +61,7 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
       <div class="row"><button class="btn" id="genBtn" type="button">Создать сайт</button></div>
       <label class="field" for="edit">Что изменить?</label>
       <div class="row">
-        <input id="edit" class="field" style="flex:1;min-width:200px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)"
+        <input id="edit" class="input" style="flex:1;min-width:200px"
                placeholder="добавь раздел цены · сделай синим · переименуй в «…» · измени раздел о нас на: …">
         <button class="btn ghost" id="editBtn" type="button">Изменить</button>
       </div>
@@ -85,8 +86,7 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
       <p class="muted" style="margin:0">Ключ даёт доступ к ИИ студии из ваших программ: создать, изменить и опубликовать сайт.
         Храните его в секрете; ключ показывается один раз.</p>
       <div class="row">
-        <input id="keyLabel" placeholder="Название ключа (необязательно)" maxlength="40"
-               style="flex:1;min-width:180px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
+        <input id="keyLabel" class="input" placeholder="Название ключа (необязательно)" maxlength="40" style="flex:1;min-width:180px">
         <button class="btn" id="keyBtn" type="button">Получить API-ключ</button>
       </div>
       <div id="newKey" class="newkey" hidden></div>
@@ -109,7 +109,7 @@ curl "<?= h(STUDIO_URL) ?>/api.php?a=site" -H "Authorization: Bearer ВАШ_КЛ
   </div>
 
   <aside class="panel chat" aria-label="Чат Rai">
-    <div class="head"><h2>Чат Rai</h2><a href="<?= h(RAI_URL) ?>" target="_blank" rel="noopener">Открыть отдельно</a></div>
+    <div class="head"><h2>Чат Rai</h2><a href="<?= h($chat) ?>" target="_blank" rel="noopener">Открыть отдельно ↗</a></div>
     <iframe src="<?= h($chat) ?>" title="Чат Rai" allow="microphone; clipboard-read; clipboard-write; fullscreen" loading="lazy"></iframe>
   </aside>
 </main>

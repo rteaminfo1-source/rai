@@ -1,4 +1,4 @@
-<?php /* Стили страниц входа и кабинета Rai (чёрно-красные). Подключается в страницы через include. */ ?>
+<?php /* Стили страниц входа, кабинета и оплаты Rai — как на главной rai.rteam.info. Подключается через include. */ ?>
 <style>
 /* Rteam — чёрно-красный стиль, как у Rai и AI Studio */
 :root {
@@ -147,4 +147,82 @@ tr.top td:first-child { color: var(--gold); }
   main { padding: 20px 16px 36px; }
 }
 @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
+
+/* ================= Оформление как на главной: тёмный фон со светящимися пятнами и сеткой, градиент,
+   стеклянные карточки, круглые кнопки. Слой поверх базовых стилей выше. ================= */
+:root {
+  --bg: #07070b; --panel: rgba(255,255,255,.035); --panel-2: rgba(255,255,255,.06); --line: rgba(255,255,255,.09); --line-2: rgba(255,255,255,.16);
+  --fg: #f5f5f7; --muted: #a1a1b0; --red: #ff2d2d; --red-hi: #ff3d81; --red-soft: rgba(255,61,129,.1); --ok: #3ddc97;
+  --grad: linear-gradient(120deg, #ff2d2d 0%, #ff3d81 45%, #8b5cff 100%); --ease: cubic-bezier(.2,.8,.2,1);
+}
+body { background: var(--bg); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+body::before { content: ""; position: fixed; inset: -20%; z-index: -2; pointer-events: none;
+  background: radial-gradient(520px circle at 8% 4%, rgba(255,45,45,.30), transparent 60%),
+              radial-gradient(520px circle at 96% 18%, rgba(139,92,255,.26), transparent 60%),
+              radial-gradient(460px circle at 40% 104%, rgba(255,61,129,.18), transparent 60%);
+  filter: blur(20px); animation: drift 24s ease-in-out infinite alternate; }
+body::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .5;
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 30%, transparent 75%); mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 30%, transparent 75%); }
+@keyframes drift { to { transform: translate(40px, 30px) scale(1.06); } }
+a { color: var(--red-hi); }
+:focus-visible { outline-color: var(--red-hi); outline-offset: 3px; }
+.topbar { position: sticky; top: 0; z-index: 50; padding: 14px max(16px, calc((100% - 1120px) / 2)); background: rgba(7,7,11,.72);
+  backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); }
+.brand { display: flex; align-items: center; gap: 0; color: var(--fg); letter-spacing: -.02em; }
+.brand::before { content: "R"; margin-right: 10px; width: 34px; height: 34px; border-radius: 10px; background: var(--grad); display: grid; place-items: center; font-size: 18px; color: #fff; box-shadow: 0 6px 24px rgba(255,45,45,.45); }
+.brand span { color: var(--fg); }
+.topbar nav { gap: 6px; }
+.topbar nav a:not(.btn):not(.me) { padding: 8px 14px; border-radius: 999px; color: var(--muted); transition: color .2s, background .2s; }
+.topbar nav a:not(.btn):not(.me):hover { color: var(--fg); background: var(--panel-2); }
+.me { padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--fg) !important; font-weight: 600; font-size: 14px; }
+.ava { background: var(--grad); color: #fff; }
+.btn { border: 0; border-radius: 999px; padding: 12px 22px; background: var(--grad); background-size: 160% auto; color: #fff !important;
+  box-shadow: 0 10px 34px -10px rgba(255,45,45,.65); transition: transform .25s var(--ease), background-position .25s, box-shadow .25s; }
+.btn:hover { background: var(--grad); background-size: 160% auto; background-position: right center; transform: translateY(-2px); box-shadow: 0 16px 44px -10px rgba(255,61,129,.75); }
+.btn.small { padding: 8px 16px; }
+.btn.ghost, .btn.danger { background: var(--panel); border: 1px solid var(--line-2); box-shadow: none; }
+.btn.ghost:hover { background: var(--panel-2); border-color: rgba(255,255,255,.28); }
+.btn.danger { color: #ff6b8b !important; border-color: rgba(255,61,129,.45); }
+.btn.danger:hover { background: rgba(255,61,129,.14); }
+.btn.google { background: #fff; box-shadow: none; }
+.btn.google:hover { background: #ececec; }
+.panel, .card, .hero-art { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.panel:hover, .card:hover { border-color: var(--line-2); }
+.card:hover { transform: translateY(-4px); }
+.card .tag, .pay .tag { border-radius: 999px; border-color: rgba(255,61,129,.35); background: rgba(255,61,129,.1); color: var(--red-hi); }
+.card .go { color: var(--red-hi); }
+.auth .panel { position: relative; background: rgba(13,13,20,.9); border: 0; box-shadow: 0 40px 120px -30px rgba(255,45,45,.45); }
+.auth .panel::before { content: ""; position: absolute; inset: -1px; z-index: -1; border-radius: 23px; padding: 1px;
+  background: conic-gradient(from var(--a, 0deg), rgba(255,45,45,.9), rgba(139,92,255,.6), rgba(255,61,129,.9), rgba(255,255,255,.08) 70%, rgba(255,45,45,.9));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: spin 8s linear infinite; }
+@property --a { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+@keyframes spin { to { --a: 360deg; } }
+.tabs { background: rgba(0,0,0,.35); border-radius: 999px; }
+.tabs a { border-radius: 999px; }
+.tabs a[aria-selected="true"] { background: var(--grad); color: #fff; }
+.field input { border-radius: 14px; border: 1px solid var(--line-2); background: rgba(0,0,0,.35); padding: 12px 14px; transition: border-color .2s, box-shadow .2s; }
+.field input:focus { border-color: var(--red-hi); box-shadow: 0 0 0 4px rgba(255,61,129,.15); }
+.error { color: #ff6b8b; }
+.table-scroll { border-radius: 16px; background: var(--panel); }
+th { background: var(--panel-2); color: var(--red-hi); border-bottom: 1px solid var(--line-2); }
+tr.top td { background: linear-gradient(90deg, rgba(255,61,129,.14), transparent); }
+.plan-box { background: radial-gradient(120% 140% at 100% 0%, rgba(255,61,129,.18), transparent 60%), var(--panel); }
+.meter { background: rgba(0,0,0,.4); }
+.meter i { background: var(--grad); }
+.periods a { border-radius: 16px; background: rgba(0,0,0,.3); }
+.periods a[aria-checked="true"] { border-color: var(--red-hi); background: rgba(255,61,129,.1); }
+.result-icon { background: var(--grad); }
+.foot { padding: 22px max(16px, calc((100% - 1120px) / 2)); color: #6f6f80; }
+.foot a { text-decoration: none; }
+.foot a:hover { color: var(--fg); }
+@media (max-width: 860px) {
+  /* меню в шапке — одной строкой, листается пальцем */
+  .topbar { gap: 10px; }
+  .topbar nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -16px; padding: 0 16px 2px; width: calc(100% + 32px); }
+  .topbar nav::-webkit-scrollbar { display: none; }
+  .topbar nav > * { flex: none; }
+}
+@media (prefers-reduced-motion: reduce) { body::before, .auth .panel::before { animation: none; } }
 </style>

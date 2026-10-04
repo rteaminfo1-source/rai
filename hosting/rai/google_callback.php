@@ -9,7 +9,7 @@ if (!isset($_GET['code']) && !isset($_GET['error'])) {
     header('Cache-Control: no-store');
     ?><!DOCTYPE html>
 <html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Вход через Google…</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b0c;color:#f3f1f1;font:16px system-ui,sans-serif}</style></head>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07070b;color:#f5f5f7;font:16px system-ui,sans-serif}</style></head>
 <body><p>Входим через Google…</p>
 <script>
 (function () {

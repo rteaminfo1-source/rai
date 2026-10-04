@@ -18,12 +18,13 @@ $error = $errors[$_GET['error'] ?? ''] ?? null;
 <title>AI Studio Rteam</title>
 <meta name="description" content="Опишите сайт словами — ИИ соберёт его и опубликует. API-ключи и хостинг для проектов Rteam.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Onest:wght@400;500;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Onest:wght@400;500;600;700&family=JetBrains+Mono&display=swap">
+<meta name="theme-color" content="#07070b">
 <?php include __DIR__ . '/assets/style.php'; ?>
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="index.php">AI <span>Studio</span></a>
+  <a class="brand" href="index.php"><i>✦</i>AI <span>Studio</span></a>
   <nav>
     <a href="<?= h(RAI_URL) ?>">Rai — основной ИИ</a>
     <a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
@@ -32,24 +33,25 @@ $error = $errors[$_GET['error'] ?? ''] ?? null;
 
 <main class="landing">
   <section>
-    <h1>Опишите сайт — <span>ИИ</span> его соберёт</h1>
-    <p class="lead">AI Studio от Rteam: напишите словами, какой сайт нужен, и ИИ студии создаст его, поправит по вашим
+    <span class="badge fade"><b>ИИ</b> Сайт по описанию — за минуту</span>
+    <h1 class="fade d1">Опишите сайт — <span class="grad-text">ИИ</span> его соберёт</h1>
+    <p class="lead fade d2">AI Studio от Rteam: напишите словами, какой сайт нужен, и ИИ студии создаст его, поправит по вашим
       просьбам и опубликует по адресу <span class="mono">aistudio.rteam.info/sites/ваше-имя/</span>.</p>
-    <ol class="steps">
+    <ol class="steps fade d3">
       <li>Войдите аккаунтом Rai — логин станет адресом вашего сайта.</li>
       <li>Напишите, например: «сайт кофейни «Зерно» в тёмных тонах с меню, отзывами и контактами».</li>
       <li>Попросите поправить: «добавь раздел цены», «сделай синим», «переименуй в …».</li>
       <li>Нажмите «Опубликовать». Нужен API — получите ключ в студии.</li>
     </ol>
-    <p class="muted">Вопросы задавайте основному ИИ — <a href="<?= h(RAI_URL) ?>">Rai</a>, он встроен и в студию.
+    <p class="muted fade d3">Вопросы задавайте основному ИИ — <a href="<?= h(RAI_URL) ?>">Rai</a>, он встроен и в студию.
       Исходный код — на <a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>.</p>
   </section>
 
-  <section class="panel sso" aria-label="Вход">
+  <section class="panel sso fade d2" aria-label="Вход">
     <h2>Вход в студию</h2>
     <p class="muted" style="margin:0">Один аккаунт для Rai и AI Studio. Логин аккаунта станет адресом вашего сайта.</p>
     <?php if ($error): ?><p class="error"><?= h($error) ?></p><?php endif; ?>
-    <a class="btn" href="sso_start.php">Войти через аккаунт Rai</a>
+    <a class="btn" href="sso_start.php">Войти через аккаунт Rai →</a>
     <a class="btn ghost" href="<?= h(ACCOUNT_URL) ?>/login.php?tab=register">Создать аккаунт в Rai</a>
     <p class="muted" style="margin:0;font-size:13px">Можно войти и через Google — на странице входа Rai.</p>
   </section>

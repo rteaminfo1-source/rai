@@ -7,7 +7,7 @@ require __DIR__ . '/config.php';
 require __DIR__ . '/app.php';
 
 $os = (string)($_GET['os'] ?? '');
-if (!isset(APP_FILES[$os])) redirect('./#download');
+if (!isset(APP_FILES[$os])) redirect('./');
 
 if (!rate_limited('dl:' . client_ip(), 30, 3600)) {
     update_json('downloads.json', function (&$d) use ($os) {

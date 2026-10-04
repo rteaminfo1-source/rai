@@ -1718,7 +1718,7 @@ class HostingTest(unittest.TestCase):
                         fh.write(body)
                 self.assertEqual(post("download.php?os=win", opener=raw)[2]["Location"], "app/Rai-Setup.exe")
                 self.assertEqual(post("download.php?os=mac", opener=raw)[2]["Location"], "app/Rai-mac-arm64.zip")  # нет .dmg — .zip
-                self.assertEqual(post("download.php?os=../config", opener=raw)[2]["Location"], "./#download")
+                self.assertEqual(post("download.php?os=../config", opener=raw)[2]["Location"], "./")
                 home = get("index.php")
                 self.assertIn("Версия 1.0.7", home)
                 self.assertIn("3 МБ", home)

@@ -17,7 +17,7 @@ const fs = require("fs");
 
 const SITE = process.env.RAI_SITE || "https://rai.rteam.info";
 const START = SITE + "/chat.html";
-const DOWNLOAD_PAGE = SITE + "/#download";
+const DOWNLOAD_PAGE = SITE + "/";
 const RELEASES = "https://github.com/rteaminfo1-source/rai/releases/latest";
 const OFFLINE_DIR = app.isPackaged ? path.join(process.resourcesPath, "offline") : path.join(__dirname, "offline");
 const ICON = path.join(__dirname, "build", "icon.png");
