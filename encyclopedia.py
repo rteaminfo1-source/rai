@@ -7,6 +7,7 @@
 """
 
 import json
+import math
 import os
 import random
 import re
@@ -38,12 +39,35 @@ _SECTION_RE = re.compile(r"(?:темы|статьи|список)\s+(?:из\s+)?
 _NOISE = {nlp.stem(w) for w in "пожалуйста подробно подробнее кратко коротко вкратце немного вообще мне нам такое такой это".split()}
 
 _data = None          # {"sections", "cats", "items"}
-_index = {}           # (основы слов) → (приоритет, номер темы)
+_index = {}           # (основы слов) → [(приоритет, номер темы, слова названия без изменений)]
 _loaded_from = None
+
+# Окончания для имён и названий: «Менделеева/Менделеевым» → «менделеев», «Великой французской революции» →
+# «велик французск революц». Общий стеммер nlp режет фамилии непоследовательно («менделеев» → «менделе»).
+_ENDS = sorted("""иями ями ами ыми ими ием ией иях иям ого его ому ему ая яя ое ее ые ие ых их ый ий ой ей ою ею
+                  ым им ом ем ам ям ах ях ую юю ия ию ии а я у ю е о ы и ь й""".split(), key=len, reverse=True)
+_ROMAN = {"i": "перв", "ii": "втор", "iii": "трет", "iv": "четверт", "v": "пят", "vi": "шест", "vii": "седьм",
+          "viii": "восьм", "ix": "девят", "x": "десят", "xi": "одиннадцат", "xii": "двенадцат"}
+_PERSON_RE = re.compile(r"^[^,()]+,\s*[^,()]+(?:\s*\([^)]*\))?$")
+
+
+def _norm(word):
+    if word in _ROMAN:
+        return _ROMAN[word]
+    if len(word) <= 3 or not re.fullmatch(r"[а-я]+", word):
+        return word
+    for end in _ENDS:
+        if word.endswith(end) and len(word) - len(end) >= 3:
+            return word[:-len(end)]
+    return word
+
+
+def _words(text):
+    return tuple(nlp.normalize(text).split())
 
 
 def _key(text):
-    return tuple(nlp.stem(w) for w in nlp.normalize(text).split())
+    return tuple(_norm(w) for w in _words(text))
 
 
 def _names(title, aliases):
@@ -59,8 +83,8 @@ def _names(title, aliases):
         yield f"{first} {last}", 1
         parts = first.split()
         if len(parts) >= 2:
-            yield f"{parts[0]} {last}", 2
-        yield last, 3
+            yield f"{parts[0]} {last}", 1
+        yield last, 1          # просто фамилия: из однофамильцев победит самый известный
     for a in aliases:
         yield a, 2
 
@@ -80,11 +104,11 @@ def load(data=None, path=None):
         title, aliases = item[0], item[4] if len(item) > 4 else []
         for name, prio in _names(title, aliases):
             key = _key(name)
-            if not key or (len(key) == 1 and (len(key[0]) < 3 or key[0] in nlp.STOPWORDS or key[0] in nlp.GENERIC)):
+            if not key or (len(key) == 1 and (len(key[0]) < 3 or key[0] in nlp.STOPWORDS or nlp.stem(key[0]) in nlp.GENERIC)):
                 continue
-            old = index.get(key)
-            if old is None or prio < old[0]:
-                index[key] = (prio, i)
+            cands = index.setdefault(key, [])
+            if not any(c[1] == i for c in cands):
+                cands.append((prio, i, _words(name)))
     _data, _index = data, index
     return len(data.get("items", []))
 
@@ -99,23 +123,53 @@ def _item(i):
     return {"title": title, "desc": desc, "section": _data["sections"][section_no], "cat": cat_name, "text": text}
 
 
-def lookup(subject):
-    """Тема по названию в любом падеже: «Пушкине», «великой французской революции». None — нет такой."""
+def _is_person(i):
+    return bool(_PERSON_RE.match(_data["items"][i][0]))
+
+
+def _best(key, raw, kind=None):
+    """Лучшая тема для ключа: точная форма слов, кто/что, известность (в скольких Википедиях есть статья)."""
+    cands = _index.get(key)
+    if not cands:
+        return None
+
+    def score(c):
+        prio, i, words = c
+        item = _data["items"][i]
+        pop = item[5] if len(item) > 5 else 0
+        s = prio - 2 * math.log10(pop + 1)
+        if words == raw:
+            s -= 1                       # «Пушкин» — точно поэт, а не «Пушкино»
+        if kind == "who":
+            s += -2 if _is_person(i) else 1
+        elif kind == "what":
+            s += 1 if _is_person(i) else 0
+        return s
+    return min(cands, key=score)
+
+
+def lookup(subject, kind=None):
+    """Тема по названию в любом падеже: «Пушкине», «великой французской революции». None — нет такой.
+    kind: "who" — спрашивают про человека, "what" — про предмет или место."""
     if not _data:
         return None
+    raw = _words(subject)
     words = _key(subject)
     if not words:
         return None
-    variants = [words, tuple(w for w in words if w not in _NOISE)]
-    for v in variants:
-        if v in _index:
-            return _item(_index[v][1])
-    # Одно лишнее слово по краям: «расскажи о Пушкине поэте», «столица Франция Париж» — нет; только если тема длинная
-    core = variants[1]
-    if len(core) >= 3:
-        for v in (core[:-1], core[1:]):
-            if v in _index and _index[v][0] <= 1:
-                return _item(_index[v][1])
+    keep = [j for j, w in enumerate(words) if nlp.stem(raw[j]) not in _NOISE]
+    variants = [(words, raw), (tuple(words[j] for j in keep), tuple(raw[j] for j in keep))]
+    for key, r in variants:
+        hit = _best(key, r, kind)
+        if hit:
+            return _item(hit[1])
+    # Одно лишнее слово по краям длинного названия: «расскажи о великой французской революции 1789»
+    key, r = variants[1]
+    if len(key) >= 3:
+        for k2, r2 in ((key[:-1], r[:-1]), (key[1:], r[1:])):
+            hit = _best(k2, r2, kind)
+            if hit and hit[0] <= 1:
+                return _item(hit[1])
     return None
 
 
@@ -165,14 +219,14 @@ def context(query, limit=2):
     """Темы, которые упомянуты в вопросе, — подсказка для нейросети: [{"title", "text", "url"}]."""
     if not _data:
         return []
-    words = [w for w in _key(query)]
+    words, raw = _key(query), _words(query)
     found, used = [], set()
     for size in range(min(6, len(words)), 0, -1):          # сначала длинные названия: «великая французская революция»
         for i in range(len(words) - size + 1):
             if any(j in used for j in range(i, i + size)):
                 continue
-            hit = _index.get(tuple(words[i:i + size]))
-            if hit and (size > 1 or hit[0] <= 1) and words[i] not in nlp.GENERIC:
+            hit = _best(tuple(words[i:i + size]), tuple(raw[i:i + size]))
+            if hit and (size > 1 or hit[0] <= 1) and nlp.stem(raw[i]) not in nlp.GENERIC:
                 t = _item(hit[1])
                 if all(t["title"] != f["title"] for f in found):
                     url = "https://ru.wikipedia.org/wiki/" + urllib.parse.quote(t["title"].replace(" ", "_"))
@@ -199,7 +253,9 @@ def answer(text, explicit_only=False):
     m = _ASK_RE.match(text)
     subject = next((g for g in m.groups() if g), None) if m else None
     if subject:
-        t = lookup(subject)
+        low = text.lower()
+        kind = "who" if re.search(r"\bкто\b", low) else ("what" if re.search(r"\bчто\s+(?:такое|это|за)\b|\bгде\b", low) else None)
+        t = lookup(subject, kind)
         return _render(t) if t else None
     if explicit_only:
         return None
