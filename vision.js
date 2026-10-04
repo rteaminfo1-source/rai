@@ -9,8 +9,10 @@
   "use strict";
 
   const TF_VERSION = "4.3.0";
-  const TF_FILE = "dist/transformers.web.min.js";
+  // Полная сборка: onnxruntime внутри (в «web»-сборке он подключается по имени — так умеет только сборщик кода)
+  const TF_FILE = "dist/transformers.min.js";
   const TF_CDN = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TF_VERSION}/${TF_FILE}`;
+  const TF_ESM = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TF_VERSION}/+esm`;  // запасной: jsdelivr сам связывает модули
   const MODEL = "Xenova/clip-vit-base-patch32";
 
   let lib = null, processor = null, model = null, vocab = null, loading = null;
@@ -37,7 +39,10 @@
       const data = await readVocab();
       const mirror = window.RAI_AI && window.RAI_AI.pathInfo ? window.RAI_AI.root : null;
       const fromSite = mirror ? `${mirror}/npm/@huggingface/transformers@${TF_VERSION}/${TF_FILE}` : null;
-      try { lib = await import(fromSite || TF_CDN); } catch (e) { if (!fromSite) throw e; lib = await import(TF_CDN); }
+      for (const url of [fromSite, TF_CDN, TF_ESM].filter(Boolean)) {
+        try { lib = await import(url); if (lib && lib.AutoProcessor) break; } catch (e) { lib = null; console.warn("Зрение Rai:", url, e && e.message); }
+      }
+      if (!lib || !lib.AutoProcessor) throw new Error("библиотека зрения не загрузилась");
       lib.env.allowLocalModels = false;
       if (mirror) lib.env.remoteHost = mirror + "/hf/";
       const progress = (p) => {
