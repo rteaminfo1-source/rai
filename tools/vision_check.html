@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Проверка зрения Rai в настоящем браузере (workflow «Проверка зрения»): vision.js + модель CLIP + vision_labels.json -->
+<meta charset="utf-8">
+<script>window.RAI_VISION_URL = "../vision_labels.json";</script>
+<script src="../vision.js"></script>
+<script>
+async function asDataUrl(url) {
+  const blob = await (await fetch(url)).blob();
+  return await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
+}
+window.check = async (titles) => {
+  const out = [];
+  for (const title of titles) {
+    const page = await (await fetch("https://ru.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(title))).json();
+    const src = page.thumbnail && page.thumbnail.source;
+    if (!src) { out.push({title: title, error: "нет картинки"}); continue; }
+    const t0 = performance.now();
+    const seen = await window.RaiVision.look(await asDataUrl(src), (s) => console.log(s));
+    out.push({title: title, ms: Math.round(performance.now() - t0), labels: seen.labels.slice(0, 5).map((l) => l.ru + " " + Math.round(l.p * 100) + "%"),
+              colors: seen.colors.map((c) => c.name), tone: seen.tone, light: seen.light});
+  }
+  return out;
+};
+</script>

@@ -1,0 +1,28 @@
+# Проверка зрения Rai в настоящем Chrome: vision.js + модель CLIP (transformers.js) + vision_labels.json на фото из Википедии.
+name: Проверка зрения
+
+on:
+  push:
+    branches: [main, claude/peaceful-allen-c7nn4t]
+    paths:
+      - "vision.js"
+      - "vision_labels.json"
+      - "tools/vision_check.*"
+      - ".github/workflows/vision-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet playwright
+      - name: Что видит Rai
+        run: python tools/vision_check.py
