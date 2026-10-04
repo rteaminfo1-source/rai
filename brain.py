@@ -34,6 +34,7 @@ import games
 import fixer
 import encyclopedia
 import places
+import sight
 import webgen
 from versions import Version
 
@@ -795,6 +796,8 @@ class Brain:
         """Разобрать текст со скриншота: показать его и ответить на вопросы, задания, примеры и код."""
         question, _, raw = message.partition(SCREEN_MARK)
         question = question.strip()
+        raw, seen_data = sight.split(raw)  # что увидело «зрение» в браузере: небо, солнце, люди, животные…
+        seen = sight.describe(seen_data, question) if seen_data else None
         lines = []
         for line in raw.replace("\r", "").split("\n"):
             line = re.sub(r"[ \t]+", " ", line).strip(" |_~")
@@ -803,9 +806,11 @@ class Brain:
                 lines.append(line)
         text = "\n".join(lines).strip()
         if not text:
+            if seen:
+                return seen
             return ("На изображении не нашёл текста. Я читаю текст со скриншотов (русский и английский): вопросы, "
                     "задания, примеры, код. Попробуйте скриншот покрупнее или без размытия.")
-        out = ["## Текст со скриншота", "", "\n".join("> " + l for l in lines[:40])]
+        out = ([seen, ""] if seen else []) + ["## Текст со скриншота", "", "\n".join("> " + l for l in lines[:40])]
         if len(lines) > 40:
             out.append(f"> … ещё {len(lines) - 40} строк")
         low_q = question.lower()
