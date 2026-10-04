@@ -31,6 +31,26 @@
     return out;
   }
 
+  let libLoading = null;
+  /** Библиотека transformers.js (одна на зрение и расшифровку речи): с сайта Rai (ai.php) или с jsDelivr. */
+  function library() {
+    if (libLoading) return libLoading;
+    libLoading = (async () => {
+      const mirror = window.RAI_AI && window.RAI_AI.pathInfo ? window.RAI_AI.root : null;
+      const fromSite = mirror ? `${mirror}/npm/@huggingface/transformers@${TF_VERSION}/${TF_FILE}` : null;
+      let found = null;
+      for (const url of [fromSite, TF_CDN, TF_ESM].filter(Boolean)) {
+        try { found = await import(url); if (found && found.AutoProcessor) break; } catch (e) { found = null; console.warn("Rai:", url, e && e.message); }
+      }
+      if (!found || !found.AutoProcessor) throw new Error("библиотека нейросетей не загрузилась");
+      found.env.allowLocalModels = false;
+      if (mirror) found.env.remoteHost = mirror + "/hf/";
+      return found;
+    })();
+    libLoading.catch(() => { libLoading = null; });
+    return libLoading;
+  }
+
   /** Загрузить модель (один раз). onStep(текст) — для строки «Загружаю…». */
   function load(onStep) {
     if (loading) return loading;
@@ -38,13 +58,7 @@
       onStep && onStep("Загружаю зрение Rai…");
       const data = await readVocab();
       const mirror = window.RAI_AI && window.RAI_AI.pathInfo ? window.RAI_AI.root : null;
-      const fromSite = mirror ? `${mirror}/npm/@huggingface/transformers@${TF_VERSION}/${TF_FILE}` : null;
-      for (const url of [fromSite, TF_CDN, TF_ESM].filter(Boolean)) {
-        try { lib = await import(url); if (lib && lib.AutoProcessor) break; } catch (e) { lib = null; console.warn("Зрение Rai:", url, e && e.message); }
-      }
-      if (!lib || !lib.AutoProcessor) throw new Error("библиотека зрения не загрузилась");
-      lib.env.allowLocalModels = false;
-      if (mirror) lib.env.remoteHost = mirror + "/hf/";
+      lib = await library();
       const progress = (p) => {
         if (onStep && p && p.status === "progress" && /vision_model/.test(p.file || "")) onStep(`Загружаю зрение Rai… ${Math.round(p.progress || 0)}%`);
       };
@@ -158,5 +172,5 @@
     return out;
   }
 
-  window.RaiVision = {load: load, look: look, lookAll: lookAll, palette: palette, MODEL: MODEL, TF_CDN: TF_CDN};
+  window.RaiVision = {load: load, look: look, lookAll: lookAll, palette: palette, library: library, MODEL: MODEL, TF_CDN: TF_CDN};
 })();

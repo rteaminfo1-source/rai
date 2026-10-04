@@ -18,9 +18,10 @@ const AI_SOURCES = [
     'npm' => ['https://cdn.jsdelivr.net/npm/', [
         '#^@mlc-ai/web-llm@[0-9][\w.-]*/#', '#^@wllama/wllama@[0-9][\w.-]*/#', '#^pyodide@[0-9][\w.-]*/#',
         '#^tesseract\.js(-core)?@[0-9][\w.-]*/#', '#^@tesseract\.js-data/(rus|eng)/#', '#^pptxgenjs@[0-9][\w.-]*/#',
-        '#^@huggingface/transformers@[0-9][\w.-]*/#',  // зрение Rai (vision.js)
+        '#^@huggingface/transformers@[0-9][\w.-]*/#',  // зрение Rai (vision.js) и расшифровка речи (files.js)
+        '#^pdfjs-dist@[0-9][\w.-]*/build/#',              // чтение PDF (files.js)
     ]],
-    'hf' => ['https://huggingface.co/', ['#^mlc-ai/[\w.-]+/resolve/[\w.-]+/#', '#^Qwen/[\w.-]+/resolve/[\w.-]+/#', '#^unsloth/Qwen[\w.-]+/resolve/[\w.-]+/#', '#^Xenova/clip[\w.-]+/resolve/[\w.-]+/#']],
+    'hf' => ['https://huggingface.co/', ['#^mlc-ai/[\w.-]+/resolve/[\w.-]+/#', '#^Qwen/[\w.-]+/resolve/[\w.-]+/#', '#^unsloth/Qwen[\w.-]+/resolve/[\w.-]+/#', '#^Xenova/clip[\w.-]+/resolve/[\w.-]+/#', '#^Xenova/whisper[\w.-]+/resolve/[\w.-]+/#']],
     'gh' => ['https://raw.githubusercontent.com/', ['#^mlc-ai/binary-mlc-llm-libs/#']],
 ];
 define('AI_DIR', __DIR__ . '/data/ai');

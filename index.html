@@ -517,6 +517,14 @@
     color: #fff; background: linear-gradient(120deg, #ff2d2d, #ff3d81 45%, #8b5cff); }
   #input:disabled { opacity: .5; cursor: not-allowed; }
   .legal-mini { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .learn-mini { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .learn-mini button { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
+  .actions .rate { min-width: 34px; justify-content: center; filter: grayscale(1); opacity: .7; }
+  .actions .rate:hover, .actions .rate.on { filter: none; opacity: 1; }
+  .msg-files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-bottom: 6px; }
+  .msg-file { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 8px 12px; border-radius: 14px; font-size: 13px;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); overflow-wrap: anywhere; }
+  .msg-file small { color: var(--muted); }
   .sign-gate { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px;
     background: radial-gradient(600px circle at 20% 10%, rgba(255,45,45,.22), transparent 60%), radial-gradient(600px circle at 90% 90%, rgba(139,92,255,.22), transparent 60%), rgba(7,7,11,.86);
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
@@ -741,6 +749,7 @@
       <a class="app-link" id="appLink" href="https://rai.rteam.info/" target="_blank" rel="noopener">💻 Приложение для Windows, macOS и Linux</a>
       <script>if (window.RaiApp && window.RaiApp.isApp) document.getElementById("appLink").remove();  // уже в приложении</script>
       <span id="storeNote">Чаты и проекты Code хранятся в этом браузере.</span>
+      <span class="learn-mini" id="learnMini" hidden></span>
       <span class="legal-mini"><a href="https://rai.rteam.info/rules.php" target="_blank" rel="noopener">Правила</a> ·
         <a href="https://rai.rteam.info/terms.php" target="_blank" rel="noopener">Соглашение</a> ·
         <a href="https://rai.rteam.info/privacy.php" target="_blank" rel="noopener">Конфиденциальность</a></span></div>
@@ -796,7 +805,7 @@
       </div>
       <form id="form" autocomplete="off">
         <button id="attach" class="round side" type="button" aria-label="Прикрепить скриншот" title="Прикрепить скриншот или фото (можно вставить Ctrl+V)"><svg class="i"><use href="#i-clip"/></svg></button>
-        <input type="file" id="attachFile" accept="image/*" multiple hidden>
+        <input type="file" id="attachFile" multiple hidden>
         <button id="screenBtn" class="round side" type="button" aria-label="Снимок или запись экрана" aria-haspopup="menu" title="Снимок или запись экрана"><svg class="i"><use href="#i-screen"/></svg></button>
         <label for="input" hidden>Сообщение для Rai</label>
         <textarea id="input" rows="1" placeholder="Спросите Rai…"></textarea>
@@ -804,7 +813,7 @@
         <button id="mic" class="round" type="button" aria-label="Голосовой ввод" title="Голосовой ввод"><svg class="i"><use href="#i-mic"/></svg></button>
         <button id="send" class="round" type="submit" aria-label="Отправить" title="Отправить (Enter)"><svg class="i"><use href="#i-send"/></svg></button>
       </form>
-      <p class="hint">Enter — отправить, Shift+Enter — новая строка. Скрепка — скриншот (или Ctrl+V), экран — снимок и запись.</p>
+      <p class="hint">Enter — отправить, Shift+Enter — новая строка. Скрепка — любые файлы: документы, таблицы, PDF, код, архивы, звук, видео, картинки (или Ctrl+V), экран — снимок и запись.</p>
     </div>
     </section>
     <section id="codeView" aria-label="Code" hidden></section>
@@ -851,6 +860,7 @@
 <script src="slides.js"></script>
 <script src="screen.js"></script>
 <script src="vision.js"></script>
+<script src="files.js"></script>
 <script src="neuro.js"></script>
 <script src="pptx.js"></script>
 <script>
@@ -864,7 +874,7 @@
   if (params.get("py")) CFG.pyBase = params.get("py");
 
   const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
-                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "moderation.py", "brain.py", "knowledge.json", "glossary.json"];
+                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -1293,6 +1303,12 @@
         }
         wrap.append(shots);
       }
+      if (m.files && m.files.length) {
+        const list = document.createElement("div");
+        list.className = "msg-files";
+        list.innerHTML = m.files.map((f) => `<span class="msg-file"><b>${esc(f.icon || "📎")}</b>${esc(f.name)}<small>${esc(f.label || "")}${f.size ? " · " + esc(f.size) : ""}</small></span>`).join("");
+        wrap.append(list);
+      }
       const b = document.createElement("div");
       b.className = "bubble";
       b.textContent = m.text;
@@ -1316,7 +1332,10 @@
     acts.innerHTML = `<button class="icon-btn copy" type="button">${icon("copy")}Копировать</button>` +
       `<button class="icon-btn speak" type="button">${icon("speak")}Озвучить</button>` +
       (m.neuro ? `<button class="icon-btn regen" type="button" title="Нейросеть ответит ещё раз, по-другому">${icon("wand")}Ещё вариант</button>` : "") +
+      (m.q && !m.violation ? `<button class="icon-btn rate${m.rated === "up" ? " on" : ""}" data-v="up" type="button" title="Хороший ответ — Rai запомнит его">👍</button>` +
+        `<button class="icon-btn rate${m.rated === "down" ? " on" : ""}" data-v="down" type="button" title="Плохой ответ — Rai его забудет">👎</button>` : "") +
       (m.meta ? `<span class="meta">${esc(m.meta)}</span>` : "");
+    acts.querySelectorAll(".rate").forEach((b) => b.addEventListener("click", () => rate(m, b.dataset.v, acts)));
     const regen = acts.querySelector(".regen");
     if (regen) regen.addEventListener("click", () => regenerate(m));
     acts.querySelector(".copy").addEventListener("click", () => copyRich(m.text, bubble.innerHTML, bubble));
@@ -1984,6 +2003,24 @@ def rai_context(query, force=False):
     sources += [x for x in found["sources"] if x["url"] not in {y["url"] for y in sources}]
     return json.dumps({"text": text[:3200], "sources": sources[:6]}, ensure_ascii=False)
 
+def rai_learn(action, payload_json="null"):
+    """Самообучение: load — выученное из памяти браузера; answer/forget — запомнить или забыть ответ; doc — документ."""
+    import learning
+    data = json.loads(payload_json or "null") or {}
+    if action == "load":
+        learning.load(data)
+    elif action == "answer":
+        learning.add_answer(data.get("q", ""), data.get("a", ""), data.get("src", "neuro"))
+    elif action == "forget":
+        learning.forget(data.get("q", ""))
+    elif action == "doc":
+        learning.add_doc(data.get("name", ""), data.get("text", ""))
+    elif action == "forget_doc":
+        learning.forget_doc(data.get("name", ""))
+    elif action == "clear":
+        learning.load({})
+    return json.dumps({"stats": learning.stats(), "data": None if action == "load" else learning.export()}, ensure_ascii=False)
+
 def rai_moderate(text):
     """Правила Rai: нарушение ({"category", "label", "word", "answer"}) или null. Человеку в беде — не нарушение."""
     import moderation, talk
@@ -2009,6 +2046,7 @@ def rai_code(action, code, lang, prompt):
     const pySlides = pyodide.globals.get("rai_slides");
     const pyContext = pyodide.globals.get("rai_context");
     const pyModerate = pyodide.globals.get("rai_moderate");
+    const pyLearn = pyodide.globals.get("rai_learn");
     // посредник нашёлся позже или страница оказалась в окне просмотра — сообщаем Python на ходу
     netWatchers.push((attrs) => {
       const lines = Object.entries(attrs).map(([k, v]) => `net.${k} = ${typeof v === "boolean" ? (v ? "True" : "False") : JSON.stringify(v)}`);
@@ -2021,7 +2059,8 @@ def rai_code(action, code, lang, prompt):
       async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); },
       async slides(action, args) { return JSON.parse(pySlides(action, JSON.stringify(args || {}))); },
       async context(query, force) { return JSON.parse(pyContext(query, !!force)); },
-      async moderate(text) { return JSON.parse(pyModerate(text || "")); }
+      async moderate(text) { return JSON.parse(pyModerate(text || "")); },
+      async learn(action, payload) { return JSON.parse(pyLearn(action, JSON.stringify(payload === undefined ? null : payload))); }
     };
   }
 
@@ -2053,7 +2092,8 @@ def rai_code(action, code, lang, prompt):
     if (screen && screen.recording()) { toast("Сначала остановите запись экрана"); return; }
     if (recording && rec) rec.stop();
     const shots = hasShots ? screen.take() : [];
-    if (!text && shots.length) text = shots.some((x) => x.type === "video") ? "Разбери, что на записи экрана" : "Что на скриншоте? Ответь на вопросы";
+    if (!text && shots.length) text = shots.some((x) => x.type === "file") ? "Что в этом файле? Расскажи главное" :
+      shots.some((x) => x.type === "video") ? "Разбери, что на записи экрана" : "Что на скриншоте? Ответь на вопросы";
     busy = true;
     sendBtn.disabled = true;
     const chat = current();
@@ -2064,6 +2104,10 @@ def rai_code(action, code, lang, prompt):
     }
     const history = opts.regen ? historyOf({messages: chat.messages.slice(0, -1)}) : historyOf(chat);
     const userMsg = {role: "user", text: text};
+    const attached = shots.filter((x) => x.type === "file");
+    if (attached.length) {
+      userMsg.files = attached.map((f) => ({name: f.name, size: window.RaiFiles ? window.RaiFiles.size(f.size) : "", icon: fileIcon(f)}));
+    }
     if (shots.length) {
       userMsg.images = shots.filter((x) => x.type === "image").map((x) => x.thumb);
       const video = shots.find((x) => x.type === "video");
@@ -2095,22 +2139,40 @@ def rai_code(action, code, lang, prompt):
       if (broken) throw {violation: broken};
       await new Promise((r) => setTimeout(r, 40));  // успеть показать «печатает…»
       const t0 = performance.now();
-      let message = text, ocr = "", seen = [];
-      if (shots.length) {
+      let message = text, ocr = "", seen = [], fileInfos = [];
+      // Файлы любого типа: документы, таблицы, PDF, код, архивы, звук, видео — читаются прямо в браузере (files.js)
+      const pics = shots.filter((x) => x.type !== "file");
+      if (attached.length && window.RaiFiles) {
+        const bubble = pending.querySelector(".bubble");
+        for (const it of attached) {
+          bubble.textContent = `Читаю «${it.name}»…`;
+          let info;
+          try { info = await window.RaiFiles.read(it.file, (step) => { bubble.textContent = step; }); }
+          catch (e) { info = {name: it.name, size: it.size, kind: "binary", label: "файл", text: "", meta: {"ошибка чтения": e && e.message || "?"}}; }
+          for (const img of info.images || []) pics.push({type: "image", full: img});      // скан PDF — на распознавание текста
+          for (const img of info.frames || []) pics.push({type: "image", full: img, frame: true});  // кадры видео — зрению Rai
+          fileInfos.push(info);
+          if ((info.text || "").length >= 80 && !/^(binary|font|archive)$/.test(info.kind)) learnDoc(info.name, info.text);  // Rai запоминает документ
+        }
+        bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
+        message = text + "\n[[file]]\n" + JSON.stringify(fileInfos.map((f) => ({name: f.name, size: f.size, ext: f.ext, kind: f.kind, label: f.label,
+          lang: f.lang, meta: f.meta, text: (f.text || "").slice(0, 24000), tables: (f.tables || []).slice(0, 3)})));
+      }
+      if (pics.length) {
         const bubble = pending.querySelector(".bubble");
         try {
-          ocr = await screen.readAll(shots, (step) => { bubble.textContent = step; });
+          ocr = await screen.readAll(pics.filter((x) => !x.frame), (step) => { bubble.textContent = step; });
         } catch (e) {
           throw new Error("ocr: " + (e && e.message));
         }
         // Зрение Rai: что на картинке — небо, солнце, люди, животные, еда, здания… (модель CLIP в браузере)
         try {
-          if (window.RaiVision) seen = await window.RaiVision.lookAll(shots, (step) => { bubble.textContent = step; });
+          if (window.RaiVision) seen = await window.RaiVision.lookAll(pics, (step) => { bubble.textContent = step; });
         } catch (e) {
           console.warn("Зрение Rai не сработало:", e);  // текст со скриншота всё равно разберём
         }
         bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
-        message = text + "\n[[screen]]\n" + ocr + (seen.length ? "\n[[vision]]\n" + JSON.stringify(seen) : "");
+        message = message + "\n[[screen]]\n" + ocr + (seen.length ? "\n[[vision]]\n" + JSON.stringify(seen) : "");
       }
       // Ссылка на TikTok, YouTube, Telegram, Instagram, VK, X или сайт: данные собирает свой сервер (net.php),
       // а страница ждёт их в фоне — окно не замирает
@@ -2174,7 +2236,10 @@ def rai_code(action, code, lang, prompt):
             s.labels.slice(0, 6).map((l) => l.ru + " " + Math.round(l.p * 100) + "%").join(", ") +
             (s.colors && s.colors.length ? "; цвета: " + s.colors.map((c) => c.name).join(", ") : "") + (s.light ? "; " + s.light : "")).join("\n");
         }
-        if (shots.length && ocr.trim()) prompt += `\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""`;
+        for (const f of fileInfos) {
+          prompt += `\n\nФайл «${f.name}» (${f.label}${Object.keys(f.meta || {}).filter((k) => k !== "SHA-256").map((k) => ", " + k + ": " + f.meta[k]).join("")}):\n"""\n${(f.text || "(текста нет)").slice(0, 9000)}\n"""`;
+        }
+        if (shots.length && ocr.trim()) prompt += `\n\nТекст, распознанный на ${attached.length ? "картинках" : "экране"}:\n"""\n${ocr.slice(0, 6000)}\n"""`;
         if (kb) prompt += `\n\nСправка из базы знаний Rai (точные сведения):\n"""\n${kb}\n"""`;
         if (facts.text) prompt += `\n\nСведения из интернета (свежие, используй их и ставь ссылки):\n"""\n${facts.text}\n"""`;
         else if (data && data.offline && !intent.includes("translate")) {
@@ -2187,13 +2252,18 @@ def rai_code(action, code, lang, prompt):
         }
         // Сложная задача (математика, логика, ошибки в коде) — нейросеть сначала думает; кнопка «лампочка» — думать всегда
         reply = await neuroAnswer(pending, history, prompt, t0, facts.sources, {thinking: canThinkPlan() && (thinkOn() || isHard(text)), question: text});
+        reply.q = text;
+        // Самообучение: Rai этого не знал — запоминает ответ нейросети и в следующий раз ответит сам
+        const unknown = !data || intent.every((i) => !i || i === "unknown" || i === "web");
+        if (unknown && !shots.length && !linkReport && reply && reply.text && reply.text.length < 4000 && learnable(text)) learnAnswer(text, reply.text, "neuro");
         const photos = ((data && data.attachments) || []).filter((a) => a.type === "photo");
         if (photos.length) reply.attachments = photos.concat(reply.attachments || []);
         if (linkReport) reply.text = linkReport + "\n\n---\n\n### Разбор Rai Нейро\n\n" + reply.text;  // точные цифры + разбор нейросети
       } else {
         const ms = Math.max(1, Math.round(performance.now() - t0));
         reply = {role: "rai", text: data.answer || "Результат не получен.", attachments: data.attachments || [],
-                 meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс"};
+                 meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс",
+                 q: text, tool: isToolAnswer(data) || [].concat(data.intent || []).some((i) => i === "file" || i === "screen" || i === "social")};
         if (data.violation) reply.violation = data.violation;
       }
     } catch (e) {
@@ -2254,6 +2324,60 @@ def rai_code(action, code, lang, prompt):
     if (signInNeeded()) return "signin";
     if (account && account.banned) return "banned";
     return chat && chat.stopped ? "stopped" : "";
+  }
+  // ---------------------------------------------------------------- самообучение (learning.py): выученные ответы и документы
+  const LEARN_KEY = "rai_learned";
+  let learnStats = {answers: 0, docs: 0};
+  function learnRead() { try { return JSON.parse(localStorage.getItem(LEARN_KEY) || "null"); } catch (e) { return null; } }
+  async function learnCall(action, payload) {
+    const engine = await enginePromise.catch(() => null);
+    if (!engine || !engine.learn) return null;
+    const r = await engine.learn(action, payload).catch(() => null);
+    if (!r) return null;
+    learnStats = r.stats;
+    if (r.data) { try { localStorage.setItem(LEARN_KEY, JSON.stringify(r.data)); } catch (e) { /* память браузера заполнена — помним до перезагрузки */ } }
+    renderLearnMini();
+    return r;
+  }
+  const learnAnswer = (q, a, src) => learnCall("answer", {q: q, a: a, src: src});
+  const learnDoc = (name, text) => learnCall("doc", {name: name, text: String(text).slice(0, 200000)});
+  // Запоминать стоит вопросы о мире, а не просьбы написать код или личное («мне», «мой»)
+  const learnable = (q) => q.length >= 6 && q.length <= 300 && !/(^|[^а-яё])(я|мне|меня|мой|моя|моё|мои|нам|наш)([^а-яё]|$)/i.test(q) &&
+    !/(напиши|сделай|создай|нарисуй|код|программ|сайт|игр|переведи|сочини|придумай|посчитай)/i.test(q);
+  function cleanLearned(text) { return String(text || "").replace(/\n\n\*📚 Я выучил это раньше[\s\S]*$/, "").trim(); }
+  function rate(m, v, acts) {
+    m.rated = v;
+    acts.querySelectorAll(".rate").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+    save();
+    if (v === "up") {
+      if (m.tool) { toast("Спасибо! 👍"); return; }
+      learnAnswer(m.q, cleanLearned(m.text), "user");
+      toast("👍 Запомнил — в следующий раз отвечу так же, даже без нейросети");
+    } else {
+      learnCall("forget", {q: m.q});
+      toast("👎 Понял — этот ответ забыл. Включите нейросеть или напишите «найди в интернете …»");
+    }
+  }
+  function renderLearnMini() {
+    const el = $("learnMini");
+    if (!el) return;
+    const n = learnStats.answers || 0, d = learnStats.docs || 0;
+    el.hidden = !(n || d);
+    const word = (k, one, few, many) => k % 10 === 1 && k % 100 !== 11 ? one : k % 10 >= 2 && k % 10 <= 4 && (k % 100 < 12 || k % 100 > 14) ? few : many;
+    el.innerHTML = `📚 Rai выучил: ${n} ${word(n, "ответ", "ответа", "ответов")}` + (d ? `, ${d} ${word(d, "документ", "документа", "документов")}` : "") +
+      ` · <button type="button" id="learnClear">забыть всё</button>`;
+    $("learnClear").addEventListener("click", () => { if (confirm("Забыть всё, чему научился Rai?")) learnCall("clear").then(() => toast("Rai забыл выученное")); });
+  }
+  function fileIcon(it) {
+    const e = window.RaiFiles ? window.RaiFiles.ext(it.name) : "";
+    if (it.kind === "video") return "🎬";
+    if (it.kind === "audio") return "🎵";
+    if (e === "pdf") return "📕";
+    if (/^(docx?|odt|rtf|txt|md|epub)$/.test(e)) return "📄";
+    if (/^(xlsx?|ods|csv|tsv)$/.test(e)) return "📊";
+    if (/^(pptx?|odp)$/.test(e)) return "📽";
+    if (/^(zip|rar|7z|gz|tgz|tar|jar|apk)$/.test(e)) return "🗜";
+    return window.RaiFiles && window.RaiFiles.CODE[e] ? "💻" : "📎";
   }
   function stopDialog(chat, v, text) {
     chat.stopped = {category: v.category, label: v.label, at: Date.now()};
@@ -3062,6 +3186,8 @@ def rai_code(action, code, lang, prompt):
       if (Array.isArray(list) && list.length) { VERSIONS = list; renderVersions(); renderSidebar(); }
     } catch (e) { /* остаёмся со встроенным списком */ }
     engineReady = true;
+    const learnedBefore = learnRead();
+    if (engine.learn && learnedBefore) engine.learn("load", learnedBefore).then((r) => { learnStats = r.stats; renderLearnMini(); }).catch(() => {});
     setStatus("ready", engine.mode === "server" ? "Сервер Rai" : "Rai работает в браузере");
     if (window.RaiCode) window.RaiCode.engineReady();
     return engine;

@@ -32,14 +32,34 @@
                 thumb: toCanvas(img, 360).toDataURL("image/jpeg", 0.72)});
     render();
   }
+  /** Любые файлы: картинки — на распознавание текста и зрение, остальное (документы, таблицы, код, PDF, архивы,
+      звук, видео…) читает RaiFiles при отправке. */
   function addFiles(files) {
     for (const f of files) {
-      if (!f.type.startsWith("image/")) { H.toast(f.name + ": это не картинка"); continue; }
-      if (f.size > 15 * 1024 * 1024) { H.toast(f.name + ": файл больше 15 МБ"); continue; }
-      const r = new FileReader();
-      r.onload = () => addImage(r.result, f.name).catch((e) => H.toast(e.message));
-      r.readAsDataURL(f);
+      if (items.length >= MAX_ITEMS) { H.toast(`Можно прикрепить до ${MAX_ITEMS} файлов`); break; }
+      const kind = window.RaiFiles ? window.RaiFiles.kindOf(f) : (f.type.startsWith("image/") ? "image" : "file");
+      if (kind === "image" && f.size <= 15 * 1024 * 1024) {
+        const r = new FileReader();
+        r.onload = () => addImage(r.result, f.name).catch(() => { items.push({type: "file", name: f.name, size: f.size, file: f, kind: "file"}); render(); });
+        r.readAsDataURL(f);
+        continue;
+      }
+      if (f.size > 300 * 1024 * 1024) { H.toast(f.name + ": файл больше 300 МБ"); continue; }
+      items.push({type: "file", name: f.name, size: f.size, file: f, kind: kind});
+      render();
     }
+  }
+  function fileIcon(it) {
+    const e = (/\.([^.]+)$/.exec(it.name) || [, ""])[1].toLowerCase();
+    if (it.kind === "video") return "🎬";
+    if (it.kind === "audio") return "🎵";
+    if (e === "pdf") return "📕";
+    if (/^(docx?|odt|rtf|txt|md|epub|pages)$/.test(e)) return "📄";
+    if (/^(xlsx?|ods|csv|tsv|numbers)$/.test(e)) return "📊";
+    if (/^(pptx?|odp|key)$/.test(e)) return "📽";
+    if (/^(zip|rar|7z|gz|tgz|tar|bz2|xz|jar|apk)$/.test(e)) return "🗜";
+    if (window.RaiFiles && window.RaiFiles.CODE[e]) return "💻";
+    return "📎";
   }
 
   // ---------------------------------------------------------------- экран
@@ -248,8 +268,8 @@
     items.forEach((it, i) => {
       const chip = document.createElement("div");
       chip.className = "att-chip";
-      chip.innerHTML = (it.thumb ? `<img alt="" src="${it.thumb}">` : `<span class="vid">▶</span>`) +
-        `<span class="nm">${esc(it.type === "video" ? `Запись ${it.seconds} с · ${kb(it.size)}` : it.name)}</span>` +
+      chip.innerHTML = (it.thumb ? `<img alt="" src="${it.thumb}">` : it.type === "file" ? `<span class="vid">${fileIcon(it)}</span>` : `<span class="vid">▶</span>`) +
+        `<span class="nm">${esc(it.type === "video" ? `Запись ${it.seconds} с · ${kb(it.size)}` : it.type === "file" ? `${it.name} · ${kb(it.size)}` : it.name)}</span>` +
         (it.type === "video" ? `<button type="button" class="dl" title="Скачать запись">${H.icon("down")}</button>` : "") +
         `<button type="button" class="x" aria-label="Убрать">×</button>`;
       chip.querySelector(".x").addEventListener("click", () => { if (it.url) URL.revokeObjectURL(it.url); items.splice(i, 1); render(); });
@@ -260,7 +280,9 @@
     if (items.length) {
       const hint = document.createElement("span");
       hint.className = "att-hint";
-      hint.textContent = "Rai прочитает текст и ответит на вопросы. Можно дописать задание: «реши», «переведи», «проверь код».";
+      hint.textContent = items.some((x) => x.type === "file")
+        ? "Rai прочитает файлы и ответит на вопросы. Можно дописать задание: «перескажи», «найди…», «сделай таблицу», «проверь код»."
+        : "Rai прочитает текст и ответит на вопросы. Можно дописать задание: «реши», «переведи», «проверь код».";
       bar.append(hint);
     }
     H.onChange && H.onChange(items.length);
@@ -294,7 +316,7 @@
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
     // Вставка скриншота из буфера (Ctrl+V) и перетаскивание файлов в окно ввода
     host.input.addEventListener("paste", (e) => {
-      const files = Array.from((e.clipboardData && e.clipboardData.files) || []).filter((f) => f.type.startsWith("image/"));
+      const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
       if (files.length) { e.preventDefault(); addFiles(files); }
     });
     const zone = host.dropZone;

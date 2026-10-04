@@ -1148,6 +1148,91 @@ class SlidesQualityTest(unittest.TestCase):
         self.assertIn("нет фотографий", q["issues"])
 
 
+class FilesLearningTest(unittest.TestCase):
+    """Файлы любого типа (прочитаны в браузере, [[file]]) и самообучение: выученные ответы, 👍/👎, документы."""
+
+    REPORT = ("Отчёт кружка робототехники за 2025 год\n\nВ кружке занимались 24 ученика из пятых–девятых классов.\n\n"
+              "За год ребята собрали 12 роботов на Arduino и выиграли два городских конкурса.\n\nБюджет кружка составил 85 000 рублей.\n\n"
+              "В следующем году планируем открыть вторую группу и купить 3D-принтер.")
+
+    def setUp(self):
+        import learning
+        self.learning = learning
+        self.saved = learning.export()
+        learning.load({})
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+
+    def tearDown(self):
+        self.learning.load(self.saved)
+        self.tmp.cleanup()
+
+    def ask(self, text, files=None):
+        msg = text + ("\n[[file]]\n" + json.dumps(files, ensure_ascii=False) if files else "")
+        return self.brain.answer(SUN, msg, session_id="f")
+
+    def test_document_summary_and_question(self):
+        doc = {"name": "отчёт.docx", "size": 805, "ext": "docx", "kind": "document", "label": "документ Word",
+               "meta": {"размер": "805 байт", "слов": 45, "SHA-256": "ab" * 32}, "text": self.REPORT}
+        r = self.ask("Что в этом файле? Расскажи главное", [doc])
+        self.assertEqual(r["intent"], "file")
+        self.assertIn("**Документ Word** · 805 байт", r["answer"])
+        self.assertIn("собрали 12 роботов", r["answer"])
+        a = self.ask("какой бюджет кружка", [doc])["answer"]
+        self.assertIn("**Ответ по файлу:**", a)
+        self.assertIn("> Бюджет кружка составил 85 000 рублей.", a)
+        self.assertNotIn("24 ученика", a)            # лучшее место — без лишнего
+
+    def test_tables_code_archive_binary(self):
+        csv_file = {"name": "данные.csv", "ext": "csv", "kind": "text", "label": "таблица CSV", "meta": {},
+                    "text": "Город;Население\nМосква;13 000 000\nМинск;2 000 000"}
+        self.assertIn("| Москва | 13 000 000 |", self.ask("", [csv_file])["answer"])
+        xlsx = {"name": "оценки.xlsx", "ext": "xlsx", "kind": "document", "label": "таблица Excel", "meta": {"листов": 1},
+                "text": "", "tables": [{"name": "Оценки", "rows": [["Имя", "Оценка"], ["Аня", "5"], ["Боря", "4"]]}]}
+        self.assertIn("**Оценки** — 3 строк, 2 столбцов", self.ask("", [xlsx])["answer"])
+        code = {"name": "bot.py", "ext": "py", "kind": "code", "label": "код Python", "lang": "Python", "meta": {},
+                "text": "import os\nclass Bot:\n    def run(self):\n        pass\ndef main():\n    Bot().run()\n"}
+        a = self.ask("", [code])["answer"]
+        for part in ("Классы: `Bot`", "Функции: `run`, `main`", "Подключает: `os`", "```python"):
+            self.assertIn(part, a)
+        exe = {"name": "program.exe", "ext": "exe", "kind": "binary", "label": "программа Windows (exe, dll)", "meta": {"SHA-256": "d8" * 32}, "text": ""}
+        a = self.ask("", [exe])["answer"]
+        self.assertIn("Программа Windows", a)
+        self.assertIn("SHA-256: `d8d8", a)
+        js = {"name": "config.json", "ext": "json", "kind": "text", "label": "JSON", "meta": {}, "text": '{"name": "rai", "version": 3}'}
+        self.assertIn("Ключи: `name`, `version`", self.ask("", [js])["answer"])
+        # мат в вопросе к файлу — всё равно нарушение; текст внутри файла — нет
+        self.assertEqual(self.ask("иди нахуй", [js])["intent"], "violation")
+        self.assertEqual(self.ask("", [dict(js, text="порно")])["intent"], "file")
+
+    def test_learned_answers(self):
+        q = "кто придумал теорию струн"
+        self.assertIsNone(self.ask(q)["intent"])
+        self.learning.add_answer(q, "Теорию струн начали развивать в конце 1960-х.", "neuro")
+        r = self.ask("а кто придумал теорию струн?")             # «струн» не исправится в «стран»
+        self.assertEqual(r["intent"], "learned")
+        self.assertIn("Я выучил это раньше (ответ нейросети)", r["answer"])
+        self.learning.forget(q)                                   # 👎
+        self.assertNotEqual(self.ask(q)["intent"], "learned")
+        self.learning.add_answer(q, "Новый ответ.", "user")      # 👍 снова учит
+        self.assertIn("вы отметили 👍", self.ask(q)["answer"])
+        self.assertEqual(self.ask("погода в москве")["intent"], "weather")   # готовые функции важнее
+
+    def test_documents_are_remembered(self):
+        self.learning.add_doc("отчёт.docx", self.REPORT)
+        for q, want in [("сколько роботов собрал в кружке робототехники", "12 роботов"), ("какой бюджета кружка", "85 000"),
+                        ("сколько учеников занималось", "24 ученика")]:
+            r = self.ask(q)
+            self.assertEqual(r["intent"], "learned_doc", q)
+            self.assertIn("Из файла «отчёт.docx»", r["answer"])
+            self.assertIn(want, r["answer"])
+        data = self.learning.export()
+        self.learning.load({})
+        self.assertNotEqual(self.ask("какой бюджета кружка")["intent"], "learned_doc")
+        self.learning.load(data)                                  # память браузера → снова знает
+        self.assertEqual(self.ask("какой бюджета кружка")["intent"], "learned_doc")
+
+
 class ModerationTest(unittest.TestCase):
     """Правила Rai: мат, 18+, наркотики, насилие, взлом, экстремизм — диалог останавливается; обычные слова не задеваются."""
 

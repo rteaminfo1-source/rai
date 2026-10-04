@@ -35,6 +35,8 @@ import facts  # noqa: F401 — регистрирует справочник в 
 import games
 import fixer
 import encyclopedia
+import files
+import learning
 import places
 import sight
 import webgen
@@ -47,6 +49,7 @@ GLOSSARY_PATH = os.environ.get("RAI_GLOSSARY_PATH", os.path.join(BASE_DIR, "glos
 
 MAX_MESSAGE_CHARS = int(os.environ.get("RAI_MAX_MESSAGE_CHARS", "4000"))
 MAX_SCREEN_CHARS = 16000
+MAX_FILES_CHARS = 200000  # до 6 файлов по ~24 000 символов текста (прочитаны в браузере)
 SCREEN_MARK = "[[screen]]"
 LINK_MARK = "[[link-data]]"  # данные по ссылке, которые страница уже получила от посредника на хостинге
 MAX_LINK_CHARS = 60000
@@ -252,21 +255,40 @@ class Brain:
             raise RaiError("Пустой запрос.")
         screen = SCREEN_MARK in message  # текст со скриншота или записи экрана (распознан в браузере)
         link = LINK_MARK in message
-        if len(message) > (MAX_SCREEN_CHARS if screen else MAX_LINK_CHARS if link else MAX_MESSAGE_CHARS):
+        attached = files.MARK in message  # файлы любого типа (прочитаны в браузере: files.js)
+        if len(message) > (MAX_FILES_CHARS if attached else MAX_SCREEN_CHARS if screen else MAX_LINK_CHARS if link else MAX_MESSAGE_CHARS):
             raise RaiError(f"Запрос слишком длинный (больше {MAX_MESSAGE_CHARS} символов).", 413)
 
         # Правила Rai (rules.php): мат, 18+, наркотики, насилие, взлом, экстремизм — диалог останавливается.
         # Проверяется только то, что написал сам человек (не текст со скриншота и не данные по ссылке).
-        typed = message.split(SCREEN_MARK)[0].split(LINK_MARK)[0]
+        typed = message.split(files.MARK)[0].split(SCREEN_MARK)[0].split(LINK_MARK)[0]
         if not talk.is_crisis(typed):
             broken = moderation.check(typed)
             if broken:
                 return {"answer": broken["answer"], "version": version.id, "version_name": version.name, "intent": "violation",
                         "violation": {k: broken[k] for k in ("category", "label", "word")}, "attachments": []}
 
+        # Выученный ответ на этот же вопрос — по тексту как есть (до исправления опечаток: «струн» не станет «стран»)
+        if not (screen or link or attached):
+            learned = learning.find(message)
+            if learned:
+                src = {"neuro": "ответ нейросети", "user": "вы отметили 👍", "web": "из интернета"}.get(learned.get("src"), "")
+                return {"answer": learned["a"] + f"\n\n*📚 Я выучил это раньше{f' ({src})' if src else ''}. "
+                                                 "Ответ неверный — нажмите 👎, и я его забуду.*",
+                        "version": version.id, "version_name": version.name, "intent": "learned", "attachments": []}
+
         session = self.sessions.get(_clean_session_id(session_id)) if version.context else {}
         if version.context and not session.get("name"):
             session["name"] = _name_from_history(history)
+
+        if attached:
+            question, found, rest = files.split(message)
+            attachments = []
+            text = files.describe(found, question) if found else "Не получилось прочитать файл — попробуйте прикрепить его ещё раз."
+            if rest:  # вместе с файлами прикрепили и картинки
+                text += "\n\n---\n\n" + self._screen(version, question + "\n" + rest, session, attachments)
+            return {"answer": text, "version": version.id, "version_name": version.name, "intent": "file",
+                    "attachments": attachments}
 
         if screen:
             attachments = []
@@ -571,6 +593,16 @@ class Brain:
                 return f"Вы мне говорили: {fact}.", "memory"
 
         if best < version.threshold:
+            # Самообучение: то, что Rai уже выучил (ответ нейросети, 👍 пользователя) и прочитанные документы
+            learned = learning.find(text)
+            if learned:
+                src = {"neuro": "ответ нейросети", "user": "вы отметили 👍", "web": "из интернета"}.get(learned.get("src"), "")
+                return (learned["a"] + f"\n\n*📚 Я выучил это раньше{f' ({src})' if src else ''}. "
+                        "Ответ неверный — нажмите 👎, и я его забуду.*"), "learned"
+            from_doc = learning.doc_answer(text)
+            if from_doc:
+                name, paras = from_doc
+                return (f"📄 **Из файла «{name}»** (вы его присылали раньше):\n\n" + "\n\n".join(f"> {p}" for p in paras)), "learned_doc"
             if code_answer:
                 return code_answer, "proglang"
             definition = self.define(version, text)
