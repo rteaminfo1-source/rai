@@ -413,6 +413,7 @@ function sg_art($seed, $w, $h, $accent, $bg, $label = '') {
 
 // ---------------------------------------------------------------- сборка HTML
 function sg_render($spec) {
+    if (!empty($spec['html'])) return $spec['html'];  // сайт написала нейросеть Rai (уже очищен при сохранении)
     $dark = ($spec['theme'] ?? 'light') === 'dark';
     list($bg, $fg, , $surface) = SG_PALETTES[$dark ? 'dark' : 'light'];
     $accent = preg_match('/^#[0-9a-f]{6}$/i', $spec['accent'] ?? '') ? $spec['accent'] : '#e10600';
@@ -609,6 +610,188 @@ function sg_unpublish($username) {
     if (is_dir($dir) && count(scandir($dir)) === 2) rmdir($dir);
 }
 
+// ---------------------------------------------------------------- сайт от нейросети Rai (studio_ai.php)
+const SG_HTML_MAX = 400000;
+
+/**
+ * Очистить HTML, который написала нейросеть: сайты открываются на том же адресе, что и студия, поэтому никаких скриптов,
+ * обработчиков событий, javascript:-ссылок, встроенных окон и перенаправлений — только разметка и стили.
+ */
+function sg_clean_html($html) {
+    $h = (string)$html;
+    $h = preg_replace('#^\s*```[a-z]*\s*|\s*```\s*$#i', '', $h);                       // обёртка ```html … ```
+    $h = preg_replace('#<(script|iframe|frame|frameset|object|embed|applet|noscript|template)\b[^>]*>.*?</\1\s*>#is', '', $h);
+    $h = preg_replace('#<(script|iframe|frame|frameset|object|embed|applet|base|portal)\b[^>]*/?>#is', '', $h);
+    $h = preg_replace('#<meta\b[^>]*http-equiv\s*=\s*["\']?\s*(refresh|set-cookie)[^>]*>#is', '', $h);
+    $h = preg_replace('#<link\b(?![^>]*\brel\s*=\s*["\']?(stylesheet|preconnect|icon)\b)[^>]*>#is', '', $h);
+    $h = preg_replace('#\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#is', '', $h);
+    $h = preg_replace('#\s(href|src|action|formaction|xlink:href|poster|background|data)\s*=\s*(["\']?)\s*(javascript|vbscript|data:text/html|data:application)[^"\'>]*\2#is', ' $1="#"', $h);
+    $h = preg_replace('#(expression\s*\(|url\s*\(\s*["\']?\s*javascript:)#is', '(', $h);
+    $h = preg_replace('#<form\b([^>]*)\saction\s*=\s*(["\']?)(?!mailto:|\#)[^"\'>\s]*\2#is', '<form$1 action="#"', $h);
+    if (!preg_match('#<html\b#i', $h)) {
+        $h = "<!DOCTYPE html>\n<html lang=\"ru\">\n<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>\n<body>\n" . $h . "\n</body>\n</html>";
+    }
+    if (!preg_match('#<meta\b[^>]*charset#i', $h)) $h = preg_replace('#<head\b[^>]*>#i', '$0<meta charset="utf-8">', $h, 1);
+    if (!preg_match('#</html>\s*$#i', $h)) $h .= "\n</body></html>";
+    if (stripos($h, 'AI Studio Rteam') === false) {
+        $badge = '<p style="text-align:center;font:12px/1.4 system-ui,sans-serif;opacity:.6;margin:24px 0">Сайт создан в <a href="' . h(STUDIO_URL) . '" style="color:inherit">AI Studio Rteam</a></p>';
+        $h = preg_match('#</body>#i', $h) ? preg_replace('#</body>#i', $badge . '</body>', $h, 1) : $h . $badge;
+    }
+    return $h;
+}
+
+/** Сохранить сайт от нейросети (страница студии). */
+function studio_save_html($username, $html, $prompt, $title) {
+    $html = trim((string)$html);
+    if (strlen($html) < 200) return ['error' => 'Нейросеть вернула слишком мало кода — попробуйте ещё раз.'];
+    if (strlen($html) > SG_HTML_MAX) return ['error' => 'Сайт получился слишком большим (больше 400 КБ).'];
+    $clean = sg_clean_html($html);
+    if (!$title && preg_match('#<title>(.*?)</title>#is', $clean, $m)) $title = html_entity_decode(strip_tags($m[1]), ENT_QUOTES, 'UTF-8');
+    $old = sg_load($username);
+    $spec = ['title' => mb_substr(trim((string)$title) ?: 'Мой сайт', 0, 80), 'html' => $clean, 'mode' => 'neuro',
+             'prompt' => mb_substr((string)$prompt, 0, 2000), 'updated' => time(), 'sections' => []];
+    if ($old && !empty($old['published'])) $spec['published'] = $old['published'];
+    sg_save($username, $spec);
+    return ['message' => 'Сохранено: «' . $spec['title'] . '».', 'spec' => $spec];
+}
+
+// ---------------------------------------------------------------- тексты от нейросети + дизайн студии
+const SG_KINDS = ['about', 'text', 'services', 'features', 'prices', 'reviews', 'menu', 'products', 'projects', 'skills',
+                  'posts', 'faq', 'team', 'schedule', 'courses', 'how', 'tracks', 'gallery', 'contacts'];
+const SG_ITEM_KINDS = ['services', 'features', 'prices', 'reviews', 'menu', 'products', 'projects', 'posts', 'faq', 'team',
+                       'schedule', 'courses', 'how', 'tracks'];
+
+/** Строка из ответа нейросети: без тегов, без лишних пробелов, не длиннее $max символов. */
+function sg_str($v, $max) {
+    if (!is_scalar($v)) return '';
+    $s = trim(preg_replace('/\s+/u', ' ', strip_tags(html_entity_decode((string)$v, ENT_QUOTES, 'UTF-8'))));
+    return mb_strlen($s) > $max ? rtrim(mb_substr($s, 0, $max - 1)) . '…' : $s;
+}
+
+/**
+ * Спецификация сайта, которую написала нейросеть (JSON: название, слоган, тема, цвет, разделы с текстами, контакты),
+ * — проверить и привести к виду, который понимает sg_render(): только известные виды разделов, разумные длины,
+ * контакты из описания клиента — всегда на месте, раздел «Контакты» — последним.
+ */
+function sg_clean_spec($in, $username, $prompt, $fresh = true) {
+    if (!is_array($in)) return null;
+    $prompt = trim(mb_substr((string)$prompt, 0, 2000));
+    $theme = sg_lower($in['theme'] ?? '') === 'dark' ? 'dark' : 'light';
+    $accent = preg_match('/^#[0-9a-f]{6}$/i', (string)($in['accent'] ?? '')) ? strtolower($in['accent']) : null;
+    $want = sg_extract_color(sg_lower($prompt));   // в новом сайте цвет, который назвал клиент, главнее выбора нейросети
+    $spec = [
+        'version' => 1, 'type' => sg_detect_type(sg_lower($prompt)), 'owner' => $username,
+        'title' => sg_str($in['title'] ?? '', 60) ?: (sg_extract_name($prompt) ?: 'Мой сайт'),
+        'tagline' => sg_str($in['tagline'] ?? '', 160), 'theme' => $theme,
+        'accent' => ($fresh ? $want : null) ?: ($accent ?: ($want ?: SG_PALETTES[$theme][2])),
+        'seed' => crc32($username . microtime()), 'sections' => [], 'contacts' => [],
+        'prompt' => $prompt, 'updated' => time(), 'mode' => 'neuro-spec',
+    ];
+    if (!empty($in['seed']) && is_numeric($in['seed'])) $spec['seed'] = (int)$in['seed'];
+
+    $contacts = null;
+    foreach (array_slice(is_array($in['sections'] ?? null) ? array_values($in['sections']) : [], 0, 12) as $s) {
+        if (!is_array($s)) continue;
+        $title = sg_str($s['title'] ?? '', 60);
+        $kind = sg_lower(sg_str($s['kind'] ?? '', 20));
+        if (in_array($kind, ['hero', 'main', 'header', 'intro', 'banner'], true)) {   // главный экран делает сама студия
+            if ($spec['tagline'] === '') $spec['tagline'] = sg_str($s['text'] ?? ($s['tagline'] ?? ''), 160);
+            continue;
+        }
+        if (!in_array($kind, SG_KINDS, true)) $kind = sg_section_kind($title . ' ' . $kind);
+        $sec = ['kind' => $kind, 'title' => $title ?: (SG_SECTION_TITLES[$kind] ?? 'Раздел')];
+        $text = sg_str($s['text'] ?? '', 1500);
+        $items = [];
+        foreach (array_slice(is_array($s['items'] ?? null) ? array_values($s['items']) : [], 0, 12) as $it) {
+            if (is_string($it)) $it = ['title' => $it];
+            if (!is_array($it)) continue;
+            $row = ['title' => sg_str($it['title'] ?? ($it['name'] ?? ($it['question'] ?? '')), 90),
+                    'text' => sg_str($it['text'] ?? ($it['description'] ?? ($it['answer'] ?? '')), 500)];
+            foreach (['price' => 40, 'date' => 30] as $f => $max) {
+                $v = sg_str($it[$f] ?? '', $max);
+                if ($v !== '') $row[$f] = $v;
+            }
+            if ($row['title'] === '' && $row['text'] === '') continue;
+            if ($row['title'] === '') { $row['title'] = $row['text']; $row['text'] = ''; }
+            $items[] = $row;
+        }
+        $tags = [];
+        foreach (array_slice(is_array($s['tags'] ?? null) ? $s['tags'] : [], 0, 24) as $t) {
+            $t = sg_str($t, 32);
+            if ($t !== '') $tags[] = $t;
+        }
+        if ($kind === 'contacts') {
+            $sec['text'] = $text ?: 'Напишите или позвоните — ответим быстро.';
+            $contacts = $sec;
+            continue;
+        }
+        if ($kind === 'skills') {
+            if (!$tags) $tags = array_map(function ($it) { return $it['title']; }, $items);
+            if (!$tags) { if ($text === '') continue; $kind = 'text'; } else $sec['tags'] = array_slice($tags, 0, 24);
+        } elseif ($kind === 'gallery') {
+            $sec['count'] = max(3, min(12, (int)($s['count'] ?? 6) ?: 6));
+        } elseif (in_array($kind, SG_ITEM_KINDS, true)) {
+            if (!$items) {
+                if ($text === '') continue;
+                $kind = 'text';
+            } else {
+                $sec['items'] = $items;
+            }
+        } else {  // about, text — абзац; если нейросеть дала список — склеиваем в текст
+            if ($text === '' && $items) $text = implode(' ', array_map(function ($it) { return trim($it['title'] . '. ' . $it['text'], ' .') . '.'; }, $items));
+            if ($text === '') continue;
+        }
+        $sec['kind'] = $kind;
+        if ($kind === 'text' || $kind === 'about') $sec['text'] = $text;
+        $spec['sections'][] = $sec;
+    }
+    if (count($spec['sections']) < 1) return null;
+    $spec['sections'][] = $contacts ?: sg_default_section('contacts', $spec['type'], $spec['title']);
+
+    $c = is_array($in['contacts'] ?? null) ? $in['contacts'] : [];
+    $email = sg_str($c['email'] ?? '', 120);
+    if (filter_var($email, FILTER_VALIDATE_EMAIL) && !preg_match('/example\.|test@|mail@mail|name@/i', $email)) $spec['contacts']['email'] = $email;
+    $phone = sg_str($c['phone'] ?? '', 40);
+    if (preg_match('/^\+?[\d\s()\-]{7,}$/', $phone) && !preg_match('/0{3}[\s-]*0{2}[\s-]*0{2}|123[\s-]*45[\s-]*67|x{2}/i', $phone)) $spec['contacts']['phone'] = $phone;
+    $tg = preg_replace('#^(?:https?://)?(?:t\.me/|@)#i', '', sg_str($c['telegram'] ?? '', 60));
+    if (preg_match('/^[A-Za-z0-9_]{4,32}$/', $tg)) $spec['contacts']['telegram'] = $tg;
+    $addr = sg_str($c['address'] ?? '', 160);
+    if (mb_strlen($addr) >= 5) $spec['contacts']['address'] = $addr;
+    if (!$fresh) return $spec;   // правка: контакты уже проверены при создании (или их поменял сам клиент)
+    // нейросеть могла выдумать почту и телефон — всё, что клиент написал сам, важнее
+    $own = ['contacts' => []];
+    sg_extract_contacts($prompt, $own);
+    foreach ($own['contacts'] as $k => $v) $spec['contacts'][$k] = $v;
+    if (!$own['contacts'] && !preg_match('/контакт|почт|телефон|адрес|телеграм|telegram|@/u', sg_lower($prompt))) {
+        // клиент контактов не давал — выдуманные почту и телефон не публикуем (только адрес и текст)
+        unset($spec['contacts']['email'], $spec['contacts']['phone'], $spec['contacts']['telegram']);
+    }
+    return $spec;
+}
+
+/** То, что нужно странице студии для правок нейросетью: разделы и оформление (без служебных полей). */
+function sg_public_spec($spec) {
+    if (!$spec || !empty($spec['html'])) return null;
+    $out = [];
+    foreach (['title', 'tagline', 'theme', 'accent', 'sections', 'contacts', 'seed'] as $k) if (isset($spec[$k])) $out[$k] = $spec[$k];
+    return $out;
+}
+
+/** Сохранить сайт «тексты нейросети + дизайн студии» (страница студии, studio_ai.php). */
+function studio_save_spec($username, $json, $prompt, $fresh = true) {
+    $in = is_array($json) ? $json : json_decode((string)$json, true);
+    if (strlen(is_string($json) ? $json : '') > 200000) return ['error' => 'Слишком большой ответ нейросети.'];
+    $old = sg_load($username);
+    if ($prompt === '' && $old) $prompt = (string)($old['prompt'] ?? '');
+    $spec = sg_clean_spec($in, $username, $prompt, $fresh);
+    if (!$spec) return ['error' => 'Нейросеть не написала ни одного раздела — попробуйте ещё раз.'];
+    if (!$fresh && $old && empty($old['html']) && isset($old['seed']) && empty($in['seed'])) $spec['seed'] = $old['seed'];
+    if ($old && !empty($old['published'])) $spec['published'] = $old['published'];
+    sg_save($username, $spec);
+    $names = array_map(function ($s) { return $s['title']; }, $spec['sections']);
+    return ['message' => 'Готово: сайт «' . $spec['title'] . '» — разделы: ' . implode(', ', $names) . '.', 'spec' => $spec];
+}
+
 // ---------------------------------------------------------------- действия (общие для студии и API)
 function studio_generate($username, $prompt, $publish = false) {
     $prompt = trim((string)$prompt);
@@ -626,6 +809,7 @@ function studio_generate($username, $prompt, $publish = false) {
 function studio_edit($username, $instruction, $publish = false) {
     $spec = sg_load($username);
     if (!$spec) return ['error' => 'Сначала создайте сайт: опишите его словами.'];
+    if (!empty($spec['html'])) return ['error' => 'Этот сайт написала нейросеть Rai — правьте его тоже с нейросетью (переключатель «Нейросеть» в студии) или создайте заново шаблоном.'];
     list($spec, $done) = sg_edit_spec($spec, $instruction);
     if ($done === null) {
         return ['error' => 'Не понял правку. Примеры: «добавь раздел цены», «убери раздел отзывы», «сделай тёмным», ' .

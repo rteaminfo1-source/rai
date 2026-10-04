@@ -49,6 +49,36 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
 
     <section class="panel" aria-labelledby="h-ai">
       <h2 id="h-ai">ИИ-конструктор</h2>
+      <div class="ai-mode" id="aiMode" role="group" aria-label="Чем делать сайт">
+        <button type="button" data-mode="neuro"><b>🧠 Нейросеть Rai</b><small>сама придумывает сайт: разделы, тексты, цены, отзывы — под ваш запрос</small></button>
+        <button type="button" data-mode="template"><b>⚡ Быстрые шаблоны</b><small>мгновенно, без нейросети: готовые разделы и тексты-образцы</small></button>
+      </div>
+      <div class="neuro-bar" id="neuroBar">
+        <div class="row">
+          <span id="neuroState" class="status-pill">Нейросеть включится сама при создании сайта</span>
+          <button class="btn ghost small" id="neuroOn" type="button">Включить сейчас</button>
+          <span id="neuroLeft" class="muted small" hidden></span>
+        </div>
+        <div class="progress" id="neuroProgress" hidden><i id="neuroProgressBar"></i></div>
+        <div class="row">
+          <select id="neuroModel" class="input" aria-label="Модель нейросети">
+            <option value="auto">Модель: лучшая для этого компьютера</option>
+            <option value="fast">Лайт</option>
+            <option value="normal">Стандарт</option>
+            <option value="strong">Про</option>
+            <option value="coder">Код</option>
+            <option value="max">Макс</option>
+          </select>
+          <select id="neuroHow" class="input" aria-label="Как делать сайт">
+            <option value="auto">Авто: по силе модели</option>
+            <option value="spec">Тексты нейросети + дизайн студии</option>
+            <option value="code">Весь код пишет нейросеть (свой дизайн)</option>
+          </select>
+        </div>
+        <p class="muted small" id="neuroHint">Нейросеть работает прямо в вашем браузере, на вашей видеокарте: первый раз модель скачивается
+          (0,6–5 ГБ), дальше — из кэша. «Тексты + дизайн студии» — быстро и надёжно на любой модели; «весь код» — свой дизайн,
+          лучше с моделями Про, Код и Макс. Тот же аккаунт и тариф, что в чате Rai.</p>
+      </div>
       <label class="field" for="prompt">Опишите сайт словами</label>
       <textarea id="prompt" placeholder="Например: сайт кофейни «Зерно» в тёмных тонах с разделами меню, отзывы и контакты. Почта zerno@mail.ru"></textarea>
       <div class="chips" id="examples">
@@ -58,11 +88,13 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
         <button type="button">Онлайн-школа рисования с курсами и ценами</button>
         <button type="button">Сайт нашего клана в Minecraft</button>
       </div>
-      <div class="row"><button class="btn" id="genBtn" type="button">Создать сайт</button></div>
+      <div class="row"><button class="btn" id="genBtn" type="button">Создать сайт</button>
+        <button class="btn ghost" id="stopBtn" type="button" hidden>■ Остановить</button></div>
+      <p class="ai-step" id="aiStep" aria-live="polite" hidden></p>
       <label class="field" for="edit">Что изменить?</label>
       <div class="row">
         <input id="edit" class="input" style="flex:1;min-width:200px"
-               placeholder="добавь раздел цены · сделай синим · переименуй в «…» · измени раздел о нас на: …">
+               placeholder="добавь раздел цены · сделай синим · перепиши отзывы смешнее · переименуй в «…»">
         <button class="btn ghost" id="editBtn" type="button">Изменить</button>
       </div>
       <div class="log" id="log" aria-live="polite"></div>
@@ -115,6 +147,9 @@ curl "<?= h(STUDIO_URL) ?>/api.php?a=site" -H "Authorization: Bearer ВАШ_КЛ
 </main>
 <footer class="foot"><span>© <?= date('Y') ?> Rteam</span><a href="<?= h(RAI_URL) ?>">rai.rteam.info</a><a href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
   <a href="<?= h(rtrim(RAI_URL, '/')) ?>/rules.php">Правила</a><a href="<?= h(rtrim(RAI_URL, '/')) ?>/terms.php">Соглашение</a><a href="<?= h(rtrim(RAI_URL, '/')) ?>/privacy.php">Конфиденциальность</a></footer>
+<script>window.STUDIO_RAI = <?= json_encode(rtrim(ACCOUNT_URL, '/'), JSON_UNESCAPED_SLASHES) ?>;</script>
+<script src="assets/neuro.php"></script>
+<?php include __DIR__ . '/assets/studio_ai.php'; ?>
 <?php include __DIR__ . '/assets/script.php'; ?>
 </body>
 </html>

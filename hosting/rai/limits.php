@@ -9,6 +9,19 @@ require __DIR__ . '/config.php';
 require __DIR__ . '/plans.php';
 require __DIR__ . '/moderation.php';
 
+// Нейросеть в AI Studio (aistudio.rteam.info) — тот же аккаунт и тариф Rai: студия спрашивает лимиты отсюда.
+// Это один сайт rteam.info, поэтому браузер присылает cookie входа в Rai; другим адресам ответы не открываются.
+$origin = rtrim((string)($_SERVER['HTTP_ORIGIN'] ?? ''), '/');
+if ($origin !== '' && $origin === rtrim(STUDIO_URL, '/')) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Access-Control-Allow-Credentials: true');
+    header('Access-Control-Allow-Headers: X-CSRF-Token, Content-Type');
+    header('Access-Control-Allow-Methods: GET, POST');
+    header('Access-Control-Max-Age: 600');
+    header('Vary: Origin');
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+}
+
 $user = current_user();
 if (rai_current_ban($user)) json_out(['ok' => false, 'error' => 'Доступ к Rai заблокирован за нарушение правил.', 'banned' => true], 403);
 

@@ -23,6 +23,21 @@
     return data;
   }
 
+  // что сейчас за сайт: mode — template (шаблон), neuro-spec (тексты нейросети + дизайн студии), neuro (код написала нейросеть)
+  const site = {mode: null, html: null, spec: null, prompt: ""};
+  function remember(d) {
+    if (!d) return;
+    for (const k of ["mode", "html", "spec"]) if (k in d) site[k] = d[k];
+    if (d.prompt) site.prompt = d.prompt;
+  }
+  function step(text) {
+    const el = $("aiStep");
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text || "";
+  }
+  const took = (s) => s >= 60 ? Math.floor(s / 60) + " мин " + (s % 60) + " с" : (s || 1) + " с";
+
   function showPreview(html) {
     $("preview").srcdoc = html || "<p style='font:16px sans-serif;padding:24px;color:#666'>Здесь появится ваш сайт.</p>";
   }
@@ -57,6 +72,7 @@
     const r = await fetch("actions.php?a=state", {credentials: "same-origin"});
     if (r.status === 401) { location.href = "index.php"; return; }
     const d = await r.json();
+    remember(d);
     showPreview(d.html);
     setPublished(d.published);
     renderKeys(d.keys || []);
@@ -67,11 +83,53 @@
     try { await fn(); } catch (e) { say(e.message); } finally { btn.disabled = false; }
   }
 
+  // ---------------------------------------------------------------- нейросеть Rai (assets/studio_ai.php)
+  const AI = () => window.StudioAI;
+  const ui = {step: step, code: (html) => showPreview(html)};
+  /** Работа нейросети: кнопка «Остановить», строка «что делает сейчас»; остановили — сайт остаётся прежним. */
+  async function neuro(fn) {
+    $("stopBtn").hidden = false;
+    $("genBtn").disabled = $("editBtn").disabled = true;
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof AI().Stopped) { say("Остановлено — сайт остался прежним."); showPreview(site.html); return null; }
+      showPreview(site.html);
+      throw e;
+    } finally {
+      $("stopBtn").hidden = true;
+      $("genBtn").disabled = $("editBtn").disabled = false;
+      step("");
+    }
+  }
+  function save(r, prompt, fresh) {
+    step("Сохраняю сайт…");
+    return r.kind === "spec" ? call("save_spec", {spec: JSON.stringify(r.spec), prompt: prompt, fresh: fresh ? "1" : "0"})
+                             : call("save_html", {html: r.html, prompt: prompt, title: r.title || ""});
+  }
+  $("stopBtn").addEventListener("click", () => { step("Останавливаю…"); AI() && AI().stop(); });
+  window.addEventListener("beforeunload", (e) => { if (AI() && AI().busy()) { e.preventDefault(); e.returnValue = ""; } });
+
   $("genBtn").addEventListener("click", () => busy($("genBtn"), async () => {
     const prompt = $("prompt").value.trim();
     if (!prompt) { $("prompt").focus(); return; }
     say(prompt, true);
+    if (AI() && AI().active()) {
+      const out = await neuro(async () => {
+        const r = await AI().generate(prompt, ui);
+        return {r: r, d: await save(r, prompt, true)};
+      });
+      if (!out) return;
+      const rep = out.r.report || {};
+      remember(Object.assign({prompt: prompt}, out.d));
+      showPreview(out.d.html);
+      say("🧠 " + out.d.message + " Нейросеть справилась за " + took(rep.seconds) + (rep.note ? " (" + rep.note + ")" : "") +
+          (rep.issues && rep.issues.length ? ". Недочёты: " + rep.issues.join("; ") + " — их можно поправить словами ниже." : ", проверка пройдена.") +
+          " Посмотрите предпросмотр и нажмите «Опубликовать».");
+      return;
+    }
     const d = await call("generate", {prompt: prompt});
+    remember(Object.assign({prompt: prompt}, d));
     say(d.message + " Посмотрите предпросмотр и нажмите «Опубликовать».");
     showPreview(d.html);
   }));
@@ -79,7 +137,22 @@
     const text = $("edit").value.trim();
     if (!text) { $("edit").focus(); return; }
     say(text, true);
+    // сайт, код которого написала нейросеть, правится только ею — даже если выбраны быстрые шаблоны
+    if (AI() && (AI().active() || site.mode === "neuro")) {
+      const out = await neuro(async () => {
+        const r = await AI().edit(site, text, ui, (instruction) => call("edit", {instruction: instruction}));
+        if (r.server) return {d: r.server, done: null};
+        return {d: await save(r, site.prompt || "", false), done: r.done};
+      });
+      if (!out) return;
+      remember(out.d);
+      showPreview(out.d.html);
+      say(out.done ? "🧠 Сделано: " + out.done + "." : out.d.message);
+      $("edit").value = "";
+      return;
+    }
     const d = await call("edit", {instruction: text});
+    remember(d);
     say(d.message);
     showPreview(d.html);
     $("edit").value = "";

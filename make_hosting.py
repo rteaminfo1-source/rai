@@ -48,7 +48,9 @@ README = """RAI — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГА
                          kb.php — энциклопедия Rai (~10 000 тем из Википедии), чат догружает её в фоне
                          + аккаунты: регистрация, вход, вход через Google, личный кабинет, чаты в аккаунте
   aistudio.rteam.info/   AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов;
-                         вход — аккаунтом Rai
+                         вход — аккаунтом Rai. Сайты пишет нейросеть Rai Нейро прямо в браузере
+                         (assets/neuro.php — та же нейросеть, что в чате; модели — с rai.rteam.info/ai.php),
+                         тариф и лимиты — как в чате Rai (limits.php)
 
 {secrets}
 
@@ -147,6 +149,23 @@ def write_kb(path, name="encyclopedia.json", title="Энциклопедия Rai
     return True
 
 
+def write_js(path, name, title):
+    """JS-файл как .php (на хостинге только PHP и HTML): AI Studio берёт нейросеть Rai (neuro.js) отсюда и кэширует её."""
+    with open(os.path.join(BASE, name), encoding="utf-8") as f:
+        js = f.read()
+    if "<?" in js:
+        raise SystemExit(f"{name}: в коде есть «<?» — PHP примет это за начало своего кода")
+    tag = hashlib.sha1(js.encode("utf-8")).hexdigest()[:16]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(f"<?php\n// {title}\n"
+                "header('Content-Type: application/javascript; charset=utf-8');\n"
+                "header('Cache-Control: public, max-age=3600');\n"
+                f"header('ETag: \"{tag}\"');\n"
+                f"if (trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === '\"{tag}\"') {{ http_response_code(304); exit; }}\n"
+                "?>\n" + js)
+
+
 def read_kb(path):
     """Данные из kb.php / vision.php обратно в байты JSON (для проверок)."""
     with open(path, encoding="utf-8") as f:
@@ -176,6 +195,8 @@ def build(out):
     write_kb(os.path.join(out, "rai.rteam.info", "kb.php"))
     write_kb(os.path.join(out, "rai.rteam.info", "vision.php"), "vision_labels.json",
              "Зрение Rai: понятия для распознавания картинок (считает GitHub: tools/build_vision.py)")
+    write_js(os.path.join(out, "aistudio.rteam.info", "assets", "neuro.php"), "neuro.js",
+             "Нейросеть Rai Нейро для AI Studio — копия neuro.js из репозитория (собирает make_hosting.py)")
 
     filled = []
     for domain in DOMAINS:

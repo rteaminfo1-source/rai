@@ -39,6 +39,8 @@ if ($a === 'state') {
         'user' => ['username' => $name, 'name' => $user['name']],
         'url' => site_url($name), 'published' => is_file(site_file($name)),
         'html' => $spec ? sg_render($spec) : null, 'title' => $spec['title'] ?? null, 'keys' => $keys,
+        'mode' => $spec['mode'] ?? ($spec ? 'template' : null), 'prompt' => $spec['prompt'] ?? null,
+        'spec' => sg_public_spec($spec),
     ]);
 }
 
@@ -56,7 +58,7 @@ if ($a === 'zip') {
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !csrf_ok()) out(['error' => 'Страница устарела — обновите её.'], 403);
 
-if (in_array($a, ['generate', 'edit'], true) && rate_limited('ai:' . $name, 120, 3600)) {
+if (in_array($a, ['generate', 'edit', 'save_html', 'save_spec'], true) && rate_limited('ai:' . $name, 120, 3600)) {
     out(['error' => 'Слишком много запросов к ИИ за час. Попробуйте позже.'], 429);
 }
 
@@ -66,6 +68,12 @@ switch ($a) {
         break;
     case 'edit':
         $r = studio_edit($name, $_POST['instruction'] ?? '');
+        break;
+    case 'save_html':  // сайт написала нейросеть Rai прямо в браузере (studio_ai.php)
+        $r = studio_save_html($name, $_POST['html'] ?? '', $_POST['prompt'] ?? '', $_POST['title'] ?? '');
+        break;
+    case 'save_spec':  // тексты и разделы написала нейросеть Rai, сайт собирает дизайн студии
+        $r = studio_save_spec($name, $_POST['spec'] ?? '', (string)($_POST['prompt'] ?? ''), ($_POST['fresh'] ?? '1') !== '0');
         break;
     case 'publish':
         $spec = sg_load($name);
@@ -83,4 +91,5 @@ switch ($a) {
         out(['error' => 'Неизвестное действие.'], 400);
 }
 if (isset($r['error'])) out($r, 400);
-out(['message' => $r['message'], 'html' => sg_render($r['spec']), 'title' => $r['spec']['title']]);
+out(['message' => $r['message'], 'html' => sg_render($r['spec']), 'title' => $r['spec']['title'],
+     'mode' => $r['spec']['mode'] ?? 'template', 'spec' => sg_public_spec($r['spec'])]);

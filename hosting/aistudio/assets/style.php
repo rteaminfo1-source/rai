@@ -128,6 +128,30 @@ table.keys th { color: var(--pink); font-weight: 600; }
 .status-pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .status-pill.on { color: var(--fg); }
 .status-pill.on::before { background: var(--ok); box-shadow: 0 0 12px var(--ok); }
+.status-pill.bad::before { background: #ff6b8b; box-shadow: 0 0 10px #ff6b8b; }
+.small { font-size: 12.5px; margin: 0; }
+
+/* нейросеть студии */
+.ai-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ai-mode button { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 12px 14px; border-radius: 16px; cursor: pointer;
+  border: 1px solid var(--line2); background: rgba(0,0,0,.25); color: var(--muted); transition: border-color .2s, background .2s, box-shadow .25s; }
+.ai-mode button b { color: var(--fg); font-weight: 600; font-size: 15px; }
+.ai-mode button small { font-size: 12px; line-height: 1.4; }
+.ai-mode button:hover { border-color: rgba(255,61,129,.45); }
+.ai-mode button.on { border-color: transparent; background: linear-gradient(var(--bg2), var(--bg2)) padding-box, var(--grad) border-box;
+  box-shadow: 0 12px 34px -16px rgba(255,61,129,.8); }
+.neuro-bar { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 16px; background: rgba(139,92,255,.07); border: 1px solid rgba(139,92,255,.26); }
+.neuro-bar select.input { flex: 1 1 220px; min-width: 0; padding: 9px 12px; font-size: 13.5px; cursor: pointer; }
+.neuro-bar select.input:disabled { opacity: .6; cursor: default; }
+select option { background: #121218; color: var(--fg); }
+.progress { height: 6px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: var(--grad); transition: width .3s var(--ease); }
+.ai-step { margin: 0; display: flex; gap: 10px; align-items: center; font-size: 14px; padding: 10px 14px; border-radius: 14px;
+  background: rgba(255,61,129,.08); border: 1px solid rgba(255,61,129,.3); }
+.ai-step::before { content: ""; width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid var(--pink); border-right-color: transparent; animation: rot .8s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+@media (max-width: 560px) { .ai-mode { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .ai-step::before { animation-duration: 2.4s; } }
 footer.foot { padding: 22px max(16px, calc((100% - 1180px) / 2)); color: var(--dim); font-size: 13px; border-top: 1px solid var(--line); display: flex; gap: 18px; flex-wrap: wrap; }
 footer.foot a { color: var(--muted); }
 
