@@ -55,9 +55,9 @@ EXTRA = [
         SELECT DISTINCT ?item WHERE { ?item wdt:P31/wdt:P279* wd:Q7930989; wdt:P17 wd:Q159; wdt:P1082 ?pop .
           FILTER(?pop >= 40000) }"""),
     ("Области Беларуси", """
-        SELECT DISTINCT ?item WHERE { ?item wdt:P31 wd:Q209077 }"""),
+        SELECT DISTINCT ?item WHERE { ?item wdt:P31/wdt:P279* wd:Q10864048; wdt:P17 wd:Q184 }"""),
     ("Города Беларуси", """
-        SELECT DISTINCT ?item WHERE { ?item wdt:P31/wdt:P279* wd:Q515; wdt:P17 wd:Q184; wdt:P1082 ?pop . FILTER(?pop >= 15000) }"""),
+        SELECT DISTINCT ?item WHERE { ?item wdt:P31/wdt:P279* wd:Q7930989; wdt:P17 wd:Q184; wdt:P1082 ?pop . FILTER(?pop >= 10000) }"""),
     ("Известные люди России и СССР", """
         SELECT ?item ?n WHERE { ?item wdt:P31 wd:Q5; wdt:P27 ?c; wikibase:sitelinks ?n .
           VALUES ?c { wd:Q159 wd:Q15180 wd:Q34266 } FILTER(?n >= 60) } ORDER BY DESC(?n) LIMIT 700"""),
@@ -76,8 +76,10 @@ def log(*a):
 def get(url, params, tries=6):
     """GET к API Википедии/Wikidata с повторами и паузами (вежливо: не больше ~10 запросов в секунду)."""
     params = dict(params)
-    if url != SPARQL:
-        params.update(format="json", formatversion="2", maxlag="5")
+    if url in (EN, RU):
+        params.update(format="json", formatversion="2", maxlag="10")
+    elif url == WD:
+        params.update(format="json", formatversion="2")
     else:
         params["format"] = "json"
     full = url + "?" + urllib.parse.urlencode(params)
@@ -156,12 +158,47 @@ def parse_vital(wikitext, default_cat):
     return out
 
 
+CAT_ROOT = "Category:Wikipedia level-4 vital articles"
+
+
+def vital_from_categories():
+    """[(раздел, статья)] из категорий «Wikipedia level-4 vital articles in …» (туда попадают страницы обсуждения)."""
+    subcats = []
+    for data in query_all(EN, {"list": "categorymembers", "cmtitle": CAT_ROOT, "cmtype": "subcat", "cmlimit": "max"}):
+        subcats += [m["title"] for m in data["query"]["categorymembers"]]
+    log("подкатегорий важнейших статей:", len(subcats), subcats[:15])
+    out = []
+    for cat in subcats:
+        tail = cat.split(" in ", 1)[1] if " in " in cat else ""
+        section = next((k for k in SECTIONS if tail.lower() == k.lower()), None)
+        if not section:
+            section = next((k for k in SECTIONS if k.split()[0].lower() in tail.lower()), None)
+        if not section:
+            log("  пропускаю категорию", cat)
+            continue
+        n, queue, seen_cats = 0, [cat], {cat}
+        while queue:  # и вложенные категории («… in People (Writers)»)
+            current = queue.pop()
+            for data in query_all(EN, {"list": "categorymembers", "cmtitle": current, "cmlimit": "max", "cmnamespace": "1|0|14"}):
+                for m in data["query"]["categorymembers"]:
+                    if m["ns"] == 14:
+                        if m["title"] not in seen_cats and len(seen_cats) < 60:
+                            seen_cats.add(m["title"])
+                            queue.append(m["title"])
+                        continue
+                    title = m["title"].split(":", 1)[1] if m["title"].startswith("Talk:") else m["title"]
+                    out.append((section, title))
+                    n += 1
+        log(" ", cat, "→", section, n)
+    return out
+
+
 def vital_articles():
     titles = []
     for data in query_all(EN, {"list": "allpages", "apnamespace": 4, "apprefix": PREFIX + "/", "aplimit": "max"}):
         titles += [p["title"] for p in data["query"]["allpages"]]
     pages = [t for t in titles if not re.search(r"Removed|Archive|Statistics|Header|Template|Count|Talk|Sandbox|Tally", t, re.I)]
-    log("страниц Vital articles:", len(pages))
+    log("страниц Vital articles:", len(pages), pages[:60])
     result, seen = [], set()
     for batch in chunks(pages, 20):
         for data in query_all(EN, {"prop": "revisions", "rvprop": "content", "rvslots": "main", "titles": "|".join(batch)}):
@@ -174,14 +211,29 @@ def vital_articles():
                 if section not in SECTIONS:
                     continue
                 sub = " / ".join(parts[1:]) or section
-                for cat, article in parse_vital(page["revisions"][0]["slots"]["main"]["content"], sub):
+                text = page["revisions"][0]["slots"]["main"]["content"]
+                found = parse_vital(text, sub)
+                log("  ", page["title"], "→", len(found), "" if found else repr(text[:600]))
+                for cat, article in found:
                     if len(parts) > 1 and not cat.startswith(sub):
                         cat = sub + " / " + cat if cat != sub else sub
                     key = article.lower()
                     if key not in seen:
                         seen.add(key)
                         result.append((section, cat, article))
-    log("важнейших статей:", len(result))
+    log("важнейших статей по страницам:", len(result))
+    # Страницы могли поменять разметку — добираем по категориям (раздел без подраздела)
+    try:
+        extra = vital_from_categories()
+    except Exception as e:
+        log("категории не прочитались:", e)
+        extra = []
+    for section, article in extra:
+        key = article.lower()
+        if key not in seen:
+            seen.add(key)
+            result.append((section, section, article))
+    log("важнейших статей всего:", len(result))
     return result
 
 
@@ -213,7 +265,7 @@ def sparql_ru(query):
     ids = [b["item"]["value"].rsplit("/", 1)[1] for b in data["results"]["bindings"]]
     titles = []
     for batch in chunks(ids, 50):
-        data = get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "sitelinks", "sitefilter": "ruwiki"})
+        data = get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "sitelinks", "sitefilter": "ruwiki"}, tries=8)
         for qid in batch:
             link = data.get("entities", {}).get(qid, {}).get("sitelinks", {}).get("ruwiki")
             if link:
@@ -282,10 +334,14 @@ def ru_pages(titles):
 
 
 def wikidata(qids):
-    """{id: (описание, [другие названия])} на русском."""
+    """{id: (описание, [другие названия])} на русском. Сбой Wikidata не останавливает сборку — тема будет без описания."""
     out = {}
     for batch in chunks(sorted(set(qids)), 50):
-        data = get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "descriptions|aliases", "languages": "ru"})
+        try:
+            data = get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "descriptions|aliases", "languages": "ru"}, tries=8)
+        except Exception as e:
+            log("  Wikidata не ответила для", len(batch), "тем:", e)
+            continue
         for qid, e in data.get("entities", {}).items():
             desc = e.get("descriptions", {}).get("ru", {}).get("value", "")
             aliases = [a["value"] for a in e.get("aliases", {}).get("ru", [])]
