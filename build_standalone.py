@@ -43,9 +43,12 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
     embedded = f'<script type="application/json" id="rai-files">{payload}</script>\n'
     html = html.replace("<script>\n(function () {", embedded + "<script>\n(function () {", 1)
 
-    # Энциклопедия (~10 000 тем) — в самом конце страницы: чат запускается, пока она ещё догружается
+    # Энциклопедия (~10 000 тем) — в самом конце страницы: чат запускается, пока она ещё догружается.
+    # На хостинге (cdn) она лежит отдельным файлом kb.php: браузер кэширует его, а chat.html меняется чаще.
     kb_path = os.path.join(BASE_DIR, "encyclopedia.json")
-    if os.path.exists(kb_path):
+    if cdn:
+        html = html.replace("window.RAI_PYODIDE_SOURCES = [", 'window.RAI_KB_URL = "kb.php";\n  window.RAI_PYODIDE_SOURCES = [', 1)
+    elif os.path.exists(kb_path):
         with open(kb_path, encoding="utf-8") as f:
             kb = f.read().replace("</", "<\\/").replace("<!--", "<\\u0021--")
         tag = f'<script type="application/json" id="rai-kb">{kb}</script>\n'

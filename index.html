@@ -1581,6 +1581,10 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     if (document.readyState === "loading") await new Promise((r) => document.addEventListener("DOMContentLoaded", r, {once: true}));
     const embedded = document.getElementById("rai-kb");
     if (embedded) return embedded.textContent;
+    if (window.RAI_KB_URL) {  // хостинг: отдельный файл, браузер его кэширует
+      const r = await fetch(window.RAI_KB_URL);
+      return r.ok ? r.text() : null;
+    }
     if (document.getElementById("rai-files")) return null;  // собранная страница без энциклопедии
     const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + "encyclopedia.json", {cache: "no-cache"});
     return r.ok ? r.text() : null;

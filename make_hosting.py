@@ -9,6 +9,7 @@ SSO_SECRET, они вписываются в config.php собранных па�
 """
 
 import argparse
+import hashlib
 import os
 import shutil
 import zipfile
@@ -42,6 +43,7 @@ README = """RAI — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГА
 
   rai.rteam.info/        index.php — главная: что умеет Rai, тарифы и оплата (Platega)
                          chat.html — сам Rai: чат, Code, Слайды, скриншоты (всё в одном файле)
+                         kb.php — энциклопедия Rai (~10 000 тем из Википедии), чат догружает её в фоне
                          + аккаунты: регистрация, вход, вход через Google, личный кабинет, чаты в аккаунте
   aistudio.rteam.info/   AI Studio: ИИ делает сайты пользователей, API-ключи, хостинг сайтов;
                          вход — аккаунтом Rai
@@ -110,6 +112,26 @@ def copy_tree(src, dst):
             shutil.copy2(os.path.join(root, name), os.path.join(dst, rel, name))
 
 
+def write_kb(path):
+    """Энциклопедия (encyclopedia.json) для хостинга: kb.php отдаёт её как JSON с кэшем в браузере.
+    На хостинге только PHP и HTML, поэтому JSON лежит внутри .php после короткого заголовка."""
+    src = os.path.join(BASE, "encyclopedia.json")
+    if not os.path.exists(src):
+        return False
+    with open(src, encoding="utf-8") as f:
+        data = f.read()
+    tag = hashlib.sha1(data.encode("utf-8")).hexdigest()[:16]
+    body = data.replace("<", "\\u003c")  # «<?» внутри данных не должно открыть PHP
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("<?php\n// Энциклопедия Rai (~10 000 тем из Википедии, CC BY-SA). Собирает GitHub: tools/build_encyclopedia.py\n"
+                "header('Content-Type: application/json; charset=utf-8');\n"
+                "header('Cache-Control: public, max-age=86400');\n"
+                f"header('ETag: \"{tag}\"');\n"
+                f"if (trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === '\"{tag}\"') {{ http_response_code(304); exit; }}\n"
+                "?>" + body)
+    return True
+
+
 def build_admin(out, admin_path):
     """rteam.info/admin.php: админка основного сайта со встроенной вкладкой «Rai: подписки» (make_admin.py)."""
     import make_admin
@@ -129,6 +151,7 @@ def build(out):
         copy_tree(os.path.join(BASE, src), os.path.join(out, domain))
     with open(os.path.join(out, "rai.rteam.info", "chat.html"), "w", encoding="utf-8") as f:
         f.write(build_standalone.build(cdn=True))
+    write_kb(os.path.join(out, "rai.rteam.info", "kb.php"))
 
     filled = []
     for domain in DOMAINS:

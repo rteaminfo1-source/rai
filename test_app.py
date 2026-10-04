@@ -1002,6 +1002,15 @@ class EncyclopediaTest(unittest.TestCase):
         self.assertEqual([c["title"] for c in ctx], ["Великая французская революция", "Москва"])
         self.assertTrue(ctx[0]["url"].startswith("https://ru.wikipedia.org/wiki/"))
 
+    @unittest.skipUnless(os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "encyclopedia.json")), "нет encyclopedia.json")
+    def test_real_data_and_standalone(self):
+        import build_standalone
+        self.enc.load()
+        self.assertGreater(self.enc.count(), 1000)
+        page = build_standalone.build()
+        raw = page.split('<script type="application/json" id="rai-kb">', 1)[1].split("</script>", 1)[0]
+        self.assertEqual(len(json.loads(raw)["items"]), self.enc.count())  # встроена в офлайн-версию целиком
+
     def test_brain_uses_encyclopedia(self):
         with tempfile.TemporaryDirectory() as tmp:
             brain = Brain(learned_path=os.path.join(tmp, "learned.json"))
@@ -1076,6 +1085,14 @@ class HostingTest(unittest.TestCase):
             self.assertIn("ai.php", page)
             self.assertIn("window.RaiNeuro", page)
             self.assertIn("limits.php", page)
+            # энциклопедия на хостинге — отдельный kb.php (кэшируется браузером), а не внутри chat.html
+            self.assertIn('window.RAI_KB_URL = "kb.php"', page)
+            self.assertNotIn('id="rai-kb"', page)
+            if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "encyclopedia.json")):
+                with open(os.path.join(rai, "kb.php"), encoding="utf-8") as fh:
+                    kb = fh.read()
+                self.assertEqual(kb.count("<?"), 1)  # внутри данных PHP не открывается
+                self.assertTrue(json.loads(kb.split("?>", 1)[1])["items"])
 
     @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
     def test_php_servers(self):
