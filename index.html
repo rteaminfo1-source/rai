@@ -415,7 +415,10 @@
 </style>
 <style id="slide-css">
   /* Цвета слайда — из темы презентации (--s-*), по умолчанию чёрно-красные */
-  .slide { position: absolute; inset: 0; background: var(--s-bg, #0b0b0c); color: var(--s-fg, #f3f1f1); padding: 6cqw 7cqw 7cqw;
+  .slide { position: absolute; inset: 0; background-color: var(--s-bg, #0b0b0c); color: var(--s-fg, #f3f1f1); padding: 6cqw 7cqw 7cqw;
+    /* мягкое свечение цветов темы (как в .pptx); старые браузеры просто покажут цвет фона */
+    background-image: radial-gradient(70cqw 52cqw at 96% 0%, color-mix(in srgb, var(--s-accent, #e10600) 26%, transparent), transparent 70%),
+      radial-gradient(60cqw 46cqw at 0% 104%, color-mix(in srgb, var(--s-accent2, #ff6a5c) 16%, transparent), transparent 70%);
     display: flex; flex-direction: column; gap: 2.4cqw; overflow: hidden;
     font-family: "Onest", "Segoe UI", system-ui, sans-serif; }
   .slide::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: .8cqw; background: linear-gradient(90deg, var(--s-accent, #e10600), var(--s-accent2, #ff6a5c)); z-index: 2; }

@@ -1096,6 +1096,45 @@ class PlacesTest(unittest.TestCase):
         self.assertTrue(any(x["type"] == "photo" for x in enc["attachments"]))
 
 
+class PptxMotionTest(unittest.TestCase):
+    """Переходы и анимации попадают внутрь .pptx (PptxGenJS их не умеет — pptx.js дописывает XML слайдов)."""
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_transitions_and_animations(self):
+        import io
+        import subprocess
+        import zipfile
+        from xml.dom import minidom
+        slide = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="a" xmlns:p="p"><p:cSld><p:spTree>'
+                 '<p:sp><p:nvSpPr><p:cNvPr id="2" name="rai-a-1-rise"></p:cNvPr></p:nvSpPr></p:sp>'
+                 '<p:pic><p:nvPicPr><p:cNvPr id="3" name="rai-a-3-zoom" descr=""/></p:nvPicPr></p:pic>'
+                 '<p:sp><p:nvSpPr><p:cNvPr id="4" name="rai-a-2-wipe"></p:cNvPr></p:nvSpPr></p:sp>'
+                 '<p:sp><p:nvSpPr><p:cNvPr id="5" name="Фон"></p:cNvPr></p:nvSpPr></p:sp>'
+                 '</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>')
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+            z.writestr("[Content_Types].xml", "<Types/>")
+            z.writestr("ppt/slides/slide1.xml", slide)
+            z.writestr("ppt/slides/slide2.xml", slide.replace("rai-a-", "x-"))
+        base = os.path.dirname(os.path.abspath(__file__))
+        script = ("const fs=require('fs'),vm=require('vm');global.window={};vm.runInThisContext(fs.readFileSync(process.argv[1],'utf8'));"
+                  "const u8=new Uint8Array(fs.readFileSync(0));const parts=window.RaiPptx.addMotion(u8,{slides:[{transition:'zoom'},{}]});"
+                  "process.stdout.write(Buffer.concat(parts.map(p=>Buffer.from(p.buffer,p.byteOffset,p.byteLength))));")
+        out = subprocess.run(["node", "-e", script, os.path.join(base, "pptx.js")], input=buf.getvalue(), capture_output=True, check=True).stdout
+        with zipfile.ZipFile(io.BytesIO(out)) as z:
+            self.assertIsNone(z.testzip())  # контрольные суммы сходятся
+            first, second = z.read("ppt/slides/slide1.xml").decode(), z.read("ppt/slides/slide2.xml").decode()
+        minidom.parseString(first)
+        self.assertIn('<p:transition spd="med"><p:zoom dir="in"/></p:transition><p:timing>', first)
+        self.assertLess(first.index("</p:clrMapOvr>"), first.index("<p:transition"))
+        # порядок появления: 2 (rise) → 4 (wipe) → 3 (zoom); фон не анимируется
+        self.assertEqual([int(x) for x in __import__("re").findall(r'presetClass="entr".*?spid="(\d+)"', first)], [2, 4, 3])
+        self.assertNotIn('spid="5"', first)
+        self.assertIn('<p:bldP spid="2" grpId="0" animBg="1"/><p:bldP spid="4" grpId="0" animBg="1"/></p:bldLst>', first)
+        self.assertIn('<p:transition spd="slow"><p:fade/></p:transition>', second)  # без меток — только переход
+        self.assertNotIn("<p:timing>", second)
+
+
 class DesktopTest(unittest.TestCase):
     """Приложение для компьютера (desktop/): имена файлов совпадают с кнопками сайта, обновления — GitHub и хостинг."""
 
