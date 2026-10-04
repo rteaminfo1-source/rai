@@ -15,6 +15,7 @@
 """
 
 import argparse
+import concurrent.futures
 import datetime
 import json
 import os
@@ -166,6 +167,12 @@ def query_all(url, params):
         cont = data["continue"]
 
 
+def pmap(fn, items, workers=4):
+    """fn для каждого элемента в несколько потоков (Википедия разрешает немного параллельных запросов), порядок сохраняется."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(fn, items))
+
+
 def chunks(seq, n):
     for i in range(0, len(seq), n):
         yield seq[i:i + n]
@@ -294,13 +301,15 @@ def vital_articles():
 def ru_titles(en_titles):
     """Английское название → русская статья (через межъязыковые ссылки)."""
     found = {}
-    for batch in chunks(en_titles, 50):
-        rename = {}
+
+    def fetch(batch):
         try:
-            responses = list(query_all(EN, {"prop": "langlinks", "lllang": "ru", "lllimit": "max", "redirects": 1, "titles": "|".join(batch)}))
+            return batch, list(query_all(EN, {"prop": "langlinks", "lllang": "ru", "lllimit": "max", "redirects": 1, "titles": "|".join(batch)}))
         except Exception as e:
             log("  пропускаю пачку из", len(batch), "названий:", e)
-            continue
+            return batch, []
+    for batch, responses in pmap(fetch, list(chunks(en_titles, 50))):
+        rename = {}
         for data in responses:
             q = data.get("query", {})
             for n in q.get("normalized", []) + q.get("redirects", []):
@@ -354,27 +363,31 @@ def search_category(cat, limit):
     return titles[:limit]
 
 
+def _valid(m, d):
+    try:
+        datetime.date(2024, m, d)
+        return True
+    except ValueError:
+        return False
+
+
 def on_this_day():
     """«Этот день в истории»: {"ММ-ДД": [[год, событие], …]} на все 366 дней (русская Википедия)."""
     days = {}
-    for month in range(1, 13):
-        for day in range(1, 32):
-            try:
-                datetime.date(2024, month, day)
-            except ValueError:
-                continue
-            data = rest(f"https://api.wikimedia.org/feed/v1/wikipedia/ru/onthisday/events/{month:02d}/{day:02d}")
-            if data is None and month == 1 and day == 1:
-                log("  «этот день в истории» недоступен на русском")
-                return {}
-            events = []
-            for ev in (data or {}).get("events", []):
-                text = clean_extract(ev.get("text", ""))
-                if ev.get("year") and 15 <= len(text) <= 300:
-                    events.append([ev["year"], text])
-            events.sort(key=lambda e: -e[0])
-            if events:
-                days[f"{month:02d}-{day:02d}"] = events[:12]
+    dates = [(m, d) for m in range(1, 13) for d in range(1, 32) if _valid(m, d)]
+    if rest("https://api.wikimedia.org/feed/v1/wikipedia/ru/onthisday/events/01/01") is None:
+        log("  «этот день в истории» недоступен на русском")
+        return {}
+    feeds = pmap(lambda md: rest(f"https://api.wikimedia.org/feed/v1/wikipedia/ru/onthisday/events/{md[0]:02d}/{md[1]:02d}"), dates)
+    for (month, day), data in zip(dates, feeds):
+        events = []
+        for ev in (data or {}).get("events", []):
+            text = clean_extract(ev.get("text", ""))
+            if ev.get("year") and 15 <= len(text) <= 300:
+                events.append([ev["year"], text])
+        events.sort(key=lambda e: -e[0])
+        if events:
+            days[f"{month:02d}-{day:02d}"] = events[:12]
     log("событий по дням:", sum(len(v) for v in days.values()))
     return days
 
@@ -441,16 +454,20 @@ def clean_extract(text):
 def ru_pages(titles):
     """Русские статьи: {название: [текст, id Wikidata, картинка (файл на Викискладе), число других языков]}."""
     pages = {}
-    for n, batch in enumerate(chunks(titles, 20)):
-        if n % 50 == 0:
+    batches = list(chunks(titles, 20))
+
+    def fetch(item):
+        n, batch = item
+        if n % 100 == 0:
             log("  тексты статей:", n * 20, "из", len(titles))
         try:
-            responses = list(query_all(RU, {"prop": "extracts|pageprops|pageimages|langlinkscount", "exintro": 1, "explaintext": 1, "exlimit": 20,
-                                            "ppprop": "wikibase_item", "piprop": "name", "pilicense": "free", "pilimit": 20,
-                                            "redirects": 1, "titles": "|".join(batch)}))
+            return list(query_all(RU, {"prop": "extracts|pageprops|pageimages|langlinkscount", "exintro": 1, "explaintext": 1, "exlimit": 20,
+                                       "ppprop": "wikibase_item", "piprop": "name", "pilicense": "free", "pilimit": 20,
+                                       "redirects": 1, "titles": "|".join(batch)}))
         except Exception as e:
             log("  пропускаю пачку из", len(batch), "статей:", e)
-            continue
+            return []
+    for responses in pmap(fetch, list(enumerate(batches))):
         for data in responses:
             q = data.get("query", {})
             for page in q.get("pages", []):
@@ -473,12 +490,14 @@ def ru_pages(titles):
 def wikidata(qids):
     """{id: (описание, [другие названия])} на русском. Сбой Wikidata не останавливает сборку — тема будет без описания."""
     out = {}
-    for batch in chunks(sorted(set(qids)), 50):
+
+    def fetch(batch):
         try:
-            data = get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "descriptions|aliases", "languages": "ru"}, tries=8)
+            return get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "descriptions|aliases", "languages": "ru"}, tries=8)
         except Exception as e:
             log("  Wikidata не ответила для", len(batch), "тем:", e)
-            continue
+            return {}
+    for data in pmap(fetch, list(chunks(sorted(set(qids)), 50))):
         for qid, e in data.get("entities", {}).items():
             desc = e.get("descriptions", {}).get("ru", {}).get("value", "")
             aliases = [a["value"] for a in e.get("aliases", {}).get("ru", [])]
