@@ -1010,6 +1010,8 @@ class EncyclopediaTest(unittest.TestCase):
         page = build_standalone.build()
         raw = page.split('<script type="application/json" id="rai-kb">', 1)[1].split("</script>", 1)[0]
         self.assertEqual(len(json.loads(raw)["items"]), self.enc.count())  # встроена в офлайн-версию целиком
+        vis = page.split('<script type="application/json" id="rai-vision">', 1)[1].split("</script>", 1)[0]
+        self.assertEqual(len(json.loads(vis)["labels"]), 502)  # и словарь зрения
 
     def test_brain_uses_encyclopedia(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1250,6 +1252,10 @@ class HostingTest(unittest.TestCase):
             # энциклопедия на хостинге — отдельный kb.php (кэшируется браузером), а не внутри chat.html
             self.assertIn('window.RAI_KB_URL = "kb.php"', page)
             self.assertNotIn('id="rai-kb"', page)
+            self.assertIn('window.RAI_VISION_URL = "vision.php"', page)  # словарь зрения — отдельным файлом
+            if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "vision_labels.json")):
+                with open(os.path.join(rai, "vision.php"), encoding="utf-8") as fh:
+                    self.assertEqual(len(json.loads(fh.read().split("?>", 1)[1])["labels"]), 502)
             if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "encyclopedia.json")):
                 with open(os.path.join(rai, "kb.php"), encoding="utf-8") as fh:
                     kb = fh.read()
