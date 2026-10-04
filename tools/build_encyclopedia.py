@@ -335,18 +335,20 @@ def ru_pages(titles):
 
 
 def wikidata(qids):
-    """{id: (описание, [другие названия])} на русском. Сбой Wikidata не останавливает сборку — тема будет без описания."""
+    """{id: (описание, [другие названия], известность)} на русском; известность — в скольких Википедиях есть статья.
+    Сбой Wikidata не останавливает сборку — тема будет без описания."""
     out = {}
     for batch in chunks(sorted(set(qids)), 50):
         try:
-            data = get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "descriptions|aliases", "languages": "ru"}, tries=8)
+            data = get(WD, {"action": "wbgetentities", "ids": "|".join(batch), "props": "descriptions|aliases|sitelinks", "languages": "ru"}, tries=8)
         except Exception as e:
             log("  Wikidata не ответила для", len(batch), "тем:", e)
             continue
         for qid, e in data.get("entities", {}).items():
             desc = e.get("descriptions", {}).get("ru", {}).get("value", "")
             aliases = [a["value"] for a in e.get("aliases", {}).get("ru", [])]
-            out[qid] = (desc, aliases)
+            pop = sum(1 for k in e.get("sitelinks", {}) if k.endswith("wiki") and k not in ("commonswiki", "specieswiki"))
+            out[qid] = (desc, aliases, pop)
     return out
 
 
@@ -388,13 +390,13 @@ def build(limit=None):
         if len(text) < 40:
             continue
         done.add(real)
-        desc, aliases = wd.get(page[1], ("", []))
+        desc, aliases, pop = wd.get(page[1], ("", [], 0))
         key = (section, cat)
         if key not in cat_index:
             cat_index[key] = len(cats)
             cats.append([sections.index(section), cat])
         aliases = [a for a in aliases if 2 <= len(a) <= 40 and a != real][:6]
-        items.append([real, desc, cat_index[key], text, aliases])
+        items.append([real, desc, cat_index[key], text, aliases, pop])
     return {
         "version": datetime.date.today().isoformat(),
         "source": "Википедия (Vital articles, уровень 4; русские статьи) и Wikidata",
