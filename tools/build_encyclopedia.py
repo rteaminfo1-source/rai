@@ -46,6 +46,30 @@ SECTIONS = {
     "Mathematics": "Математика",
 }
 EXTRA_SECTION = "Россия и Беларусь"
+SPACE_SECTION = "Космос"
+NEWS_SECTION = "Новое и популярное"
+
+# Космос: статьи из категорий русской Википедии (поиск deepcat — со всеми подкатегориями), самые известные первыми.
+SPACE = [
+    ("Солнечная система", "Солнечная система", 400),
+    ("Планеты", "Планеты", 200),
+    ("Спутники планет", "Спутники планет", 250),
+    ("Звёзды", "Звёзды", 1500),
+    ("Галактики", "Галактики", 800),
+    ("Туманности", "Туманности", 300),
+    ("Звёздные скопления", "Звёздные скопления", 300),
+    ("Созвездия", "Созвездия", 120),
+    ("Экзопланеты", "Экзопланеты", 400),
+    ("Кометы", "Кометы", 200),
+    ("Астероиды", "Астероиды", 300),
+    ("Чёрные дыры и квазары", "Чёрные дыры", 120),
+    ("Чёрные дыры и квазары", "Квазары", 100),
+    ("Космические аппараты", "Космические аппараты", 400),
+    ("Космонавты", "Космонавты", 300),
+    ("Астрономия", "Астрономия", 400),
+]
+# Не берём в «популярное за день» (бывает в самых читаемых статьях)
+_NEWS_SKIP = re.compile(r"порн|эрот|xxx|секс|заглавная страница|служебная:|википедия:|список ", re.I)
 
 # Дополнение: (подраздел, запрос SPARQL). ?item — объект, у которого есть статья в русской Википедии.
 EXTRA = [
@@ -53,11 +77,11 @@ EXTRA = [
         SELECT DISTINCT ?item WHERE { ?item wdt:P31/wdt:P279* wd:Q43263 . FILTER NOT EXISTS { ?item wdt:P576 [] } }"""),
     ("Города России", """
         SELECT DISTINCT ?item WHERE { ?item wdt:P31/wdt:P279* wd:Q7930989; wdt:P17 wd:Q159; wdt:P1082 ?pop .
-          FILTER(?pop >= 40000) }"""),
+          FILTER(?pop >= 12000) }"""),
     ("Области Беларуси", """
         SELECT DISTINCT ?item WHERE { ?item wdt:P31/wdt:P279* wd:Q10864048; wdt:P17 wd:Q184 }"""),
     ("Города Беларуси", """
-        SELECT DISTINCT ?item WHERE { ?item wdt:P31/wdt:P279* wd:Q7930989; wdt:P17 wd:Q184; wdt:P1082 ?pop . FILTER(?pop >= 10000) }"""),
+        SELECT DISTINCT ?item WHERE { ?item wdt:P31/wdt:P279* wd:Q7930989; wdt:P17 wd:Q184; wdt:P1082 ?pop . FILTER(?pop >= 3000) }"""),
     ("Известные люди России и СССР", """
         SELECT ?item ?n WHERE { ?item wdt:P31 wd:Q5; wdt:P27 ?c; wikibase:sitelinks ?n .
           VALUES ?c { wd:Q159 wd:Q15180 wd:Q34266 } FILTER(?n >= 60) } ORDER BY DESC(?n) LIMIT 700"""),
@@ -105,6 +129,29 @@ def get(url, params, tries=6):
             log("  повтор через", delay, "с:", e)
             time.sleep(delay)
             delay *= 2
+
+
+def rest(url, tries=4):
+    """GET к REST API Википедии (лента дня, события дня). None — нет данных."""
+    delay = 2
+    for attempt in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            time.sleep(0.05)
+            return data
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            err = e
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            err = e
+        if attempt < tries - 1:
+            time.sleep(delay)
+            delay *= 2
+    log("  не ответил", url, err)
+    return None
 
 
 def query_all(url, params):
@@ -285,6 +332,72 @@ def sparql_ru(query):
     return titles
 
 
+def search_category(cat, limit):
+    """Статьи из категории русской Википедии со всеми подкатегориями, самые известные (больше ссылок) первыми."""
+    titles = []
+    for query in (f'deepcat:"{cat}"', f'incategory:"{cat}"'):
+        offset = 0
+        try:
+            while len(titles) < limit:
+                data = get(RU, {"action": "query", "list": "search", "srsearch": query, "srnamespace": 0,
+                                "srlimit": min(500, limit - len(titles)), "sroffset": offset,
+                                "srsort": "incoming_links_desc", "srprop": "", "srinfo": ""})
+                hits = [h["title"] for h in data.get("query", {}).get("search", [])]
+                titles += [t for t in hits if t not in titles]
+                if "continue" not in data or not hits:
+                    break
+                offset = data["continue"]["sroffset"]
+        except Exception as e:
+            log("  поиск", query, "не удался:", e)
+        if titles:
+            break
+    return titles[:limit]
+
+
+def on_this_day():
+    """«Этот день в истории»: {"ММ-ДД": [[год, событие], …]} на все 366 дней (русская Википедия)."""
+    days = {}
+    for month in range(1, 13):
+        for day in range(1, 32):
+            try:
+                datetime.date(2024, month, day)
+            except ValueError:
+                continue
+            data = rest(f"https://api.wikimedia.org/feed/v1/wikipedia/ru/onthisday/events/{month:02d}/{day:02d}")
+            if data is None and month == 1 and day == 1:
+                log("  «этот день в истории» недоступен на русском")
+                return {}
+            events = []
+            for ev in (data or {}).get("events", []):
+                text = clean_extract(ev.get("text", ""))
+                if ev.get("year") and 15 <= len(text) <= 300:
+                    events.append([ev["year"], text])
+            events.sort(key=lambda e: -e[0])
+            if events:
+                days[f"{month:02d}-{day:02d}"] = events[:12]
+    log("событий по дням:", sum(len(v) for v in days.values()))
+    return days
+
+
+def today_feed():
+    """Что читают в русской Википедии (за вчера) и статья дня: {"date", "popular": [[название, просмотры, кратко]], "featured"}."""
+    day = datetime.date.today() - datetime.timedelta(days=1)
+    data = rest(f"https://api.wikimedia.org/feed/v1/wikipedia/ru/featured/{day:%Y/%m/%d}") or {}
+    popular = []
+    for a in (data.get("mostread") or {}).get("articles", []):
+        title = a.get("normalizedtitle") or a.get("title", "").replace("_", " ")
+        info = (a.get("description") or "") + " " + (a.get("extract") or "")
+        if not title or _NEWS_SKIP.search(title + " " + info):
+            continue
+        popular.append([title, a.get("views", 0), clean_extract(a.get("extract") or "")[:300]])
+    featured = None
+    tfa = data.get("tfa")
+    if tfa:
+        featured = [tfa.get("normalizedtitle") or tfa.get("title", "").replace("_", " "), clean_extract(tfa.get("extract") or "")]
+    log("популярное за", day, ":", len(popular), "статей; статья дня:", featured[0] if featured else "—")
+    return {"date": day.isoformat(), "popular": popular[:40], "featured": featured}
+
+
 # ------------------------------------------------------------------ 2. тексты статей
 _ABBR = ("г", "гг", "в", "вв", "др", "т", "е", "н", "э", "лат", "англ", "нем", "фр", "франц", "греч", "др.-греч", "ок", "им",
          "ст", "род", "см", "напр", "т.е", "т.н", "св", "кн", "ул", "пр", "млн", "млрд", "тыс", "км", "м", "р", "араб", "исп",
@@ -326,14 +439,15 @@ def clean_extract(text):
 
 
 def ru_pages(titles):
-    """Русские статьи: {название: (текст, id Wikidata)}."""
+    """Русские статьи: {название: [текст, id Wikidata, картинка (файл на Викискладе)]}."""
     pages = {}
     for n, batch in enumerate(chunks(titles, 20)):
         if n % 50 == 0:
             log("  тексты статей:", n * 20, "из", len(titles))
         try:
-            responses = list(query_all(RU, {"prop": "extracts|pageprops", "exintro": 1, "explaintext": 1, "exlimit": 20,
-                                            "ppprop": "wikibase_item", "redirects": 1, "titles": "|".join(batch)}))
+            responses = list(query_all(RU, {"prop": "extracts|pageprops|pageimages", "exintro": 1, "explaintext": 1, "exlimit": 20,
+                                            "ppprop": "wikibase_item", "piprop": "name", "pilicense": "free", "pilimit": 20,
+                                            "redirects": 1, "titles": "|".join(batch)}))
         except Exception as e:
             log("  пропускаю пачку из", len(batch), "статей:", e)
             continue
@@ -342,11 +456,13 @@ def ru_pages(titles):
             for page in q.get("pages", []):
                 if page.get("missing"):
                     continue
-                cur = pages.setdefault(page["title"], ["", None])
+                cur = pages.setdefault(page["title"], ["", None, ""])
                 if page.get("extract"):
                     cur[0] = page["extract"]
                 if page.get("pageprops", {}).get("wikibase_item"):
                     cur[1] = page["pageprops"]["wikibase_item"]
+                if page.get("pageimage"):
+                    cur[2] = page["pageimage"]
             for r in q.get("redirects", []) + q.get("normalized", []):
                 pages.setdefault("→" + r["from"], r["to"])
     return pages
@@ -377,8 +493,19 @@ def build(limit=None):
         topics = topics[:limit]
     ru = ru_titles([a for _, _, a in topics])
     log("есть в русской Википедии:", len({a for _, _, a in topics if a in ru}), "из", len(topics))
-    wanted = [(SECTIONS[s], c, ru[a]) for s, c, a in topics if a in ru]
+    # астрономия из важнейших статей — тоже в раздел «Космос»
+    wanted = [(SPACE_SECTION if re.search(r"Astronom|Space|Solar System", c) else SECTIONS[s], c, ru[a]) for s, c, a in topics if a in ru]
+    feed, days = {"date": None, "popular": [], "featured": None}, {}
     if not limit:
+        feed = today_feed()
+        wanted += [(NEWS_SECTION, "Популярное за день", t) for t, _, _ in feed["popular"]]
+        if feed["featured"]:
+            wanted.append((NEWS_SECTION, "Статья дня", feed["featured"][0]))
+        for cat, root, n in SPACE:
+            titles = search_category(root, n)
+            log(SPACE_SECTION, "/", cat + ":", len(titles))
+            wanted += [(SPACE_SECTION, cat, t) for t in titles]
+        days = on_this_day()
         for cat, query in EXTRA:
             try:
                 titles = sparql_ru(query)
@@ -397,7 +524,7 @@ def build(limit=None):
     qids = [pages[resolve(t)][1] for _, _, t in uniq if isinstance(pages.get(resolve(t)), list) and pages[resolve(t)][1]]
     wd = wikidata(qids)
 
-    sections = list(SECTIONS.values()) + [EXTRA_SECTION]
+    sections = list(SECTIONS.values()) + [SPACE_SECTION, EXTRA_SECTION, NEWS_SECTION]
     cats, cat_index, items, done = [], {}, [], set()
     for section, cat, title in uniq:
         real = resolve(title)
@@ -414,7 +541,7 @@ def build(limit=None):
             cat_index[key] = len(cats)
             cats.append([sections.index(section), cat])
         aliases = [a for a in aliases if 2 <= len(a) <= 40 and a != real][:6]
-        items.append([real, desc, cat_index[key], text, aliases, pop])
+        items.append([real, desc, cat_index[key], text, aliases, pop, page[2] if len(page) > 2 else ""])
     return {
         "version": datetime.date.today().isoformat(),
         "source": "Википедия (Vital articles, уровень 4; русские статьи) и Wikidata",
@@ -422,6 +549,8 @@ def build(limit=None):
         "sections": sections,
         "cats": cats,
         "items": items,
+        "days": days,
+        "news": feed,
     }
 
 
