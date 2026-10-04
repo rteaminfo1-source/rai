@@ -32,6 +32,7 @@ import toolbox
 import facts  # noqa: F401 — регистрирует справочник в toolbox
 import games
 import fixer
+import encyclopedia
 import webgen
 from versions import Version
 
@@ -472,6 +473,10 @@ class Brain:
         definition = None if code_answer else self.define(version, text, exact_only=True)
         if definition:
             return self._enrich(version, text, definition, attachments), "glossary"
+        # Энциклопедия: ~10 000 тем из Википедии — «кто такой Пушкин», «расскажи о Французской революции»
+        known = None if code_answer else encyclopedia.answer(text, explicit_only=True)
+        if known:
+            return known, "encyclopedia"
 
         results = self.search(version, text)
         best = results[0][1] if results else 0.0
@@ -487,6 +492,9 @@ class Brain:
             definition = self.define(version, text)
             if definition:
                 return self._enrich(version, text, definition, attachments), "glossary"
+            known = encyclopedia.answer(text)  # просто название темы: «Жираф», «теория относительности»
+            if known:
+                return known, "encyclopedia"
 
         if best >= version.threshold:
             intent = self.intents[results[0][0]]

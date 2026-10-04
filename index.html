@@ -680,7 +680,7 @@
   if (params.get("py")) CFG.pyBase = params.get("py");
 
   const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
-                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "brain.py", "knowledge.json", "glossary.json"];
+                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -1575,6 +1575,17 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     }));
   }
 
+  // Энциклопедия (~10 000 тем из Википедии, несколько мегабайт): встроена в конец страницы или лежит рядом.
+  // Догружается в фоне — чат начинает отвечать, не дожидаясь её.
+  async function readKnowledge() {
+    if (document.readyState === "loading") await new Promise((r) => document.addEventListener("DOMContentLoaded", r, {once: true}));
+    const embedded = document.getElementById("rai-kb");
+    if (embedded) return embedded.textContent;
+    if (document.getElementById("rai-files")) return null;  // собранная страница без энциклопедии
+    const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + "encyclopedia.json", {cache: "no-cache"});
+    return r.ok ? r.text() : null;
+  }
+
   // Откуда Python для запуска программ во вкладке Code: сначала тот источник, что уже сработал.
   let pyodideOK = null;
   function pyodideSources() {
@@ -1764,11 +1775,19 @@ def rai_slides(action, args_json):
     return json.dumps({"error": "unknown action"})
 
 def rai_context(query, force=False):
-    """Сведения из интернета для нейросети (если вопрос о фактах, а не о коде; force — искать всегда)."""
-    import online, codeai
+    """Сведения для нейросети: энциклопедия Rai (без интернета) + интернет (если вопрос о фактах, а не о коде)."""
+    import online, codeai, encyclopedia
     if not force and (codeai.is_build_request(query) or not online.needs_facts(query)):
         return json.dumps({"text": "", "sources": []})
-    return json.dumps(online.context_for(query[:300]), ensure_ascii=False)
+    known = encyclopedia.context(query[:300])
+    try:
+        found = online.context_for(query[:300])
+    except Exception:
+        found = {"text": "", "sources": []}
+    text = "\n\n".join([f"[{t['title']} — Википедия]({t['url']}): {t['text']}" for t in known] + ([found["text"]] if found["text"] else []))
+    sources = [{"title": t["title"] + " — Википедия", "url": t["url"]} for t in known]
+    sources += [x for x in found["sources"] if x["url"] not in {y["url"] for y in sources}]
+    return json.dumps({"text": text[:3200], "sources": sources[:6]}, ensure_ascii=False)
 
 def rai_code(action, code, lang, prompt):
     import codeai
@@ -1777,6 +1796,11 @@ def rai_code(action, code, lang, prompt):
     except Exception as e:
         return json.dumps({"answer": "Не получилось разобрать код: " + str(e)}, ensure_ascii=False)
 `);
+    readKnowledge().then((text) => {
+      if (!text) return;
+      pyodide.FS.writeFile("/home/pyodide/rai/encyclopedia.json", text);
+      pyodide.runPython("import encyclopedia\nencyclopedia.load()");
+    }).catch((e) => console.warn("Энциклопедия Rai не загрузилась:", e));
     const pyAsk = pyodide.globals.get("rai_ask");
     const pyVersions = pyodide.globals.get("rai_versions");
     const pyCode = pyodide.globals.get("rai_code");

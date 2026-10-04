@@ -15,7 +15,7 @@ import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
-         "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "brain.py", "knowledge.json", "glossary.json"]
+         "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "brain.py", "knowledge.json", "glossary.json"]
 
 
 def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
@@ -42,6 +42,14 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
     payload = json.dumps(files, ensure_ascii=False).replace("</", "<\\/").replace("<!--", "<\\u0021--")
     embedded = f'<script type="application/json" id="rai-files">{payload}</script>\n'
     html = html.replace("<script>\n(function () {", embedded + "<script>\n(function () {", 1)
+
+    # Энциклопедия (~10 000 тем) — в самом конце страницы: чат запускается, пока она ещё догружается
+    kb_path = os.path.join(BASE_DIR, "encyclopedia.json")
+    if os.path.exists(kb_path):
+        with open(kb_path, encoding="utf-8") as f:
+            kb = f.read().replace("</", "<\\/").replace("<!--", "<\\u0021--")
+        tag = f'<script type="application/json" id="rai-kb">{kb}</script>\n'
+        html = html.replace("</body>", tag + "</body>", 1) if "</body>" in html else html + tag
 
     if cdn:
         # Хостинг только с PHP и HTML: рядом нет папок pyodide/ и ocr/ — Python и распознавание текста берём с CDN

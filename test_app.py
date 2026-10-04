@@ -948,6 +948,73 @@ class FixerTest(unittest.TestCase):
         self.assertNotIn("Понял как", r["answer"])
 
 
+class EncyclopediaTest(unittest.TestCase):
+    """Энциклопедия (~10 000 тем из Википедии): поиск по названию в любом падеже, разделы, подсказки нейросети."""
+
+    DATA = {
+        "sections": ["Люди", "История", "География", "Биология и медицина", "Естественные науки"],
+        "cats": [[0, "Писатели"], [1, "Новое время"], [2, "Горы"], [3, "Млекопитающие"], [4, "Астрономия"], [2, "Города"]],
+        "items": [
+            ["Пушкин, Александр Сергеевич", "русский поэт", 0, "Александр Сергеевич Пушкин (1799—1837) — русский поэт.", ["Пушкин А. С."]],
+            ["Великая французская революция", "революция во Франции", 1, "Великая французская революция — крупнейшая трансформация.", ["Французская революция"]],
+            ["Джомолунгма", "высочайшая вершина Земли", 2, "Джомолунгма — высочайшая вершина Земли, 8848 м.", ["Эверест"]],
+            ["Жираф", "вид млекопитающих", 3, "Жираф — парнокопытное млекопитающее, самое высокое животное.", []],
+            ["Меркурий (планета)", "планета Солнечной системы", 4, "Меркурий — ближайшая к Солнцу планета.", []],
+            ["Меркурий (мифология)", "римский бог", 1, "Меркурий — бог торговли в римской мифологии.", []],
+            ["Москва", "столица России", 5, "Москва — столица России.", []],
+        ],
+    }
+
+    def setUp(self):
+        import encyclopedia
+        self.enc = encyclopedia
+        self.saved = (encyclopedia._data, encyclopedia._index)
+        encyclopedia.load(self.DATA)
+
+    def tearDown(self):
+        self.enc._data, self.enc._index = self.saved
+
+    def test_lookup_any_case(self):
+        enc = self.enc
+        for q, title in (("кто такой Пушкин", "Пушкин"), ("кто такой Александр Сергеевич Пушкин?", "Пушкин"),
+                         ("расскажи о Пушкине", "Пушкин"), ("расскажи мне про великую французскую революцию", "революция"),
+                         ("что ты знаешь о французской революции", "революция"), ("где находится Эверест", "Джомолунгма"),
+                         ("что такое меркурий", "ближайшая к Солнцу"), ("Пушкин это кто", "Пушкин"), ("жираф — это что?", "Жираф")):
+            r = enc.answer(q, explicit_only=True)
+            self.assertIsNotNone(r, q)
+            self.assertIn(title, r, q)
+            self.assertIn("Википедии", r)  # источник в каждом ответе
+        self.assertIn("Жираф", enc.answer("Жираф"))                 # просто название
+        self.assertIsNone(enc.answer("Жираф", explicit_only=True))
+        for q in ("кто такой лучший друг", "что такое любовь к жирафам и пушкину", "как дела", "погода в москве"):
+            self.assertIsNone(enc.answer(q, explicit_only=True), q)
+        self.assertIsNone(enc.answer("погода в москве"))
+
+    def test_catalog_random_context(self):
+        enc = self.enc
+        cat = enc.answer("какие разделы ты знаешь")
+        self.assertIn("7 тем", cat)
+        self.assertIn("География", cat)
+        self.assertIn("Источник", enc._render(enc._item(0)).replace("по материалам", "Источник"))
+        self.assertIn("Википедии", enc.answer("случайная тема"))
+        self.assertIn("Джомолунгма", enc.answer("темы раздела география"))
+        ctx = enc.context("когда была великая французская революция и при чём тут Москва")
+        self.assertEqual([c["title"] for c in ctx], ["Великая французская революция", "Москва"])
+        self.assertTrue(ctx[0]["url"].startswith("https://ru.wikipedia.org/wiki/"))
+
+    def test_brain_uses_encyclopedia(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain = Brain(learned_path=os.path.join(tmp, "learned.json"))
+            for v in (PRO, SUN):
+                r = brain.answer(v, "кто такой Пушкин", session_id="e")
+                self.assertEqual(r["intent"], "encyclopedia")
+                self.assertIn("русский поэт", r["answer"])
+            self.assertEqual(brain.answer(SUN, "Жираф", session_id="e")["intent"], "encyclopedia")
+            self.assertEqual(brain.answer(SUN, "привет", session_id="e")["intent"], "greeting")
+            self.assertNotEqual(brain.answer(SUN, "что такое python", session_id="e")["intent"], "encyclopedia")
+            self.assertNotEqual(brain.answer(SUN, "сколько будет 2+2", session_id="e")["intent"], "encyclopedia")
+
+
 class DesktopTest(unittest.TestCase):
     """Приложение для компьютера (desktop/): имена файлов совпадают с кнопками сайта, обновления — GitHub и хостинг."""
 
