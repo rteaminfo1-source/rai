@@ -3,8 +3,12 @@
 Данные (encyclopedia.json) собирает GitHub: tools/build_encyclopedia.py, workflow «Знания Rai».
 Понимает: «что такое фотосинтез», «кто такой Пушкин», «расскажи о Великой французской революции»,
 «где находится Эверест», «Эйнштейн это кто», просто «Жираф», «какие разделы знаешь», «случайная тема»,
-«темы раздела история». Тексты — из Википедии (CC BY-SA), источник указывается в каждом ответе.
+«темы раздела космос», «что было в этот день», «что было 12 апреля», «что сейчас популярно», «статья дня».
+К теме — её картинка из Википедии. Тексты — из Википедии (CC BY-SA), источник указывается в каждом ответе.
+GitHub обновляет энциклопедию каждый день: события, популярные темы.
 """
+
+import datetime
 
 import json
 import math
@@ -34,9 +38,12 @@ _ASK_RE = re.compile(
 _LIST_RE = re.compile(r"(?:какие|список|покажи|перечисли)\s+(?:у\s+тебя\s+)?(?:есть\s+)?(?:разделы|категори|темы)|"
                       r"энциклопеди|сколько\s+(?:ты\s+)?(?:знаешь|у\s+тебя)\s+(?:тем|категорий|статей)|(?:10|10\s?000|десять\s+тысяч)\s+(?:тем|категорий)", re.I)
 _RANDOM_RE = re.compile(r"случайн\w*\s+(?:тем|стать|факт\w*\s+из\s+энциклопеди)|расскажи\s+(?:что-?нибудь|что-?то)\s+(?:новое|умное|познавательное)", re.I)
+_RANDOM_SECTION_RE = re.compile(r"(?:из|про|раздела|о)\s+(космос\w*|истори\w*|географи\w*|люд\w*|искусств\w*|науки?|технологи\w*|математик\w*|биологи\w*|росси\w*)", re.I)
 _SECTION_RE = re.compile(r"(?:темы|статьи|список)\s+(?:из\s+)?(?:раздела|категории|про)\s+(.+?)[\s?!.]*$", re.I)
 # Слова-приставки, которые не меняют тему: «расскажи кратко о Пушкине подробнее»
 _NOISE = {nlp.stem(w) for w in "пожалуйста подробно подробнее кратко коротко вкратце немного вообще мне нам такое такой это".split()}
+
+CAT_RU = {}  # английские подразделы списка важнейших статей → по-русски (заполнено в конце файла)
 
 _data = None          # {"sections", "cats", "items"}
 _index = {}           # (основы слов) → [(приоритет, номер темы, слова названия без изменений)]
@@ -118,9 +125,27 @@ def count():
 
 
 def _item(i):
-    title, desc, cat, text = _data["items"][i][:4]
+    item = _data["items"][i]
+    title, desc, cat, text = item[:4]
     section_no, cat_name = _data["cats"][cat]
-    return {"title": title, "desc": desc, "section": _data["sections"][section_no], "cat": cat_name, "text": text}
+    image = item[6] if len(item) > 6 else ""
+    return {"title": title, "desc": desc, "section": _data["sections"][section_no], "cat": cat_ru(cat_name), "text": text,
+            "image": image_url(image) if image else None}
+
+
+def image_url(filename, width=640):
+    """Картинка с Викисклада по имени файла (уменьшенная копия)."""
+    return ("https://commons.wikimedia.org/wiki/Special:FilePath/" + urllib.parse.quote(filename.replace(" ", "_"))
+            + f"?width={width}")
+
+
+def page_url(title):
+    return "https://ru.wikipedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))
+
+
+def cat_ru(name):
+    """Подразделы списка важнейших статей названы по-английски — переводим по частям («Writers / Russian»)."""
+    return " / ".join(CAT_RU.get(part.strip(), part.strip()) for part in name.split(" / ")) if name else name
 
 
 def _is_person(i):
@@ -174,7 +199,7 @@ def lookup(subject, kind=None):
 
 
 def _render(t):
-    url = "https://ru.wikipedia.org/wiki/" + urllib.parse.quote(t["title"].replace(" ", "_"))
+    url = page_url(t["title"])
     head = f"### {t['title']}"
     if t["desc"]:
         head += f"\n*{t['desc'][:1].upper() + t['desc'][1:]}*"
@@ -195,11 +220,15 @@ def catalog():
         if titles:
             sample = ", ".join(random.Random(s).sample(titles, min(4, len(titles))))
             rows.append(f"| **{name}** | {len(titles)} | {sample} |")
+    news = _data.get("news") or {}
+    days = len(_data.get("days") or {})
+    extra = (f"\n\nЕщё: «что было в этот день» ({days} дней истории)" if days else "") + \
+            (f", «что сейчас популярно» (обновлено {news['date']})" if news.get("date") else "")
     return (f"## Энциклопедия Rai: {count():,} тем".replace(",", " ") +
             f" в {len(rows)} разделах и {len(_data['cats'])} подразделах\n\n| Раздел | Тем | Например |\n|---|---|---|\n" +
             "\n".join(rows) +
             "\n\nСпрашивайте: «что такое …», «кто такой …», «расскажи о …», «где находится …» или просто название. "
-            "«Темы раздела история» — список, «случайная тема» — что-нибудь новое. Работает без интернета.")
+            "«Темы раздела история» — список, «случайная тема» — что-нибудь новое. Работает без интернета." + extra)
 
 
 def section_list(name):
@@ -229,8 +258,7 @@ def context(query, limit=2):
             if hit and (size > 1 or hit[0] <= 1) and nlp.stem(raw[i]) not in nlp.GENERIC:
                 t = _item(hit[1])
                 if all(t["title"] != f["title"] for f in found):
-                    url = "https://ru.wikipedia.org/wiki/" + urllib.parse.quote(t["title"].replace(" ", "_"))
-                    found.append({"title": t["title"], "text": t["text"], "url": url})
+                    found.append({"title": t["title"], "text": t["text"], "url": page_url(t["title"])})
                     used.update(range(i, i + size))
             if len(found) >= limit:
                 return found
@@ -238,13 +266,43 @@ def context(query, limit=2):
 
 
 def answer(text, explicit_only=False):
-    """Ответ энциклопедии или None. explicit_only — только на прямой вопрос («что такое…», «кто такой…»)."""
+    """Текст ответа энциклопедии или None (см. reply)."""
+    r = reply(text, explicit_only)
+    return r["text"] if r else None
+
+
+def reply(text, explicit_only=False):
+    """Ответ энциклопедии: {"text", "photo": {"url", "title", "source"} или None} или None.
+    explicit_only — только на прямой вопрос («что такое…», «кто такой…»)."""
+    if not _data:
+        return None
+    special = day_events(text) or popular(text)
+    if special:
+        return {"text": special, "photo": None}
+    t = find(text, explicit_only)
+    if isinstance(t, str):
+        return {"text": t, "photo": None}
+    if not t:
+        return None
+    photo = {"url": t["image"], "title": t["title"], "source": page_url(t["title"])} if t["image"] else None
+    return {"text": _render(t), "photo": photo}
+
+
+def find(text, explicit_only=False):
+    """Тема из вопроса (словарь _item), готовый текст (каталог, список раздела) или None."""
     if not _data:
         return None
     if _LIST_RE.search(text):
         return catalog()
     if _RANDOM_RE.search(text):
-        return _render(_item(random.randrange(count())))
+        m = _RANDOM_SECTION_RE.search(text)
+        pool = range(count())
+        if m:
+            want = _key(m.group(1))
+            secs = [s for s, name in enumerate(_data["sections"]) if want and want[0] in _key(name)]
+            if secs:
+                pool = [i for i, it in enumerate(_data["items"]) if _data["cats"][it[2]][0] in secs]
+        return _item(random.choice(list(pool)))
     m = _SECTION_RE.search(text)
     if m:
         found = section_list(m.group(1))
@@ -255,17 +313,68 @@ def answer(text, explicit_only=False):
     if subject:
         low = text.lower()
         kind = "who" if re.search(r"\bкто\b", low) else ("what" if re.search(r"\bчто\s+(?:такое|это|за)\b|\bгде\b", low) else None)
-        t = lookup(subject, kind)
-        return _render(t) if t else None
+        return lookup(subject, kind)
     if explicit_only:
         return None
     # Просто название темы: «Жираф», «Пётр Первый», «теория относительности»
     clean = text.strip(" \t\n?!.")
     if 0 < len(clean.split()) <= 6:
-        t = lookup(clean)
-        if t:
-            return _render(t)
+        return lookup(clean)
     return None
+
+
+# ------------------------------------------------------------------ этот день, популярное, статья дня
+_MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+_DAY_RE = re.compile(r"(?:что\s+(?:было|произошло|случилось)|события|этот\s+день|в\s+этот\s+день|день\s+в\s+истории|"
+                     r"какие\s+события)", re.I)
+_DATE_RE = re.compile(r"\b(\d{1,2})\s+(" + "|".join(m[:3] for m in _MONTHS) + r")[а-я]*", re.I)
+_POPULAR_RE = re.compile(r"(?:что|о\s+ч[её]м)\s+(?:сейчас\s+|сегодня\s+)?(?:популярн|обсужда|чита[ею]т|говорят|ищут)|"
+                         r"популярн\w*\s+(?:сегодня|сейчас|за\s+день|темы|статьи)|что\s+нового\s+в\s+мире|тренды?\s+дня", re.I)
+_FEATURED_RE = re.compile(r"стать[яюи]\s+дня|избранн\w+\s+стать", re.I)
+
+
+def day_events(text, today=None):
+    """«Что было в этот день», «что произошло 12 апреля», «события 9 мая»."""
+    days = (_data or {}).get("days") or {}
+    if not days or not _DAY_RE.search(text):
+        return None
+    today = today or datetime.date.today()
+    m = _DATE_RE.search(text)
+    if m:
+        month = next(i for i, name in enumerate(_MONTHS, 1) if name.startswith(m.group(2).lower()[:3]))
+        day = int(m.group(1))
+    elif re.search(r"этот\s+день|сегодня|день\s+в\s+истории", text, re.I):
+        month, day = today.month, today.day
+    else:
+        return None
+    events = days.get(f"{month:02d}-{day:02d}")
+    if not events:
+        return None
+    lines = [f"- **{y}** — {e}" for y, e in events[:10]]
+    return (f"## {day} {_MONTHS[month - 1]} в истории\n\n" + "\n".join(lines) +
+            "\n\n📚 По материалам [Википедии](https://ru.wikipedia.org/wiki/" + urllib.parse.quote(f"{day}_{_MONTHS[month - 1]}") + ") (CC BY-SA)")
+
+
+def popular(text):
+    """Что больше всего читают в Википедии (обновляется каждый день) и статья дня."""
+    news = (_data or {}).get("news") or {}
+    if _FEATURED_RE.search(text) and news.get("featured"):
+        title, extract = news["featured"]
+        return f"## Статья дня: {title}\n\n{extract}\n\n📚 [Читать в Википедии]({page_url(title)}) (CC BY-SA)"
+    if not _POPULAR_RE.search(text) or not news.get("popular"):
+        return None
+    date = news.get("date") or ""
+    try:
+        d = datetime.date.fromisoformat(date)
+        when = f"{d.day} {_MONTHS[d.month - 1]}"
+    except ValueError:
+        when = "вчера"
+    rows = []
+    for title, views, extract in news["popular"][:10]:
+        short = extract.split(". ")[0][:160] if extract else ""
+        rows.append(f"- **[{title}]({page_url(title)})** — {views:,} просмотров".replace(",", " ") + (f". {short}" if short else ""))
+    return (f"## О чём читали {when}\n\nСамые читаемые статьи русской Википедии — я обновляю этот список каждый день:\n\n" +
+            "\n".join(rows) + "\n\nСпросите про любую: «расскажи о …».")
 
 
 load()

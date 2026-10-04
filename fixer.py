@@ -49,7 +49,7 @@ def _build():
     freq = Counter()
     for w in lexicon.RU.split():
         freq[w.replace("ё", "е")] += 50
-    files = [f for f in glob.glob(os.path.join(BASE, "*.py")) if not f.endswith(("test_app.py", "fake_net.py", "lexicon.py", "fixer.py"))]
+    files = [f for f in glob.glob(os.path.join(BASE, "*.py")) if not f.endswith(("test_app.py", "fake_net.py", "lexicon.py", "fixer.py", "places.py", "encyclopedia.py"))]
     files += [os.path.join(BASE, n) for n in ("knowledge.json", "glossary.json")]
     for path in files:
         try:

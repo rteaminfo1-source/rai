@@ -22,6 +22,8 @@ const NET_HOSTS = [
     '/^nominatim\.openstreetmap\.org$/',                                             // сёла и посёлки (OpenStreetMap)
     '/^[a-z]{2,3}\.wikipedia\.org$/', '/^[a-z]{2,3}\.wikiquote\.org$/',              // тексты для ответов и презентаций
     '/^commons\.wikimedia\.org$/', '/^upload\.wikimedia\.org$/',                     // картинки для презентаций
+    '/^www\.wikidata\.org$/',                                                       // население городов и посёлков
+    '/^api\.nasa\.gov$/',                                                           // фото дня NASA
 ];
 // Необязательно: поиск Google (programmablesearchengine.google.com + ключ Custom Search API).
 // Задайте переменными окружения или впишите здесь НА ХОСТИНГЕ (в GitHub ключи не выкладывайте).

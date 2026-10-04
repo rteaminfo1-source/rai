@@ -1024,6 +1024,78 @@ class EncyclopediaTest(unittest.TestCase):
             self.assertNotEqual(brain.answer(SUN, "сколько будет 2+2", session_id="e")["intent"], "encyclopedia")
 
 
+class PlacesTest(unittest.TestCase):
+    """Города и посёлки (население, достопримечательности, фото, погода), фото чего угодно, фото дня NASA."""
+
+    def setUp(self):
+        import encyclopedia
+        self.enc = encyclopedia
+        self.saved = (encyclopedia._data, encyclopedia._index)
+        data = json.loads(json.dumps(EncyclopediaTest.DATA))
+        data["items"][4].append(0)
+        data["items"][4].append("Mercury in color.jpg")  # у Меркурия есть картинка
+        encyclopedia.load(data)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+
+    def tearDown(self):
+        self.enc._data, self.enc._index = self.saved
+        self.tmp.cleanup()
+
+    def ask(self, text, v=None):
+        return self.brain.answer(v or SUN, text, session_id="p")
+
+    def test_requests(self):
+        import places
+        self.assertEqual(places.kind("расскажи о городе Гродно"), ("card", "Гродно"))
+        self.assertEqual(places.kind("посёлок Малиновка"), ("card", "Малиновка"))
+        self.assertEqual(places.kind("что посмотреть в Казани?"), ("sights", "Казани"))
+        self.assertEqual(places.kind("достопримечательности Минска"), ("sights", "Минска"))
+        self.assertEqual(places.kind("сколько жителей в Бресте"), ("population", "Бресте"))
+        self.assertEqual(places.kind("население Новосибирска"), ("population", "Новосибирска"))
+        for text in ("сколько людей живёт на земле", "расскажи о погоде", "привет"):
+            self.assertIsNone(places.kind(text), text)
+        self.assertEqual(places.photo_subject("покажи фото Марса"), "Марса")
+        self.assertEqual(places.photo_subject("как выглядит галактика Андромеды"), "галактика Андромеды")
+        self.assertFalse(places.is_photo_request("нарисуй картинку кота"))
+        self.assertTrue(places.is_apod_request("покажи фото дня NASA"))
+
+    def test_city_card(self):
+        r = self.ask("расскажи о городе Казань")
+        self.assertEqual(r["intent"], "place")
+        a = r["answer"]
+        for part in ("## Казань", "1 318 604 жителей (2024)", "местного времени", "Сейчас +12°", "Казанский кремль", "Мечеть Кул-Шариф", "Википедия"):
+            self.assertIn(part, a)
+        self.assertNotIn("Улица Баумана", a)  # улица — не достопримечательность
+        photos = [x for x in r["attachments"] if x["type"] == "photo"]
+        self.assertEqual(photos[0]["url"], "https://upload.wikimedia.org/kazan.jpg")
+        self.assertGreaterEqual(len(photos), 3)
+        sights = self.ask("что посмотреть в Казани")["answer"]
+        self.assertIn("Что посмотреть: Казань", sights)
+        self.assertIn("8,7 км от центра", sights)
+        self.assertIn("1 318 604", self.ask("сколько жителей в Казани")["answer"])
+        # место без статей рядом — честный ответ, а не выдумка
+        none = self.ask("достопримечательности Малиновки Минского района")["answer"]
+        self.assertIn("не нашёл статей", none)
+
+    def test_photos_and_apod(self):
+        r = self.ask("покажи фото Меркурия")
+        self.assertEqual(r["intent"], "photo")
+        urls = [x["url"] for x in r["attachments"] if x["type"] == "photo"]
+        self.assertTrue(urls[0].startswith("https://commons.wikimedia.org/wiki/Special:FilePath/Mercury_in_color.jpg"))
+        self.assertIn("ближайшая к Солнцу", r["answer"] + self.enc.answer("что такое Меркурий"))
+        mars = self.ask("как выглядит Марс")
+        self.assertIn("https://upload.wikimedia.org/mars.jpg", [x["url"] for x in mars["attachments"]])
+        self.assertNotEqual(self.ask("нарисуй картинку кота")["intent"], "photo")
+        apod = self.ask("фото дня NASA")
+        self.assertIn("Фото дня NASA", apod["answer"])
+        self.assertIn("[en|ru] The Andromeda Galaxy", apod["answer"])  # перевод заголовка
+        self.assertEqual(apod["attachments"][0]["url"], "https://apod.nasa.gov/apod/image/andromeda.jpg")
+        # энциклопедия прикладывает картинку темы
+        enc = self.ask("что такое Меркурий")
+        self.assertTrue(any(x["type"] == "photo" for x in enc["attachments"]))
+
+
 class DesktopTest(unittest.TestCase):
     """Приложение для компьютера (desktop/): имена файлов совпадают с кнопками сайта, обновления — GitHub и хостинг."""
 

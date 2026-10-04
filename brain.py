@@ -33,6 +33,7 @@ import facts  # noqa: F401 — регистрирует справочник в 
 import games
 import fixer
 import encyclopedia
+import places
 import webgen
 from versions import Version
 
@@ -354,6 +355,25 @@ class Brain:
                 return "Презентации умеют делать Rai Pro Plus и Rai Pro Sun.", "slides"
             return self._slides(version, text, attachments), "slides"
 
+        # ---- фото: «покажи фото Марса», «как выглядит галактика Андромеды», «фото дня NASA» (а «нарисуй» — рисунок)
+        if places.is_apod_request(text):
+            if "web" not in version.skills:
+                return "Фото дня NASA показывают Rai Pro, Pro Plus, Pro Sun и Pro Quasar.", "photo"
+            try:
+                reply, found = places.apod()
+            except net.NetError as e:
+                return net.explain(e, "взять фото дня NASA"), "photo"
+            attachments.extend(dict(p, type="photo") for p in found)
+            return reply, "photo"
+        if places.is_photo_request(text):
+            subject = places.photo_subject(text)
+            found = places.photos(subject, web="web" in version.skills) if subject else None
+            if found:
+                attachments.extend(dict(p, type="photo") for p in found[1])
+                return found[0], "photo"
+            if subject and "web" in version.skills:
+                return f"Не нашёл фото «{subject}». Попробуйте назвать иначе — например, полное название.", "photo"
+
         if creative.is_image_request(text):
             if "image" not in version.skills:
                 return "Картинки умеют рисовать Rai Pro, Pro Plus и Pro Sun.", "image"
@@ -380,6 +400,35 @@ class Brain:
                     return found[0], "meme"
             return ("Этого мема пока нет в моей базе. Спросите иначе («что за мем …» с точным названием) "
                     "или включите нейросеть — она поищет и объяснит."), "meme"
+
+        # ---- город, посёлок, деревня: население, достопримечательности, фото, погода, местное время
+        place_req = places.kind(text) if not codeai.is_build_request(text) else None
+        if place_req:
+            focus, phrase = place_req
+            topic = encyclopedia.lookup(phrase)
+            if topic and not places.is_settlement(topic["desc"]) and focus != "sights":
+                # страна, регион, река — отвечает энциклопедия (там и население)
+                return self._known(encyclopedia.reply("что такое " + phrase), attachments), "encyclopedia"
+            if "web" in version.skills:
+                try:
+                    found = places.card(phrase, focus)
+                except net.NetError as e:
+                    found = None
+                    offline_note = net.explain(e, "узнать про это место в интернете")
+                else:
+                    offline_note = None
+                if found:
+                    attachments.extend(dict(p, type="photo") for p in found[1])
+                    return found[0], "place"
+                known = encyclopedia.reply("что такое " + phrase)
+                if known:
+                    return self._known(known, attachments) + (f"\n\n*{offline_note}*" if offline_note else ""), "encyclopedia"
+                if offline_note:
+                    return offline_note, "place"
+                return (f"Не нашёл место «{phrase}». Уточните область или район: «расскажи о посёлке {phrase} Минского района»."), "place"
+            known = encyclopedia.reply("что такое " + phrase)
+            if known:
+                return self._known(known, attachments), "encyclopedia"
 
         # ---- разговор: стихи, советы фильмов и книг, поддержка
         if talk.is_poem_request(text) and not creative.is_slides_request(text):
@@ -474,9 +523,9 @@ class Brain:
         if definition:
             return self._enrich(version, text, definition, attachments), "glossary"
         # Энциклопедия: ~10 000 тем из Википедии — «кто такой Пушкин», «расскажи о Французской революции»
-        known = None if code_answer else encyclopedia.answer(text, explicit_only=True)
+        known = None if code_answer else encyclopedia.reply(text, explicit_only=True)
         if known:
-            return known, "encyclopedia"
+            return self._known(known, attachments), "encyclopedia"
 
         results = self.search(version, text)
         best = results[0][1] if results else 0.0
@@ -492,9 +541,9 @@ class Brain:
             definition = self.define(version, text)
             if definition:
                 return self._enrich(version, text, definition, attachments), "glossary"
-            known = encyclopedia.answer(text)  # просто название темы: «Жираф», «теория относительности»
+            known = encyclopedia.reply(text)  # просто название темы: «Жираф», «теория относительности»
             if known:
-                return known, "encyclopedia"
+                return self._known(known, attachments), "encyclopedia"
 
         if best >= version.threshold:
             intent = self.intents[results[0][0]]
@@ -535,6 +584,13 @@ class Brain:
         if art["image"]:
             attachments.append({"type": "photo", "url": art["image"], "title": art["title"], "source": art["link"]})
         return answer + "\n\n**Из интернета:** " + " ".join(extra) + (f"\n\nИсточник: [Википедия]({art['link']})" if art["link"] else "")
+
+    @staticmethod
+    def _known(found, attachments):
+        """Ответ энциклопедии; её картинка (из Википедии) — фото к ответу."""
+        if found.get("photo"):
+            attachments.append(dict(found["photo"], type="photo"))
+        return found["text"]
 
     @staticmethod
     def _subject(text):
