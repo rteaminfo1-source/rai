@@ -1,0 +1,26 @@
+# Временная проверка: какие файлы моделей (GGUF) есть на Hugging Face — для выбора моделей Rai Нейро на процессоре.
+name: Проверка моделей
+on:
+  push:
+    branches: [claude/peaceful-allen-c7nn4t]
+    paths: [".github/workflows/check-models.yml"]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for repo in Qwen/Qwen3-0.6B-GGUF Qwen/Qwen3-1.7B-GGUF Qwen/Qwen3-4B-GGUF Qwen/Qwen3.5-0.8B-GGUF Qwen/Qwen3.5-2B-GGUF Qwen/Qwen3.5-4B-GGUF unsloth/Qwen3-1.7B-GGUF unsloth/Qwen3.5-2B-GGUF unsloth/Qwen3.5-0.8B-GGUF unsloth/Qwen3.5-4B-GGUF; do
+            echo "== $repo"
+            curl -s "https://huggingface.co/api/models/$repo/tree/main" | python3 -c "
+          import json, sys
+          try:
+              d = json.load(sys.stdin)
+          except Exception:
+              print('  нет'); sys.exit()
+          if isinstance(d, dict): print('  ', d.get('error', d)); sys.exit()
+          for f in d:
+              if f.get('path', '').endswith('.gguf'): print('  ', f['path'], round(f.get('size', 0) / 2**20), 'MB')
+          "
+          done
