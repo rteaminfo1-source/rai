@@ -140,6 +140,17 @@ def vocab():
     return out
 
 
+def text_features(model, inputs):
+    """Вектор текста в общем пространстве CLIP (одинаково во всех версиях transformers)."""
+    out = model.text_model(input_ids=inputs["input_ids"], attention_mask=inputs.get("attention_mask"))
+    return model.text_projection(out.pooler_output)
+
+
+def image_features(model, pixel_values):
+    out = model.vision_model(pixel_values=pixel_values)
+    return model.visual_projection(out.pooler_output)
+
+
 def build():
     import torch
     from transformers import CLIPModel, CLIPTokenizer
@@ -151,7 +162,7 @@ def build():
         for g, ru, en in labels:
             temps = SCREEN_TEMPLATES if GROUPS[g] == "Экран и документы" else TEMPLATES
             inputs = tok([t.format(en) for t in temps], padding=True, return_tensors="pt")
-            e = model.get_text_features(**inputs)
+            e = text_features(model, inputs)
             e = e / e.norm(dim=-1, keepdim=True)
             e = e.mean(dim=0)
             embs.append(e / e.norm())
@@ -186,7 +197,7 @@ def self_test(data, model):
             print(title, "— нет картинки:", e)
             continue
         with torch.no_grad():
-            v = model.get_image_features(**proc(images=img, return_tensors="pt"))[0].numpy()
+            v = image_features(model, proc(images=img, return_tensors="pt")["pixel_values"])[0].numpy()
         v = v / np.linalg.norm(v)
         sims = emb @ v
         p = np.exp((sims - sims.max()) * data["logit_scale"])
