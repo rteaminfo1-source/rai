@@ -15,7 +15,7 @@ import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
-         "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "brain.py", "knowledge.json", "glossary.json"]
+         "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "brain.py", "knowledge.json", "glossary.json"]
 
 
 def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
@@ -27,7 +27,7 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
         html = html.replace('<link rel="stylesheet" href="code.css">', "<style>\n" + f.read() + "</style>", 1)
     with open(os.path.join(BASE_DIR, "slides.css"), encoding="utf-8") as f:
         html = html.replace('<link rel="stylesheet" href="slides.css">', "<style>\n" + f.read() + "</style>", 1)
-    for name in ("code.js", "slides.js", "screen.js", "neuro.js", "pptx.js"):
+    for name in ("code.js", "slides.js", "screen.js", "vision.js", "neuro.js", "pptx.js"):
         with open(os.path.join(BASE_DIR, name), encoding="utf-8") as f:
             js = f.read()
         # «<!--» внутри <script> переводит HTML-парсер в особый режим, и тег может не закрыться
@@ -46,9 +46,15 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
     # Энциклопедия (~10 000 тем) — в самом конце страницы: чат запускается, пока она ещё догружается.
     # На хостинге (cdn) она лежит отдельным файлом kb.php: браузер кэширует его, а chat.html меняется чаще.
     kb_path = os.path.join(BASE_DIR, "encyclopedia.json")
+    vision_path = os.path.join(BASE_DIR, "vision_labels.json")
     if cdn:
-        html = html.replace("window.RAI_PYODIDE_SOURCES = [", 'window.RAI_KB_URL = "kb.php";\n  window.RAI_PYODIDE_SOURCES = [', 1)
-    elif os.path.exists(kb_path):
+        html = html.replace("window.RAI_PYODIDE_SOURCES = [", 'window.RAI_KB_URL = "kb.php";\n  window.RAI_VISION_URL = "vision.php";\n  window.RAI_PYODIDE_SOURCES = [', 1)
+    elif os.path.exists(vision_path):  # словарь зрения (~0,3 МБ) — внутрь офлайн-версии
+        with open(vision_path, encoding="utf-8") as f:
+            vis = f.read().replace("</", "<\\/")
+        tag = f'<script type="application/json" id="rai-vision">{vis}</script>\n'
+        html = html.replace("</body>", tag + "</body>", 1) if "</body>" in html else html + tag
+    if not cdn and os.path.exists(kb_path):
         with open(kb_path, encoding="utf-8") as f:
             kb = f.read().replace("</", "<\\/").replace("<!--", "<\\u0021--")
         tag = f'<script type="application/json" id="rai-kb">{kb}</script>\n'

@@ -670,6 +670,7 @@
 <script src="code.js"></script>
 <script src="slides.js"></script>
 <script src="screen.js"></script>
+<script src="vision.js"></script>
 <script src="neuro.js"></script>
 <script src="pptx.js"></script>
 <script>
@@ -683,7 +684,7 @@
   if (params.get("py")) CFG.pyBase = params.get("py");
 
   const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
-                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "brain.py", "knowledge.json", "glossary.json"];
+                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -1894,7 +1895,7 @@ def rai_code(action, code, lang, prompt):
       const engine = await enginePromise;
       await new Promise((r) => setTimeout(r, 40));  // успеть показать «печатает…»
       const t0 = performance.now();
-      let message = text, ocr = "";
+      let message = text, ocr = "", seen = [];
       if (shots.length) {
         const bubble = pending.querySelector(".bubble");
         try {
@@ -1902,8 +1903,14 @@ def rai_code(action, code, lang, prompt):
         } catch (e) {
           throw new Error("ocr: " + (e && e.message));
         }
+        // Зрение Rai: что на картинке — небо, солнце, люди, животные, еда, здания… (модель CLIP в браузере)
+        try {
+          if (window.RaiVision) seen = await window.RaiVision.lookAll(shots, (step) => { bubble.textContent = step; });
+        } catch (e) {
+          console.warn("Зрение Rai не сработало:", e);  // текст со скриншота всё равно разберём
+        }
         bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
-        message = text + "\n[[screen]]\n" + ocr;
+        message = text + "\n[[screen]]\n" + ocr + (seen.length ? "\n[[vision]]\n" + JSON.stringify(seen) : "");
       }
       // Ссылка на TikTok, YouTube, Telegram, Instagram, VK, X или сайт: данные собирает свой сервер (net.php),
       // а страница ждёт их в фоне — окно не замирает
@@ -1962,7 +1969,12 @@ def rai_code(action, code, lang, prompt):
         let kb = data ? kbFacts(data) : "";
         if (!kb && intent.includes("glossary") && data.answer) kb = data.answer.slice(0, 1500);  // словарь Rai
         let prompt = text;
-        if (shots.length) prompt += `\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""`;
+        if (shots.length && seen.length) {
+          prompt += "\n\nЧто видно на картинке (распознало зрение Rai, вероятности):\n" + seen.map((s, n) => "Картинка " + (n + 1) + ": " +
+            s.labels.slice(0, 6).map((l) => l.ru + " " + Math.round(l.p * 100) + "%").join(", ") +
+            (s.colors && s.colors.length ? "; цвета: " + s.colors.map((c) => c.name).join(", ") : "") + (s.light ? "; " + s.light : "")).join("\n");
+        }
+        if (shots.length && ocr.trim()) prompt += `\n\nТекст, распознанный на экране:\n"""\n${ocr.slice(0, 6000)}\n"""`;
         if (kb) prompt += `\n\nСправка из базы знаний Rai (точные сведения):\n"""\n${kb}\n"""`;
         if (facts.text) prompt += `\n\nСведения из интернета (свежие, используй их и ставь ссылки):\n"""\n${facts.text}\n"""`;
         else if (data && data.offline && !intent.includes("translate")) {

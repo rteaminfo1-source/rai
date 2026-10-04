@@ -112,10 +112,10 @@ def copy_tree(src, dst):
             shutil.copy2(os.path.join(root, name), os.path.join(dst, rel, name))
 
 
-def write_kb(path):
-    """Энциклопедия (encyclopedia.json) для хостинга: kb.php отдаёт её как JSON с кэшем в браузере.
+def write_kb(path, name="encyclopedia.json", title="Энциклопедия Rai (~10 000 тем из Википедии, CC BY-SA). Собирает GitHub: tools/build_encyclopedia.py"):
+    """JSON для хостинга (энциклопедия → kb.php, зрение → vision.php): отдаётся как JSON с кэшем в браузере.
     На хостинге только PHP и HTML, поэтому JSON лежит внутри .php после короткого заголовка."""
-    src = os.path.join(BASE, "encyclopedia.json")
+    src = os.path.join(BASE, name)
     if not os.path.exists(src):
         return False
     with open(src, encoding="utf-8") as f:
@@ -123,7 +123,7 @@ def write_kb(path):
     tag = hashlib.sha1(data.encode("utf-8")).hexdigest()[:16]
     body = data.replace("<", "\\u003c")  # «<?» внутри данных не должно открыть PHP
     with open(path, "w", encoding="utf-8") as f:
-        f.write("<?php\n// Энциклопедия Rai (~10 000 тем из Википедии, CC BY-SA). Собирает GitHub: tools/build_encyclopedia.py\n"
+        f.write(f"<?php\n// {title}\n"
                 "header('Content-Type: application/json; charset=utf-8');\n"
                 "header('Cache-Control: public, max-age=86400');\n"
                 f"header('ETag: \"{tag}\"');\n"
@@ -152,6 +152,8 @@ def build(out):
     with open(os.path.join(out, "rai.rteam.info", "chat.html"), "w", encoding="utf-8") as f:
         f.write(build_standalone.build(cdn=True))
     write_kb(os.path.join(out, "rai.rteam.info", "kb.php"))
+    write_kb(os.path.join(out, "rai.rteam.info", "vision.php"), "vision_labels.json",
+             "Зрение Rai: понятия для распознавания картинок (считает GitHub: tools/build_vision.py)")
 
     filled = []
     for domain in DOMAINS:

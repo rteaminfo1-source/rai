@@ -1096,6 +1096,57 @@ class PlacesTest(unittest.TestCase):
         self.assertTrue(any(x["type"] == "photo" for x in enc["attachments"]))
 
 
+class SightTest(unittest.TestCase):
+    """Зрение Rai: что на картинке (понятия от модели CLIP в браузере) — ответ движка и вместе с текстом."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_picture_without_text(self):
+        seen = [{"labels": [{"ru": "закат", "p": 0.46, "group": "Небо и погода"}, {"ru": "солнце", "p": 0.21, "group": "Небо и погода"},
+                            {"ru": "море", "p": 0.12, "group": "Природа"}, {"ru": "облака", "p": 0.02, "group": "Небо и погода"}],
+                 "colors": [{"name": "оранжевый", "share": 0.4}, {"name": "синий", "share": 0.3}], "tone": "тёплые", "light": "светлая"}]
+        r = self.brain.answer(SUN, "что на картинке\n[[screen]]\n\n[[vision]]\n" + json.dumps(seen, ensure_ascii=False), session_id="s")
+        a = r["answer"]
+        self.assertEqual(r["intent"], "screen")
+        self.assertIn("Похоже на: **закат** — ещё вижу: солнце, море.", a)  # облака 2% — слишком неуверенно
+        self.assertIn("| солнце | Небо и погода | 21% |", a)
+        self.assertIn("цвета: оранжевый, синий · тёплые тона · светлая картинка", a)
+        self.assertNotIn("не нашёл текста", a)
+
+    def test_picture_with_text_and_animal_fact(self):
+        import encyclopedia
+        saved = (encyclopedia._data, encyclopedia._index)
+        encyclopedia.load(EncyclopediaTest.DATA)
+        try:
+            seen = [{"labels": [{"ru": "жираф", "p": 0.81, "group": "Животные"}, {"ru": "саванна", "p": 0.05, "group": "Природа"}], "colors": []}]
+            a = self.brain.answer(SUN, "\n[[screen]]\nСколько будет 2+2 =\n[[vision]]\n" + json.dumps(seen, ensure_ascii=False), session_id="s")["answer"]
+        finally:
+            encyclopedia._data, encyclopedia._index = saved
+        self.assertIn("Похоже на: **жираф**", a)
+        self.assertIn("💡 **Жираф**: Жираф — парнокопытное млекопитающее", a)  # справка из энциклопедии
+        self.assertLess(a.index("Что на картинке"), a.index("Текст со скриншота"))
+        self.assertIn("2+2 = 4", a.replace(" + ", "+"))
+        # без зрения (модель не загрузилась) — как раньше, только текст
+        old = self.brain.answer(SUN, "\n[[screen]]\n", session_id="s")["answer"]
+        self.assertIn("не нашёл текста", old)
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_vision_js_syntax_and_wiring(self):
+        import subprocess
+        base = os.path.dirname(os.path.abspath(__file__))
+        self.assertEqual(subprocess.run(["node", "--check", os.path.join(base, "vision.js")]).returncode, 0)
+        with open(os.path.join(base, "index.html"), encoding="utf-8") as fh:
+            page = fh.read()
+        self.assertIn('<script src="vision.js"></script>', page)
+        self.assertIn("RaiVision.lookAll", page)
+        self.assertIn("[[vision]]", page)
+
+
 class PptxMotionTest(unittest.TestCase):
     """Переходы и анимации попадают внутрь .pptx (PptxGenJS их не умеет — pptx.js дописывает XML слайдов)."""
 
