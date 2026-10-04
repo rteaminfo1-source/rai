@@ -1,0 +1,67 @@
+# Зрение Rai: GitHub считает «отпечатки» понятий для распознавания картинок (tools/build_vision.py → vision_labels.json),
+# проверяет себя на фото из Википедии и кладёт результат в репозиторий. В браузере работает модель CLIP (ONNX).
+name: Зрение Rai
+
+on:
+  push:
+    branches: [main, claude/peaceful-allen-c7nn4t]
+    paths:
+      - "tools/build_vision.py"
+      - ".github/workflows/vision.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: vision
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Установить модель
+        run: |
+          pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          pip install --quiet transformers pillow numpy
+
+      - name: Посчитать понятия и проверить на фото
+        run: python tools/build_vision.py -o vision_labels.json
+
+      - name: Какие файлы модели есть для браузера
+        run: |
+          curl -s https://huggingface.co/api/models/Xenova/clip-vit-base-patch32/tree/main/onnx | python3 -c "import json,sys; [print(f['path'], round(f.get('size',0)/2**20,1), 'MB') for f in json.load(sys.stdin)]"
+          curl -s https://huggingface.co/api/models/Xenova/clip-vit-base-patch32/tree/main | python3 -c "import json,sys; [print(f['path']) for f in json.load(sys.stdin)]"
+          curl -s https://data.jsdelivr.com/v1/package/npm/@huggingface/transformers@4.3.0/flat | python3 -c "import json,sys; [print(f['name'], f['size']) for f in json.load(sys.stdin)['files'] if f['name'].startswith('/dist/') and not f['name'].endswith('.map')]"
+
+      - name: Модель для проверки в песочнице (на один день)
+        run: |
+          mkdir -p clip/onnx
+          for f in config.json preprocessor_config.json onnx/vision_model_quantized.onnx; do
+            curl -sfL -o "clip/$f" "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/$f" || echo "нет $f"
+          done
+          ls -la clip clip/onnx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clip-browser
+          path: clip
+          retention-days: 1
+
+      - name: Сохранить в репозиторий
+        run: |
+          git add vision_labels.json
+          if git diff --cached --quiet; then echo "Без изменений"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Зрение Rai: понятия для распознавания картинок"
+          for i in 1 2 3; do git pull --rebase origin "$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && break; sleep 5; done
