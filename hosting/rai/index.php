@@ -485,7 +485,7 @@ footer .sp { margin-left: auto; }
   <a class="logo" href="./"><i>R</i>Rai</a><span>© <?= date('Y') ?> Rteam</span>
   <a href="<?= CHAT_URL ?>">Чат</a><a href="<?= CHAT_URL ?>#code">Code</a><a href="<?= CHAT_URL ?>#slides">Слайды</a>
   <a href="<?= h(STUDIO_URL) ?>/">AI Studio</a><a href="#download">Приложение</a><a href="<?= $user ? 'account.php' : 'login.php' ?>"><?= $user ? 'Кабинет' : 'Вход' ?></a>
-  <a href="rules.php">Правила</a><a href="terms.php">Соглашение</a><a href="privacy.php">Конфиденциальность</a>
+  <a href="rules.php">Правила</a><a href="terms.php">Соглашение</a><a href="privacy.php">Конфиденциальность</a><a href="https://rteam.info/support.php" rel="noopener">Техподдержка</a>
   <a class="sp" href="<?= h(GITHUB_URL) ?>" rel="noopener">GitHub</a>
 </div></footer>
 
