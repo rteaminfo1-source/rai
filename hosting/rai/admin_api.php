@@ -1,7 +1,8 @@
 <?php
 /*
- * API для админ-панели (admin.php, вкладки «Rai: подписки» и «Rai: правила»): статистика, поиск пользователя, выдача
- * и снятие подписки, тарифы и платежи; нарушения правил, блокировка и разблокировка. Принимает только подписанные запросы:
+ * API для админ-панели (admin.php, вкладки «Rai: подписки», «Rai: правила» и «Rai: уведомления»): статистика, поиск
+ * пользователя, выдача и снятие подписки, тарифы и платежи; нарушения правил, блокировка и разблокировка;
+ * push-уведомления: рассылка пользователям, устройства админов. Принимает только подписанные запросы:
  *   POST, тело JSON {"action": "...", "nonce": "...", ...}
  *   X-Rai-Time: unix-время, X-Rai-Signature: hex(HMAC-SHA256(время + "\n" + тело, ADMIN_API_KEY))
  * Запрос старше 5 минут или с уже использованным nonce отклоняется.
@@ -10,6 +11,7 @@ require __DIR__ . '/config.php';
 require __DIR__ . '/plans.php';
 require __DIR__ . '/app.php';
 require __DIR__ . '/moderation.php';
+require __DIR__ . '/push.php';
 
 function admin_ready() { return ADMIN_API_KEY !== '' && strpos(ADMIN_API_KEY, 'ВСТАВЬТЕ') !== 0 && strlen(ADMIN_API_KEY) >= 32; }
 
@@ -256,6 +258,53 @@ switch ($action) {
             if ($ip !== '') unset($b['ips'][$ip]);
         }, ['users' => [], 'ips' => []]);
         sub_log('unban', $login ?: $ip, '', 0, 'Разблокировка', $by);
+        json_out(['ok' => true]);
+
+    // ---------------------------------------------------------------- push-уведомления
+    case 'push_stats':
+        $subs = push_subs();
+        $users = $admins = [];
+        $logins = [];
+        foreach ($subs as $id => $sub) {
+            if (($sub['kind'] ?? 'user') === 'admin') {
+                $admins[] = ['id' => $id, 'device' => $sub['device'] ?? '', 'events' => $sub['events'] ?? [], 'created' => $sub['created'] ?? 0,
+                             'last_ok' => $sub['last_ok'] ?? null, 'admin' => $sub['admin'] ?? '', 'back' => $sub['back'] ?? ''];
+            } else {
+                $users[] = $sub;
+                if (!empty($sub['login'])) $logins[$sub['login']] = true;
+            }
+        }
+        $week = count(array_filter($users, function ($u) { return ($u['created'] ?? 0) > time() - 7 * 86400; }));
+        json_out(['ok' => true, 'ready' => push_ready(), 'devices' => count($users), 'people' => count($logins), 'new_week' => $week,
+                  'admins' => $admins, 'events' => PUSH_ADMIN_EVENTS, 'log' => array_slice(array_reverse(load_json('push_log.json', [])), 0, 50)]);
+
+    case 'push_send':
+        if (!push_ready()) json_out(['ok' => false, 'error' => 'На хостинге rai.rteam.info нет openssl или curl — уведомления не работают.']);
+        $title = trim(mb_substr((string)($req['title'] ?? ''), 0, 80));
+        $body = trim(mb_substr((string)($req['body'] ?? ''), 0, 300));
+        $url = trim((string)($req['url'] ?? '')) ?: 'chat.html';
+        if ($title === '') json_out(['ok' => false, 'error' => 'Напишите заголовок уведомления.']);
+        if (!preg_match('~^(https?://[^\s"<>]+|[A-Za-z0-9_./?=&#%-]+)$~', $url)) json_out(['ok' => false, 'error' => 'Неверная ссылка.']);
+        $to = (string)($req['to'] ?? 'all');
+        if ($to === 'login') {
+            $u = find_login($req['login'] ?? '');
+            if (!$u) json_out(['ok' => false, 'error' => 'Пользователь «' . ($req['login'] ?? '') . '» не найден.']);
+            $targets = push_find(['kind' => 'user', 'login' => $u['login']]);
+            $label = '@' . $u['login'];
+            if (!$targets) json_out(['ok' => false, 'error' => "У @{$u['login']} уведомления не включены ни на одном устройстве."]);
+        } else {
+            $targets = push_find(['kind' => 'user']);
+            $label = 'все';
+            if (!$targets) json_out(['ok' => false, 'error' => 'Пока никто не включил уведомления.']);
+        }
+        @set_time_limit(300);
+        $r = push_send($targets, ['title' => $title, 'body' => $body, 'url' => $url, 'tag' => 'rai-news-' . substr(md5($title . $body), 0, 8)]);
+        push_log(['title' => $title, 'body' => $body, 'url' => $url, 'to' => $label, 'by' => $by] + $r);
+        sub_log('push', $to === 'login' ? $label : '', '', 0, 'Уведомление «' . $title . '»: доставлено ' . $r['sent'] . ' из ' . count($targets), $by);
+        json_out(['ok' => true, 'targets' => count($targets)] + $r);
+
+    case 'push_device_delete':
+        push_delete([(string)($req['id'] ?? '')]);
         json_out(['ok' => true]);
 
     case 'plans_reset':

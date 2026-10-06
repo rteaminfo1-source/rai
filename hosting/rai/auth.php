@@ -37,6 +37,8 @@ if ($action === 'register') {
         'name' => $name !== '' ? $name : $login, 'email' => $email !== '' ? $email : null,
         'password' => password_hash($password, PASSWORD_DEFAULT),
     ]);
+    require_once __DIR__ . '/push.php';
+    push_admins('users', '👤 Новый пользователь Rai', ($name !== '' ? $name . ' ' : '') . '(@' . $login . ')' . ($email !== '' ? ', ' . $email : ''), '?tab=rai');
     $_SESSION['flash'] = 'Аккаунт создан. Добро пожаловать!';
     finish_login($login);
 }

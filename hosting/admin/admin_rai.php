@@ -707,3 +707,173 @@ function rai_rules_render() {
     </div>
     <?php
 }
+
+// ======================================================================= вкладка «Rai: уведомления»
+// Push-уведомления: рассылка пользователям Rai (всем или одному) и уведомления админам на телефон и компьютер —
+// новые нарушения правил, оплаты, новые пользователи. Сами уведомления отправляет rai.rteam.info (push.php).
+
+function rai_push_back($extra = '') {
+    header('Location: admin.php?tab=rai_push' . $extra);
+    exit;
+}
+
+/** Адрес этой админ-панели (куда вести по нажатию на уведомление). */
+function rai_admin_self_url() {
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    $host = preg_replace('/[^A-Za-z0-9.:\-]/', '', (string)($_SERVER['HTTP_HOST'] ?? 'rteam.info'));
+    $path = strtok((string)($_SERVER['REQUEST_URI'] ?? '/admin.php'), '?');
+    return ($https ? 'https' : 'http') . '://' . $host . ($path ?: '/admin.php');
+}
+
+/** Подписанная ссылка «включить уведомления админки на этом устройстве» (действует час). */
+function rai_push_admin_link() {
+    global $user;
+    $c = rai_conf();
+    if (!$c['ready']) return null;
+    $exp = time() + 3600;
+    $back = rai_admin_self_url();
+    $t = hash_hmac('sha256', 'push-admin|' . $exp . '|' . $back, $c['key']);
+    return rai_site_url() . '/push_admin.php?' . http_build_query(['exp' => $exp, 'back' => $back, 't' => $t, 'admin' => (string)$user]);
+}
+
+/** Формы вкладки (POST на ?tab=rai_push). */
+function rai_push_post() {
+    global $user;
+    $action = (string)($_POST['action'] ?? '');
+    if ($action === 'rai_push_send') {
+        $to = ($_POST['to'] ?? 'all') === 'login' ? 'login' : 'all';
+        $r = rai_api('push_send', ['to' => $to, 'login' => trim((string)($_POST['login'] ?? '')), 'title' => (string)($_POST['title'] ?? ''),
+                                   'body' => (string)($_POST['body'] ?? ''), 'url' => trim((string)($_POST['url'] ?? ''))], 120);
+        if (!empty($r['ok'])) {
+            rai_log("$user отправил уведомление Rai «" . mb_substr((string)$_POST['title'], 0, 60) . "»: доставлено {$r['sent']} из {$r['targets']}");
+            flash("🔔 Отправлено: доставлено {$r['sent']} из {$r['targets']}" . ($r['removed'] ? ", отключённых устройств убрано: {$r['removed']}" : ''), 'success');
+        } else {
+            flash('Не отправлено: ' . ($r['error'] ?? '?'), 'error');
+        }
+        rai_push_back();
+    }
+    if ($action === 'rai_push_del') {
+        $r = rai_api('push_device_delete', ['id' => (string)($_POST['id'] ?? '')]);
+        flash(!empty($r['ok']) ? 'Устройство отключено.' : 'Не получилось: ' . ($r['error'] ?? '?'), !empty($r['ok']) ? 'success' : 'error');
+        rai_push_back();
+    }
+}
+
+function rai_push_render() {
+    $c = rai_conf();
+    $r = $c['ready'] ? rai_api('push_stats') : ['ok' => false, 'error' => 'Сначала подключите Rai во вкладке «Rai: подписки».'];
+    $ok = !empty($r['ok']);
+    $link = $ok ? rai_push_admin_link() : null;
+    ?>
+    <style>
+      .rp-hero { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 18px 20px; border-radius: 16px; border: 1px solid var(--line);
+        background: radial-gradient(120% 140% at 100% 0%, rgba(255, 61, 129, .18), transparent 55%), radial-gradient(100% 120% at 0% 100%, rgba(139, 92, 255, .14), transparent 60%), var(--panel); }
+      .rp-logo { width: 52px; height: 52px; border-radius: 15px; display: grid; place-items: center; font-size: 26px;
+        background: linear-gradient(135deg, #ff2d2d, #ff3d81 55%, #8b5cff); box-shadow: 0 10px 30px -10px rgba(255, 45, 45, .7); }
+      .rp-hero h2 { margin: 0; } .rp-hero p { margin: 4px 0 0; }
+      .rp-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+      .rp-kpi { padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); }
+      .rp-kpi b { display: block; font-size: 26px; line-height: 1.1; } .rp-kpi span { color: var(--muted); font-size: 13px; }
+      .rp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+      .rp-to { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0; } .rp-to label { display: flex; gap: 6px; align-items: center; margin: 0; }
+      .rp-preview { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: rgba(0,0,0,.25); margin-top: 10px; }
+      .rp-preview i { width: 38px; height: 38px; border-radius: 10px; flex: none; display: grid; place-items: center; font-style: normal; font-weight: 800; color: #fff;
+        background: linear-gradient(135deg, #ff2d2d, #ff3d81 55%, #8b5cff); }
+      .rp-preview b { display: block; } .rp-preview span { color: var(--muted); font-size: 13px; }
+    </style>
+
+    <div class="rp-hero">
+      <div class="rp-logo">🔔</div>
+      <div style="flex:1; min-width:220px;">
+        <h2>Rai — уведомления</h2>
+        <p class="muted">Push-уведомления приходят, даже когда сайт закрыт. Пользователи включают их в чате Rai — здесь можно сделать рассылку.
+          А ещё админ-панель может присылать вам нарушения, оплаты и новых пользователей.</p>
+      </div>
+    </div>
+
+    <?php if (!$ok): ?>
+      <div class="card" style="margin-top:14px;"><p class="meta">⚠️ <?= rai_h($r['error'] ?? 'Нет связи с rai.rteam.info') ?></p></div>
+    <?php return; endif; ?>
+    <?php if (empty($r['ready'])): ?>
+      <div class="card" style="margin-top:14px;"><p class="meta">⚠️ На хостинге rai.rteam.info нет PHP-расширений openssl или curl — уведомления не отправляются. Включите их в панели хостинга.</p></div>
+    <?php endif; ?>
+
+    <div class="rp-kpis">
+      <div class="rp-kpi"><b><?= (int)$r['people'] ?></b><span>пользователей с уведомлениями</span></div>
+      <div class="rp-kpi"><b><?= (int)$r['devices'] ?></b><span>устройств</span></div>
+      <div class="rp-kpi"><b><?= (int)$r['new_week'] ?></b><span>подключили за неделю</span></div>
+      <div class="rp-kpi"><b><?= count($r['admins']) ?></b><span>ваших устройств</span></div>
+    </div>
+
+    <div class="rp-grid">
+      <div class="card" style="margin-top:14px;">
+        <h3>📣 Отправить уведомление</h3>
+        <form method="POST" action="?tab=rai_push" onsubmit="return this.to.value === 'login' || confirm('Отправить уведомление всем пользователям (<?= (int)$r['devices'] ?> устройств)?')">
+          <input type="hidden" name="action" value="rai_push_send">
+          <div class="rp-to">
+            <label><input type="radio" name="to" value="all" checked> Всем</label>
+            <label><input type="radio" name="to" value="login"> Одному пользователю</label>
+          </div>
+          <input type="text" name="login" placeholder="логин Rai (для одного пользователя)" autocomplete="off">
+          <label>Заголовок</label>
+          <input type="text" name="title" maxlength="80" required placeholder="Например: В Rai новая функция ✨" oninput="document.getElementById('rpT').textContent = this.value || 'Заголовок'">
+          <label>Текст</label>
+          <textarea name="body" maxlength="300" rows="3" placeholder="Например: Теперь Rai знает лекарства и подскажет аналоги в вашей стране." oninput="document.getElementById('rpB').textContent = this.value"></textarea>
+          <label>Куда вести по нажатию</label>
+          <input type="text" name="url" placeholder="chat.html (чат Rai) или полный адрес https://…">
+          <div class="rp-preview"><i>R</i><div><b id="rpT">Заголовок</b><span id="rpB"></span></div></div>
+          <button class="btn primary" type="submit" style="margin-top:10px;">🔔 Отправить</button>
+        </form>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <h3>📱 Уведомления вам</h3>
+        <p class="meta">Новые нарушения правил, оплаты и регистрации — сразу на телефон или компьютер, даже когда админка закрыта.</p>
+        <?php if ($link): ?>
+          <a class="btn primary" href="<?= rai_h($link) ?>" target="_blank" rel="noopener">🔔 Получать на этом устройстве</a>
+          <p class="meta" style="font-size:12px;">Откроется страница rai.rteam.info — нажмите там «Включить». Ссылка действует 1 час. Для телефона — откройте эту вкладку админки на телефоне.</p>
+        <?php endif; ?>
+        <?php if ($r['admins']): ?>
+          <table style="margin-top:8px;">
+            <thead><tr><th>Устройство</th><th>Что приходит</th><th></th></tr></thead>
+            <tbody>
+            <?php foreach ($r['admins'] as $d): ?>
+              <tr>
+                <td><b><?= rai_h($d['device'] ?: 'Устройство') ?></b><br><span class="muted" style="font-size:12px;">с <?= rai_date($d['created']) ?><?= $d['admin'] ? ' · ' . rai_h($d['admin']) : '' ?></span></td>
+                <td style="font-size:13px;"><?= rai_h(implode(', ', array_map(function ($e) use ($r) { return $r['events'][$e] ?? $e; }, $d['events'] ?: array_keys($r['events'])))) ?></td>
+                <td><form method="POST" action="?tab=rai_push" style="margin:0;" onsubmit="return confirm('Отключить уведомления на этом устройстве?')">
+                  <input type="hidden" name="action" value="rai_push_del"><input type="hidden" name="id" value="<?= rai_h($d['id']) ?>">
+                  <button class="btn" type="submit" title="Отключить">✕</button></form></td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php else: ?>
+          <p class="meta">Пока ни одного устройства.</p>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h3>🕓 Рассылки</h3>
+      <?php if (!$r['log']): ?><p class="meta">Рассылок ещё не было.</p><?php else: ?>
+      <div class="table-wrap" style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Когда</th><th>Кому</th><th>Уведомление</th><th>Доставлено</th><th>Кто</th></tr></thead>
+        <tbody>
+        <?php foreach ($r['log'] as $l): ?>
+          <tr>
+            <td style="white-space:nowrap;"><?= date('d.m.Y H:i', (int)$l['time']) ?></td>
+            <td><?= rai_h($l['to']) ?></td>
+            <td><b><?= rai_h($l['title']) ?></b><?= $l['body'] !== '' ? '<br><span class="muted" style="font-size:13px;">' . rai_h($l['body']) . '</span>' : '' ?></td>
+            <td><?= (int)$l['sent'] ?><?= $l['failed'] ? ' <span class="muted">(не дошло: ' . (int)$l['failed'] . ')</span>' : '' ?></td>
+            <td><?= rai_h($l['by'] ?? '') ?></td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+      </div>
+      <?php endif; ?>
+    </div>
+    <?php
+}

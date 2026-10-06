@@ -517,6 +517,15 @@
     color: #fff; background: linear-gradient(120deg, #ff2d2d, #ff3d81 45%, #8b5cff); }
   #input:disabled { opacity: .5; cursor: not-allowed; }
   .legal-mini { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .notify-btn { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 10px; padding: 7px 10px; font: inherit; font-size: 12.5px; cursor: pointer; text-align: left; }
+  .notify-btn:hover { color: var(--fg); border-color: var(--red); }
+  .notify-btn[aria-pressed="true"] { color: var(--fg); }
+  .notify-ask { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line);
+    background: linear-gradient(120deg, rgba(255, 45, 45, .08), rgba(139, 92, 255, .08)); margin-block: 6px 12px; }
+  .notify-ask > span { font-size: 22px; }
+  .notify-ask > div { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
+  .notify-ask small { color: var(--muted); font-size: 13px; }
+  .notify-ask .later { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; text-decoration: underline; }
   .learn-mini { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
   .learn-mini button { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
   .actions .rate { min-width: 34px; justify-content: center; filter: grayscale(1); opacity: .7; }
@@ -748,6 +757,7 @@
     <div class="side-foot"><div id="accountBox"></div><a class="back-link" id="studioLink" href="https://aistudio.rteam.info/">AI Studio — сайты по описанию →</a>
       <a class="app-link" id="appLink" href="https://rai.rteam.info/" target="_blank" rel="noopener">💻 Приложение для Windows, macOS и Linux</a>
       <script>if (window.RaiApp && window.RaiApp.isApp) document.getElementById("appLink").remove();  // уже в приложении</script>
+      <button class="notify-btn" id="notifyBtn" type="button" hidden aria-pressed="false">🔔 Уведомления: выкл</button>
       <span id="storeNote">Чаты и проекты Code хранятся в этом браузере.</span>
       <span class="learn-mini" id="learnMini" hidden></span>
       <span class="legal-mini"><a href="https://rai.rteam.info/rules.php" target="_blank" rel="noopener">Правила</a> ·
@@ -2282,6 +2292,8 @@ def rai_code(action, code, lang, prompt):
     chat.updated = Date.now();
     if (currentId === chat.id) renderMessage(reply);
     save(); renderSidebar();
+    notifyDone(reply, chat);
+    if (currentId === chat.id && !reply.violation) maybeAskNotify(chat);
     busy = false;
     sendBtn.disabled = false;
     log.scrollTop = log.scrollHeight;
@@ -3168,7 +3180,131 @@ def rai_code(action, code, lang, prompt):
   $("modeSlides").addEventListener("click", () => setMode("slides"));
   window.addEventListener("hashchange", () => setMode(location.hash.slice(1) || "chat"));
 
-  initAccount();
+  // ---------------------------------------------------------------- уведомления (push.php, push_api.php, sw.php на сайте)
+  // Включаются по кнопке: Rai присылает «ответ готов», если вы на другой вкладке, а сайт — новости и «оплата прошла»
+  // даже когда Rai закрыт. В приложении для компьютера — только уведомления о готовых ответах (push там не работает).
+  const NOTIFY_KEY = "rai_notify";   // "on" | "off" | "later:<время>"
+  const isApp = !!(window.RaiApp && window.RaiApp.isApp);
+  const pushCan = () => /^https?:$/.test(location.protocol) && "serviceWorker" in navigator && "PushManager" in window &&
+    "Notification" in window && window.top === window && !window.RAI_SANDBOX && !isApp;
+  const notifyCan = () => "Notification" in window && window.top === window && !window.RAI_SANDBOX && (pushCan() || isApp);
+  function notifyState() { try { return localStorage.getItem(NOTIFY_KEY) || ""; } catch (e) { return ""; } }
+  function setNotifyState(v) { try { localStorage.setItem(NOTIFY_KEY, v); } catch (e) { /* без памяти браузера */ } renderNotify(); }
+  const notifyOn = () => notifyState() === "on" && "Notification" in window && Notification.permission === "granted";
+  function renderNotify() {
+    const b = $("notifyBtn");
+    if (!b) return;
+    b.hidden = !notifyCan();
+    const on = notifyOn();
+    b.setAttribute("aria-pressed", String(on));
+    b.textContent = on ? "🔔 Уведомления: вкл" : "🔕 Уведомления: выкл";
+    b.title = on ? "Нажмите, чтобы выключить" : "Rai пришлёт уведомление, когда ответ готов, и важные новости";
+  }
+  function b64key(b64) {
+    const raw = atob(b64.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64.length + 3) % 4));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  }
+  async function pushRegistration() {
+    const reg = await navigator.serviceWorker.register("sw.php");
+    if (reg.active) return reg;
+    await new Promise((resolve) => {
+      const w = reg.installing || reg.waiting;
+      if (!w) return resolve();
+      const t = setTimeout(resolve, 8000);
+      w.addEventListener("statechange", () => { if (w.state === "activated") { clearTimeout(t); resolve(); } });
+    });
+    return reg;
+  }
+  /** Подписать это устройство на push и сообщить сайту (с логином, чтобы приходили и личные уведомления). */
+  async function pushSubscribe() {
+    if (!pushCan()) return false;
+    await accountReady;
+    const info = await (await withTimeout(fetch("push_api.php", {cache: "no-store"}), 6000)).json();
+    if (!info.ready || !info.key) throw new Error("на сайте уведомления пока не включены");
+    const reg = await pushRegistration();
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64key(info.key)});
+    const r = await fetch("push_api.php", {method: "POST", credentials: "same-origin",
+      headers: {"Content-Type": "application/json", "X-CSRF-Token": (account && account.csrf) || ""},
+      body: JSON.stringify({action: "subscribe", subscription: sub.toJSON()})});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || "сайт не принял подписку");
+    try { localStorage.setItem("rai_notify_sync", String(Date.now()) + "|" + ((account && account.user && account.user.login) || "")); } catch (e) { /* ок */ }
+    return true;
+  }
+  async function enableNotify() {
+    if (!notifyCan()) { toast("В этом браузере уведомления не поддерживаются"); return false; }
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      toast(perm === "denied" ? "Уведомления запрещены в браузере — разрешите их в настройках сайта (значок замка у адреса)" : "Уведомления не включены");
+      setNotifyState("off");
+      return false;
+    }
+    setNotifyState("on");
+    if (pushCan()) {
+      try { await pushSubscribe(); toast("🔔 Уведомления включены"); }
+      catch (e) { toast("🔔 Уведомления о готовых ответах включены (" + e.message + ")"); }
+    } else toast("🔔 Rai сообщит, когда ответ будет готов");
+    return true;
+  }
+  async function disableNotify() {
+    setNotifyState("off");
+    if (!pushCan()) return;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) {
+        await fetch("push_api.php", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action: "unsubscribe", endpoint: sub.endpoint})});
+        await sub.unsubscribe();
+      }
+    } catch (e) { /* уже отписано */ }
+    toast("🔕 Уведомления выключены");
+  }
+  $("notifyBtn").addEventListener("click", () => (notifyOn() ? disableNotify() : enableNotify()));
+  /** Ответ готов, а вы на другой вкладке — системное уведомление (по нажатию — обратно в этот чат). */
+  async function notifyDone(reply, chat) {
+    if (!notifyOn() || !document.hidden || !reply || !reply.text) return;
+    const body = String(reply.text).replace(/```[\s\S]*?```/g, " [код] ").replace(/[#*_>`|~=-]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+    const opts = {body: body || "Ответ готов", icon: "icon.php?s=192", tag: "rai-answer-" + chat.id, data: {url: location.href.split("#")[0]}};
+    try {
+      const reg = pushCan() && await navigator.serviceWorker.getRegistration();
+      if (reg) { await reg.showNotification("Rai ответил · " + (chat.title || "чат").slice(0, 40), opts); return; }
+      const n = new Notification("Rai ответил · " + (chat.title || "чат").slice(0, 40), opts);
+      n.onclick = () => { window.focus(); openChat(chat.id); n.close(); };
+    } catch (e) { /* без уведомления */ }
+  }
+  /** Предложить включить уведомления — один раз, когда человек уже пообщался с Rai (не при первом же открытии). */
+  function maybeAskNotify(chat) {
+    if (!notifyCan() || Notification.permission !== "default") return;
+    const st = notifyState();
+    if (st === "off" || st === "on" || (st.startsWith("later:") && Date.now() - Number(st.slice(6)) < 7 * 86400000)) return;
+    if (chat.messages.filter((m) => m.role === "rai").length < 2 || document.querySelector(".notify-ask")) return;
+    const card = document.createElement("div");
+    card.className = "inner notify-ask";
+    card.innerHTML = `<span aria-hidden="true">🔔</span><div><b>Включить уведомления?</b><small>${isApp ? "Rai сообщит, когда ответ готов, если вы в другом окне." :
+      "Rai напишет, когда ответ готов, если вы на другой вкладке, и сообщит о важном — даже когда сайт закрыт."}</small></div>` +
+      `<button class="btn red" type="button">Включить</button><button class="later" type="button">Не сейчас</button>`;
+    card.querySelector(".btn").addEventListener("click", async () => { card.remove(); await enableNotify(); });
+    card.querySelector(".later").addEventListener("click", () => { card.remove(); setNotifyState("later:" + Date.now()); });
+    log.append(card);
+    log.scrollTop = log.scrollHeight;
+  }
+  /** При открытии: уведомления уже включены — освежить подписку (раз в сутки или после входа в другой аккаунт). */
+  async function initNotify() {
+    renderNotify();
+    if (!pushCan()) return;
+    navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "rai-push-resubscribed" && notifyOn()) pushSubscribe().catch(() => null); });
+    if (!notifyOn()) return;
+    await accountReady;
+    let last = "";
+    try { last = localStorage.getItem("rai_notify_sync") || ""; } catch (e) { /* ок */ }
+    const [t, who] = last.split("|");
+    const login = (account && account.user && account.user.login) || "";
+    if (Date.now() - Number(t || 0) > 86400000 || who !== login) pushSubscribe().catch(() => null);
+  }
+
+  const accountReady = initAccount();
+  initNotify();
   initLimits();
   initNeuro();
   if (window.RaiScreen) {

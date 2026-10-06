@@ -1708,6 +1708,174 @@ echo json_encode($out, JSON_UNESCAPED_UNICODE);
         self.assertIn("error", out["tiny"])
 
     @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
+    def test_push_notifications(self):
+        """Push-уведомления: подписка устройства, рассылка из админки, уведомление админу о нарушении — расшифровка как в браузере."""
+        try:
+            from cryptography.hazmat.primitives import hashes, hmac as chmac, serialization
+            from cryptography.hazmat.primitives.asymmetric import ec
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        except Exception:
+            self.skipTest("нет cryptography")
+        import base64
+        import hashlib
+        import hmac
+        import http.cookiejar
+        import http.server
+        import shutil
+        import socket
+        import struct
+        import subprocess
+        import threading
+        import time
+        import urllib.request
+        base = os.path.dirname(os.path.abspath(__file__))
+        b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+        unb64 = lambda t: base64.urlsafe_b64decode(t + "=" * (-len(t) % 4))
+
+        def mac(key, data):
+            h = chmac.HMAC(key, hashes.SHA256())
+            h.update(data)
+            return h.finalize()
+
+        devices = {}   # путь на «сервере уведомлений» -> (закрытый ключ, открытый, auth)
+        got = []
+
+        class PushService(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                if self.path == "/gone":
+                    self.send_response(410)
+                    self.end_headers()
+                    return
+                priv, pub, auth = devices[self.path]
+                salt, idlen = body[:16], body[20]
+                as_pub, ct = body[21:21 + idlen], body[21 + idlen:]
+                shared = priv.exchange(ec.ECDH(), ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), as_pub))
+                ikm = mac(mac(auth, shared), b"WebPush: info\x00" + pub + as_pub + b"\x01")
+                prk = mac(salt, ikm)
+                plain = AESGCM(mac(prk, b"Content-Encoding: aes128gcm\x00\x01")[:16]).decrypt(mac(prk, b"Content-Encoding: nonce\x00\x01")[:12], ct, None)
+                got.append({"path": self.path, "auth": self.headers["Authorization"], "enc": self.headers["Content-Encoding"],
+                            "msg": json.loads(plain.rstrip(b"\x02").decode())})
+                self.send_response(201)
+                self.end_headers()
+
+        svc = http.server.ThreadingHTTPServer(("127.0.0.1", 0), PushService)
+        threading.Thread(target=svc.serve_forever, daemon=True).start()
+        push_url = f"http://127.0.0.1:{svc.server_address[1]}"
+
+        def device(path):
+            priv = ec.generate_private_key(ec.SECP256R1())
+            pub = priv.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+            auth = os.urandom(16)
+            devices[path] = (priv, pub, auth)
+            return {"endpoint": push_url + path, "keys": {"p256dh": b64(pub), "auth": b64(auth)}}
+
+        def free_port():
+            with socket.socket() as sk:
+                sk.bind(("127.0.0.1", 0))
+                return sk.getsockname()[1]
+
+        key = "k" * 40
+        with tempfile.TemporaryDirectory() as site:
+            shutil.copytree(os.path.join(base, "hosting", "rai"), site, dirs_exist_ok=True, ignore=shutil.ignore_patterns("data"))
+            port = free_port()
+            url = f"http://127.0.0.1:{port}/"
+            env = dict(os.environ, ADMIN_API_KEY=key, RAI_URL=url.rstrip("/"), SSO_SECRET="s" * 40, PUSH_TEST_HTTP="1")
+            php = subprocess.Popen(["php", "-S", f"127.0.0.1:{port}", "-t", site], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                for _ in range(50):
+                    try:
+                        urllib.request.urlopen(url + "push_api.php", timeout=1)
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+                jar = http.cookiejar.CookieJar()
+                web = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+                def call(path, data, headers=None, raw=False):
+                    req = urllib.request.Request(url + path, data=(data if raw else json.dumps(data).encode()),
+                                                 headers=dict({"Content-Type": "application/json"}, **(headers or {})))
+                    try:
+                        r = web.open(req)
+                        return r.status, json.loads(r.read())
+                    except urllib.error.HTTPError as e:
+                        return e.code, json.loads(e.read() or b"{}")
+
+                def admin(action, **data):
+                    body = json.dumps(dict(action=action, nonce=os.urandom(8).hex(), admin="boss", **data)).encode()
+                    t = str(int(time.time()))
+                    return call("admin_api.php", body, {"X-Rai-Time": t, "X-Rai-Signature": hmac.new(key.encode(), (t + "\n").encode() + body, hashlib.sha256).hexdigest()}, raw=True)[1]
+
+                info = json.loads(web.open(url + "push_api.php").read())
+                self.assertTrue(info["ready"])
+                self.assertEqual(len(unb64(info["key"])), 65)
+                self.assertEqual(json.loads(web.open(url + "push_api.php").read())["key"], info["key"])   # ключ сайта один и тот же
+                # пользователь регистрируется и включает уведомления
+                csrf = json.loads(web.open(url + "me.php").read())["csrf"]
+                web.open(urllib.request.Request(url + "auth.php", data=urllib.parse.urlencode(
+                    {"csrf": csrf, "action": "register", "login": "anya", "password": "secret123", "name": "Аня"}).encode()))
+                csrf = json.loads(web.open(url + "me.php").read())["csrf"]
+                self.assertEqual(call("push_api.php", {"action": "subscribe", "subscription": device("/u1")})[0], 403)   # без токена
+                code, r = call("push_api.php", {"action": "subscribe", "subscription": device("/u1")}, {"X-CSRF-Token": csrf})
+                self.assertEqual((code, r["ok"]), (200, True))
+                self.assertEqual(call("push_api.php", {"action": "subscribe", "subscription": {"endpoint": push_url + "/x", "keys": {"p256dh": "AAAA", "auth": "BBBB"}}},
+                                      {"X-CSRF-Token": csrf})[0], 400)
+                call("push_api.php", {"action": "subscribe", "subscription": dict(device("/u2"), endpoint=push_url + "/gone")}, {"X-CSRF-Token": csrf})
+                # проверочное уведомление
+                code, r = call("push_api.php", {"action": "test", "endpoint": push_url + "/u1"})
+                self.assertTrue(r["ok"], r)
+                self.assertEqual(got[-1]["msg"]["title"], "✅ Уведомления Rai работают")
+                self.assertEqual(got[-1]["enc"], "aes128gcm")
+                self.assertTrue(got[-1]["auth"].startswith("vapid t=") and ("k=" + info["key"]) in got[-1]["auth"])
+                # админ: устройство по подписанной ссылке, рассылка, статистика
+                back = "https://rteam.info/admin.php"
+                exp = int(time.time()) + 3600
+                tok = hmac.new(key.encode(), f"push-admin|{exp}|{back}".encode(), hashlib.sha256).hexdigest()
+                self.assertEqual(call("push_api.php", {"action": "admin_subscribe", "subscription": device("/a1"), "exp": exp, "back": back, "t": "bad"})[0], 403)
+                code, r = call("push_api.php", {"action": "admin_subscribe", "subscription": device("/a1"), "exp": exp, "back": back, "t": tok, "events": ["violations"]})
+                self.assertEqual(r["events"], ["violations"])
+                self.assertIn("push_admin.php", "push_admin.php")
+                page = web.open(url + "push_admin.php?" + urllib.parse.urlencode({"exp": exp, "back": back, "t": tok})).read().decode()
+                self.assertIn("Включить на этом устройстве", page)
+                self.assertIn("Ссылка устарела", web.open(url + "push_admin.php?exp=1&back=x&t=y").read().decode())
+                got.clear()
+                r = admin("push_send", to="all", title="Новая функция", body="Rai знает лекарства", url="chat.html")
+                self.assertTrue(r["ok"], r)
+                self.assertEqual((r["sent"], r["removed"]), (1, 1))            # устройство, от которого браузер отказался, удалено
+                self.assertEqual([g["path"] for g in got], ["/u1"])             # админские устройства в рассылку не попадают
+                self.assertEqual(got[0]["msg"]["body"], "Rai знает лекарства")
+                self.assertFalse(admin("push_send", to="login", login="nobody", title="x")["ok"])
+                st = admin("push_stats")
+                self.assertEqual((st["people"], st["devices"], len(st["admins"])), (1, 1, 1))
+                self.assertEqual(st["log"][0]["title"], "Новая функция")
+                # нарушение правил — админу на устройство
+                got.clear()
+                call("report.php", {"category": "наркотики", "text": "где купить"})
+                for _ in range(30):
+                    if got:
+                        break
+                    time.sleep(0.1)
+                self.assertEqual(got[0]["path"], "/a1")
+                self.assertIn("Нарушение правил", got[0]["msg"]["title"])
+                self.assertEqual(got[0]["msg"]["url"], back + "?tab=rai_rules&f=new")
+                # отключить устройство из админки
+                self.assertTrue(admin("push_device_delete", id=st["admins"][0]["id"])["ok"])
+                self.assertEqual(admin("push_stats")["admins"], [])
+                # сервис-воркер и значок
+                sw = web.open(url + "sw.php")
+                self.assertIn("javascript", sw.headers["Content-Type"])
+                self.assertIn("showNotification", sw.read().decode())
+                self.assertEqual(web.open(url + "icon.php?s=96").read()[:8], b"\x89PNG\r\n\x1a\n")
+            finally:
+                php.terminate()
+                php.wait()
+                svc.shutdown()
+                svc.server_close()
+
+    @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
     def test_php_servers(self):
         import http.server
         import socket

@@ -94,6 +94,8 @@ if ($user) {
 }
 $login = unique_login($email !== '' ? strtok($email, '@') : ($p['given_name'] ?? 'user'));
 create_user($login, ['name' => $p['name'] ?? $login, 'email' => $email ?: null, 'google_id' => $gid, 'avatar' => $p['picture'] ?? null]);
+require_once __DIR__ . '/push.php';
+push_admins('users', '👤 Новый пользователь Rai (Google)', ($p['name'] ?? $login) . ' (@' . $login . ')' . ($email ? ', ' . $email : ''), '?tab=rai');
 $_SESSION['flash'] = 'Аккаунт создан через Google. Ваш логин: ' . $login . '.';
 login_user($login);
 redirect($next);

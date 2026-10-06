@@ -58,6 +58,12 @@ function rai_violation_add(array $v) {
         $list[] = ['id' => $id, 'time' => time(), 'seen' => false] + $v;
         if (count($list) > VIOLATIONS_KEEP) $list = array_slice($list, -VIOLATIONS_KEEP);
     });
+    // админам на телефон и компьютер (push.php) — после ответа посетителю
+    require_once __DIR__ . '/push.php';
+    $who = !empty($v['login']) ? ($v['name'] ?? $v['login']) . ' (@' . $v['login'] . ')' : 'Гость, IP ' . ($v['ip'] ?? '?');
+    $label = RULE_LABELS[$v['category'] ?? ''] ?? ($v['category'] ?? 'нарушение');
+    $text = ($v['category'] ?? '') === 'мат' ? '' : ' — «' . mb_substr(trim((string)($v['text'] ?? '')), 0, 90) . '»';   // мат в уведомление не выводим
+    push_admins('violations', '🚫 Нарушение правил в Rai: ' . $label, $who . $text, '?tab=rai_rules&f=new');
     return $id;
 }
 

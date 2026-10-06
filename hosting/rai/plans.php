@@ -253,6 +253,14 @@ function order_confirm($order_id, $paid_amount) {
         set_subscription($activated['login'], $activated['plan'], 30 * (int)$activated['months'], 'platega',
                          'Оплата ' . rub($activated['amount']) . ', заказ ' . $activated['id']);
         sub_log('payment', $activated['login'], $activated['plan'], 30 * (int)$activated['months'], 'Platega · ' . rub($activated['amount']));
+        // уведомления: админам — «пришла оплата», покупателю — «тариф включён» (push.php, после ответа Platega)
+        require_once __DIR__ . '/push.php';
+        $plan = plans()[$activated['plan']]['name'] ?? $activated['plan'];
+        $months = (int)$activated['months'];
+        push_admins('payments', '💳 Оплата Rai: ' . rub($activated['amount']), '@' . $activated['login'] . ' — тариф «' . $plan . '» на ' . $months . ' мес.', '?tab=rai');
+        $until = user_plan(users()[$activated['login']] ?? [])['until'] ?? 0;
+        push_user_later($activated['login'], ['title' => '✅ Оплата прошла', 'url' => 'chat.html', 'tag' => 'rai-plan',
+            'body' => 'Тариф «' . $plan . '» включён' . ($until ? ' до ' . date('d.m.Y', $until) : '') . '. Спасибо, что вы с Rai!']);
     }
     return $order;
 }
