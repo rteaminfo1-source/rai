@@ -888,16 +888,29 @@ def together(keys, text):
     return "\n".join(lines)
 
 
+_CYR = re.compile("[а-яё]", re.I)
+_GENERIC_DESC = re.compile(r"^(?:химическое соединение|лекарственное средство|лекарство|органическое соединение|"
+                           r"препарат|фармацевтический препарат|chemical compound)$", re.I)
+
+
+def _ru(values):
+    """Только русские подписи (в Wikidata у многих болезней и групп есть лишь английские)."""
+    return [v for v in values or [] if v and _CYR.search(v) and not _GENERIC_DESC.match(v.strip())]
+
+
 def _db_card(it, region=None):
-    lines = [f"### 💊 {it.get('n') or it.get('en')}" + (f" ({it['en']})" if it.get("en") and it.get("en") != it.get("n") else "")]
-    if it.get("d"):
-        lines.append(f"*{it['d']}*")
-    if it.get("cls"):
-        lines.append("**Группа:** " + ", ".join(it["cls"][:3]) + (f" · АТХ {', '.join(it['atc'][:2])}" if it.get("atc") else ""))
-    elif it.get("atc"):
-        lines.append("**АТХ:** " + ", ".join(it["atc"][:3]))
-    if it.get("for"):
-        lines.append("**Применяют при:** " + ", ".join(it["for"][:8]))
+    name = it.get("n") or it.get("en") or ""
+    name = name[:1].upper() + name[1:]
+    lines = [f"### 💊 {name}" + (f" · {it['en']}" if it.get("en") and it["en"].lower() != name.lower() else "")]
+    if it.get("d") and not _GENERIC_DESC.match(it["d"].strip()):
+        lines.append(f"*{it['d'][:1].upper() + it['d'][1:]}*")
+    groups = _ru(it.get("cls"))
+    atc = ", ".join((it.get("atc") or [])[:3])
+    if groups or atc:
+        lines.append("**" + ("Группа:** " + ", ".join(groups[:3]) + (f" · АТХ {atc}" if atc else "") if groups else "АТХ:** " + atc))
+    uses = _ru(it.get("for"))
+    if uses:
+        lines.append("**Применяют при:** " + ", ".join(uses[:8]))
     if it.get("x"):
         lines += ["", it["x"]]
     if it.get("brands"):
@@ -905,8 +918,8 @@ def _db_card(it, region=None):
     if it.get("rx"):
         rx = it["rx"]
         reg = REGIONS.get(region, {}).get("name") if region else None
-        lines.append("**Отпуск:** " + "; ".join(f"{c}: {s}" for c, s in list(rx.items())[:5]) +
-                     (f" (для {reg} данных нет — уточните в аптеке)" if reg and reg not in rx else ""))
+        lines.append("**Отпуск:** " + "; ".join(f"{c}: {st}" for c, st in list(rx.items())[:5]) +
+                     (f" (для страны «{reg}» данных нет — уточните в аптеке)" if reg and reg not in rx else ""))
     if it.get("en"):
         lines.append(f"\nЗа границей спрашивайте по действующему веществу: **{it['en']}**.")
     lines += ["", "*Источник: Wikidata и Википедия (CC BY-SA).*", "", _DOCTOR_NOTE]
@@ -970,7 +983,9 @@ def answer(text, region=None):
         it = db_find(text) if len(_norm(text).split()) <= 5 else None
         if it and re.search(r"лекарств|препарат|анальгетик|антибиотик|гормон|антидепрессант|антигистамин|ингибитор|блокатор|"
                             r"агонист|антагонист|противо|транквилизатор|снотворн|анестетик|вакцин|статин|диуретик|"
-                            r"антикоагулянт|нейролептик|антисептик|бензодиазепин|опиоид", (it.get("d") or "") + " " + " ".join(it.get("cls") or []), re.I):
+                            r"антикоагулянт|нейролептик|антисептик|бензодиазепин|опиоид|антипсихотик|противоэпилепт|анксиолитик|"
+                            r"ноотроп|спазмолитик|слабительн|антигельминт|противовирус|противогрибк",
+                            " ".join([it.get("d") or "", " ".join(_ru(it.get("cls"))), (it.get("x") or "")[:170]]), re.I):
             return _db_card(it, reg)
         return None
     sym = symptom(text, reg)

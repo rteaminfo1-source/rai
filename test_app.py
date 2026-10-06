@@ -311,6 +311,21 @@ class MedsTest(unittest.TestCase):
         finally:
             meds.load({})
 
+    def test_real_base_from_github(self):
+        import meds
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicines.json")
+        if not os.path.exists(path):
+            self.skipTest("medicines.json ещё не собран")
+        with open(path, encoding="utf-8") as fh:
+            self.assertGreater(meds.load(json.load(fh)), 1000)
+        try:
+            self.assertIn("tramadol", meds.answer("что такое трамадол"))
+            self.assertIn("Амитриптилин", meds.answer("что такое амитриптилин"))
+            self.assertIsNone(meds.answer("что такое кислород"))
+            self.assertIn("не подскажу", meds.answer("где купить трамадол"))
+        finally:
+            meds.load({})
+
     def test_builder_parses_wikidata(self):
         import sys
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
@@ -1702,6 +1717,10 @@ class HostingTest(unittest.TestCase):
             for root, _, files in os.walk(out):
                 for f in files:  # на хостинге только PHP и HTML (+ необязательные настройки сервера)
                     self.assertTrue(f.endswith((".php", ".html")) or f in (".htaccess", "web.config", "ПРОЧТИ.txt"), f)
+            if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicines.json")):
+                self.assertGreater(len(json.loads(make_hosting.read_kb(os.path.join(rai, "meds.php")))["items"]), 1000)
+                with open(os.path.join(rai, "chat.html"), encoding="utf-8") as fh:
+                    self.assertIn('window.RAI_MEDS_URL = "meds.php"', fh.read())
             # нейросеть AI Studio — та же neuro.js, отдельным файлом .php (на хостинге только PHP и HTML)
             studio = os.path.join(out, "aistudio.rteam.info")
             with open(os.path.join(studio, "assets", "neuro.php"), encoding="utf-8") as fh:
