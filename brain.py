@@ -279,7 +279,7 @@ class Brain:
 
         session = self.sessions.get(_clean_session_id(session_id)) if version.context else {}
         if version.context and not session.get("name"):
-            session["name"] = _name_from_history(history)
+            session["name"] = _name_from_history(history) or PROFILE.get("name")
 
         if attached:
             question, found, rest = files.split(message)
@@ -1132,6 +1132,10 @@ def _word_forms(word):
     if re.search(r"[бвгджзклмнпрстфхцчшщ]$", w):
         forms.append(w + "а")
     return forms
+
+
+# Профиль из аккаунта на сайте (страница передаёт его с каждым вопросом): {"name": "Аня"}
+PROFILE = {}
 
 
 def _name_from_history(history):

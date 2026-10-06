@@ -131,16 +131,31 @@ function rai_admin_post() {
     if ($action === 'rai_grant') {
         $login = strtolower(trim((string)($_POST['login'] ?? '')));
         $plan = (string)($_POST['plan'] ?? '');
-        $days = (int)($_POST['days'] ?? 0) === -1 ? (int)($_POST['days_custom'] ?? 0) : (int)($_POST['days'] ?? 0);
+        $forever = (string)($_POST['days'] ?? '') === 'forever';
+        $days = $forever ? 36500 : ((int)($_POST['days'] ?? 0) === -1 ? (int)($_POST['days_custom'] ?? 0) : (int)($_POST['days'] ?? 0));
         $note = trim((string)($_POST['note'] ?? ''));
         if ($login === '' || !in_array($plan, RAI_PLAN_KEYS, true) || $days < 1) { flash('Укажите логин, тариф и срок.', 'error'); rai_back(); }
-        $r = rai_api('grant', ['login' => $login, 'plan' => $plan, 'days' => $days, 'note' => $note]);
+        $r = rai_api('grant', ['login' => $login, 'plan' => $plan, 'days' => $days, 'forever' => $forever, 'note' => $note]);
         if (!empty($r['ok'])) {
             $u = $r['user'];
-            rai_log("$user выдал подписку Rai «{$u['plan_name']}» пользователю {$u['login']} на $days дн." . ($note !== '' ? " ($note)" : ''));
-            flash("🎁 {$u['login']}: «{$u['plan_name']}» до " . date('d.m.Y', (int)$u['until']), 'success');
+            rai_log("$user выдал подписку Rai «{$u['plan_name']}» пользователю {$u['login']} " . ($forever ? 'навсегда' : "на $days дн.") . ($note !== '' ? " ($note)" : ''));
+            flash("🎁 {$u['login']}: «{$u['plan_name']}» " . ($forever ? 'навсегда' : 'до ' . date('d.m.Y', (int)$u['until'])), 'success');
         } else {
             flash($r['error'] ?? 'Не получилось выдать подписку', 'error');
+        }
+        rai_back('&q=' . urlencode($login));
+    }
+
+    if ($action === 'rai_role') {
+        $login = strtolower(trim((string)($_POST['login'] ?? '')));
+        $role = (string)($_POST['role'] ?? '');
+        $r = rai_api('role_set', ['login' => $login, 'role' => $role]);
+        if (!empty($r['ok'])) {
+            $name = $r['user']['role_name'] ?? '';
+            rai_log("$user " . ($name ? "отметил в Rai $login как «{$name}»" : "снял роль в Rai у $login"));
+            flash($name ? "👑 {$login} — «{$name}»: значок у имени и полный доступ навсегда." : "Роль у {$login} снята.", 'success');
+        } else {
+            flash($r['error'] ?? 'Не получилось', 'error');
         }
         rai_back('&q=' . urlencode($login));
     }
@@ -201,9 +216,11 @@ function rai_admin_post() {
 
 function rai_h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 function rai_rub($n) { return number_format((int)$n, 0, ',', ' ') . ' ₽'; }
-function rai_date($ts) { return $ts ? date('d.m.Y', (int)$ts) : '—'; }
+function rai_date($ts) { return $ts ? ((int)$ts >= 4070908800 ? 'навсегда' : date('d.m.Y', (int)$ts)) : '—'; }
+const RAI_ROLES = ['creator' => '👑 Создатель', 'developer' => '🛠 Разработчик'];
 function rai_left($ts) {
     if (!$ts) return '';
+    if ((int)$ts >= 4070908800) return '♾ бессрочно';
     $d = (int)ceil(((int)$ts - time()) / 86400);
     return $d <= 0 ? 'истекает сегодня' : 'ещё ' . $d . ' дн.';
 }
@@ -315,7 +332,7 @@ function rai_admin_render() {
           <select name="plan"><?php foreach (RAI_PLAN_KEYS as $k): ?><option value="<?= $k ?>"<?= $k === 'premium' ? ' selected' : '' ?>><?= rai_h($plan_name($k)) ?> — <?= rai_rub($plans[$k]['price'] ?? 0) ?>/мес · <?= !empty($plans[$k]['neuro_day']) ? (int)$plans[$k]['neuro_day'] . ' сообщ./день' : 'без лимита' ?></option><?php endforeach; ?></select>
           <label>Срок</label>
           <div class="rai-days">
-            <?php foreach ([7 => '7 дней', 30 => 'Месяц', 90 => '3 месяца', 180 => 'Полгода', 365 => 'Год', -1 => 'Своё'] as $d => $l): ?>
+            <?php foreach ([7 => '7 дней', 30 => 'Месяц', 90 => '3 месяца', 180 => 'Полгода', 365 => 'Год', 'forever' => '♾ Навсегда', -1 => 'Своё'] as $d => $l): ?>
               <label><input type="radio" name="days" value="<?= $d ?>"<?= $d === 30 ? ' checked' : '' ?>> <?= $l ?></label>
             <?php endforeach; ?>
           </div>
@@ -342,11 +359,17 @@ function rai_admin_render() {
             <ul class="list">
               <?php foreach ($found['users'] as $u): ?>
                 <li><span><b><?= rai_h($u['login']) ?></b> <span class="muted">· <?= rai_h($u['name']) ?><?= $u['email'] ? ' · ' . rai_h($u['email']) : '' ?></span><br>
-                  <span class="chip <?= $u['plan'] !== 'free' ? 'on' : '' ?>"><?= rai_h($u['plan_name']) ?><?= $u['until'] ? ' до ' . rai_date($u['until']) : '' ?></span>
+                  <?php if (!empty($u['role'])): ?><span class="chip on"><?= rai_h(RAI_ROLES[$u['role']] ?? $u['role']) ?></span><?php endif; ?>
+                  <span class="chip <?= $u['plan'] !== 'free' ? 'on' : '' ?>"><?= rai_h($u['plan_name']) ?><?= $u['until'] ? (!empty($u['forever']) ? ' навсегда' : ' до ' . rai_date($u['until'])) : '' ?></span>
                   <span class="muted" style="font-size:12px;">нейросеть сегодня: <?= (int)$u['neuro_today'] ?> · с <?= rai_date($u['created']) ?></span></span>
                   <?php if ($can_users): ?><span class="row" style="gap:6px;">
                     <form method="POST" action="?tab=rai" style="margin:0;"><input type="hidden" name="action" value="rai_grant"><input type="hidden" name="login" value="<?= rai_h($u['login']) ?>"><input type="hidden" name="plan" value="premium"><input type="hidden" name="days" value="30"><button class="btn ghost sm" type="submit" title="Выдать «Премиум» на 30 дней">+30 дн. Премиум</button></form>
-                    <?php if ($u['plan'] !== 'free'): ?><form method="POST" action="?tab=rai" style="margin:0;" onsubmit="return confirm('Снять подписку у <?= rai_h($u['login']) ?>?');"><input type="hidden" name="action" value="rai_revoke"><input type="hidden" name="login" value="<?= rai_h($u['login']) ?>"><button class="btn ghost sm" type="submit">Снять</button></form><?php endif; ?>
+                    <?php if ($u['plan'] !== 'free' && empty($u['role'])): ?><form method="POST" action="?tab=rai" style="margin:0;" onsubmit="return confirm('Снять подписку у <?= rai_h($u['login']) ?>?');"><input type="hidden" name="action" value="rai_revoke"><input type="hidden" name="login" value="<?= rai_h($u['login']) ?>"><button class="btn ghost sm" type="submit">Снять</button></form><?php endif; ?>
+                    <form method="POST" action="?tab=rai" style="margin:0;" title="Значок у имени и полный доступ навсегда"><input type="hidden" name="action" value="rai_role"><input type="hidden" name="login" value="<?= rai_h($u['login']) ?>">
+                      <select name="role" onchange="this.form.submit()" style="margin:0; padding:4px 6px; width:auto;">
+                        <option value=""<?= empty($u['role']) ? ' selected' : '' ?>>Роль: нет</option>
+                        <?php foreach (RAI_ROLES as $rk => $rl): ?><option value="<?= $rk ?>"<?= ($u['role'] ?? '') === $rk ? ' selected' : '' ?>><?= rai_h($rl) ?></option><?php endforeach; ?>
+                      </select></form>
                   </span><?php endif; ?></li>
               <?php endforeach; ?>
             </ul>
@@ -868,6 +891,162 @@ function rai_push_render() {
             <td><b><?= rai_h($l['title']) ?></b><?= $l['body'] !== '' ? '<br><span class="muted" style="font-size:13px;">' . rai_h($l['body']) . '</span>' : '' ?></td>
             <td><?= (int)$l['sent'] ?><?= $l['failed'] ? ' <span class="muted">(не дошло: ' . (int)$l['failed'] . ')</span>' : '' ?></td>
             <td><?= rai_h($l['by'] ?? '') ?></td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+      </div>
+      <?php endif; ?>
+    </div>
+    <?php
+}
+
+// ======================================================================= вкладка «Rai: скидки»
+// Акция (скидка для всех на время, видна на главной с зачёркнутой ценой) и промокоды (вводят при оплате).
+// Скидки не складываются: берётся бо́льшая. Считает и применяет rai.rteam.info (plans.php → plan_offer).
+
+function rai_sale_back($extra = '') {
+    header('Location: admin.php?tab=rai_sale' . $extra);
+    exit;
+}
+
+function rai_sale_post() {
+    global $user;
+    $action = (string)($_POST['action'] ?? '');
+    $plans = array_values(array_intersect(RAI_PLAN_KEYS, (array)($_POST['plans'] ?? [])));
+    if ($action === 'rai_sale') {
+        $r = rai_api('sale_save', ['percent' => (int)($_POST['percent'] ?? 0), 'days' => (int)($_POST['days'] ?? 0),
+                                   'title' => (string)($_POST['title'] ?? ''), 'plans' => $plans]);
+        if (!empty($r['ok'])) { rai_log("$user включил акцию Rai −{$r['sale']['percent']}% «{$r['sale']['title']}»"); flash('🏷 Акция включена: −' . $r['sale']['percent'] . '%', 'success'); }
+        else flash('Не получилось: ' . ($r['error'] ?? '?'), 'error');
+        rai_sale_back();
+    }
+    if ($action === 'rai_sale_off') {
+        $r = rai_api('sale_off');
+        if (!empty($r['ok'])) rai_log("$user выключил акцию Rai");
+        flash(!empty($r['ok']) ? 'Акция выключена — цены обычные.' : 'Не получилось: ' . ($r['error'] ?? '?'), !empty($r['ok']) ? 'success' : 'error');
+        rai_sale_back();
+    }
+    if ($action === 'rai_promo') {
+        $r = rai_api('promo_save', ['code' => (string)($_POST['code'] ?? ''), 'percent' => (int)($_POST['percent'] ?? 0), 'days' => (int)($_POST['days'] ?? 0),
+                                    'uses_max' => (int)($_POST['uses_max'] ?? 0), 'note' => (string)($_POST['note'] ?? ''), 'plans' => $plans]);
+        if (!empty($r['ok'])) { rai_log("$user создал промокод Rai {$r['code']}"); flash('🎟 Промокод ' . $r['code'] . ' сохранён.', 'success'); }
+        else flash('Не получилось: ' . ($r['error'] ?? '?'), 'error');
+        rai_sale_back();
+    }
+    if ($action === 'rai_promo_del') {
+        $r = rai_api('promo_delete', ['code' => (string)($_POST['code'] ?? '')]);
+        flash(!empty($r['ok']) ? 'Промокод удалён.' : 'Не получилось: ' . ($r['error'] ?? '?'), !empty($r['ok']) ? 'success' : 'error');
+        rai_sale_back();
+    }
+}
+
+function rai_sale_render() {
+    $c = rai_conf();
+    $r = $c['ready'] ? rai_api('discounts_get') : ['ok' => false, 'error' => 'Сначала подключите Rai во вкладке «Rai: подписки».'];
+    $ok = !empty($r['ok']);
+    $plan_names = $ok ? array_map(function ($p) { return $p['name']; }, $r['plans']) : [];
+    $who = function ($list) use ($plan_names) {
+        return $list ? implode(', ', array_map(function ($k) use ($plan_names) { return $plan_names[$k] ?? $k; }, $list)) : 'все тарифы';
+    };
+    $site = rai_site_url();
+    ?>
+    <style>
+      .rs-hero { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 18px 20px; border-radius: 16px; border: 1px solid var(--line);
+        background: radial-gradient(120% 140% at 100% 0%, rgba(255, 176, 32, .2), transparent 55%), radial-gradient(100% 120% at 0% 100%, rgba(255, 61, 129, .14), transparent 60%), var(--panel); }
+      .rs-logo { width: 52px; height: 52px; border-radius: 15px; display: grid; place-items: center; font-size: 26px; background: linear-gradient(135deg, #ffb020, #ff3d81); }
+      .rs-hero h2 { margin: 0; } .rs-hero p { margin: 4px 0 0; }
+      .rs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+      .rs-plans { display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0 8px; } .rs-plans label { display: flex; gap: 6px; align-items: center; margin: 0; }
+      .rs-now { padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255, 176, 32, .5); background: rgba(255, 176, 32, .1); margin-bottom: 10px; }
+      .rs-prices { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+      .rs-prices div { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); }
+      .rs-prices s { opacity: .55; } .rs-code { font-family: ui-monospace, Consolas, monospace; font-weight: 700; letter-spacing: .04em; }
+    </style>
+    <div class="rs-hero">
+      <div class="rs-logo">🏷</div>
+      <div style="flex:1; min-width:220px;">
+        <h2>Rai — скидки</h2>
+        <p class="muted">Акция — скидка для всех на время (на главной видно старую цену зачёркнутой). Промокоды — скидка по коду при оплате.
+          Скидки не складываются: покупатель получает бо́льшую.</p>
+      </div>
+      <a class="btn" href="<?= rai_h($site) ?>/#pricing" target="_blank" rel="noopener">Посмотреть цены на сайте ↗</a>
+    </div>
+    <?php if (!$ok): ?>
+      <div class="card" style="margin-top:14px;"><p class="meta">⚠️ <?= rai_h($r['error'] ?? 'Нет связи с rai.rteam.info') ?></p></div>
+    <?php return; endif; ?>
+
+    <div class="card" style="margin-top:14px;">
+      <h3>💰 Цены сейчас</h3>
+      <div class="rs-prices">
+        <?php foreach ($r['prices'] as $k => $p): ?>
+          <div><b><?= rai_h($plan_names[$k] ?? $k) ?></b><br>
+            месяц: <?php if ($p['month']['percent']): ?><s><?= rai_rub($p['month']['base']) ?></s> <?php endif; ?><b><?= rai_rub($p['month']['price']) ?></b><br>
+            год: <?php if ($p['year']['percent']): ?><s><?= rai_rub($p['year']['base']) ?></s> <?php endif; ?><b><?= rai_rub($p['year']['price']) ?></b></div>
+        <?php endforeach; ?>
+      </div>
+    </div>
+
+    <div class="rs-grid">
+      <div class="card" style="margin-top:14px;">
+        <h3>🔥 Акция для всех</h3>
+        <?php if (!empty($r['sale'])): $s = $r['sale']; ?>
+          <div class="rs-now"><b><?= rai_h($s['title']) ?>: −<?= (int)$s['percent'] ?>%</b> · <?= rai_h($who($s['plans'] ?? [])) ?> ·
+            <?= !empty($s['until']) ? 'до ' . rai_date($s['until']) : 'без срока' ?><?= empty($r['sale_active']) ? ' <span class="badge badge-dec">закончилась</span>' : '' ?>
+            <form method="POST" action="?tab=rai_sale" style="margin:8px 0 0;"><input type="hidden" name="action" value="rai_sale_off"><button class="btn" type="submit">Выключить акцию</button></form></div>
+        <?php else: ?><p class="meta">Сейчас акции нет — цены обычные.</p><?php endif; ?>
+        <form method="POST" action="?tab=rai_sale">
+          <input type="hidden" name="action" value="rai_sale">
+          <label>Название (видно на сайте)</label>
+          <input type="text" name="title" maxlength="60" placeholder="Например: Чёрная пятница" value="<?= rai_h($r['sale']['title'] ?? '') ?>">
+          <label>Скидка, %</label>
+          <input type="number" name="percent" min="1" max="90" required value="<?= (int)($r['sale']['percent'] ?? 20) ?>">
+          <label>Тарифы (ничего не выбрано — все)</label>
+          <div class="rs-plans"><?php foreach ($plan_names as $k => $n): ?><label><input type="checkbox" name="plans[]" value="<?= rai_h($k) ?>"<?= in_array($k, $r['sale']['plans'] ?? [], true) ? ' checked' : '' ?>> <?= rai_h($n) ?></label><?php endforeach; ?></div>
+          <label>Сколько дней действует (0 — пока не выключите)</label>
+          <input type="number" name="days" min="0" max="365" value="7">
+          <button class="btn primary" type="submit" style="margin-top:10px;"><?= !empty($r['sale']) ? 'Обновить акцию' : 'Включить акцию' ?></button>
+        </form>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <h3>🎟 Новый промокод</h3>
+        <form method="POST" action="?tab=rai_sale">
+          <input type="hidden" name="action" value="rai_promo">
+          <label>Код (буквы и цифры)</label>
+          <input type="text" name="code" maxlength="32" required placeholder="Например: RAI20" style="text-transform:uppercase;" autocomplete="off">
+          <label>Скидка, %</label>
+          <input type="number" name="percent" min="1" max="95" required value="20">
+          <label>Тарифы (ничего не выбрано — все)</label>
+          <div class="rs-plans"><?php foreach ($plan_names as $k => $n): ?><label><input type="checkbox" name="plans[]" value="<?= rai_h($k) ?>"> <?= rai_h($n) ?></label><?php endforeach; ?></div>
+          <label>Сколько дней действует (0 — бессрочно)</label>
+          <input type="number" name="days" min="0" max="3650" value="30">
+          <label>Сколько раз можно использовать (0 — без ограничений)</label>
+          <input type="number" name="uses_max" min="0" max="100000" value="0">
+          <label>Заметка (для себя)</label>
+          <input type="text" name="note" maxlength="100" placeholder="Например: для блогера Ивана">
+          <button class="btn primary" type="submit" style="margin-top:10px;">Создать промокод</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h3>📋 Промокоды (<?= count($r['promos']) ?>)</h3>
+      <?php if (!$r['promos']): ?><p class="meta">Промокодов пока нет.</p><?php else: ?>
+      <div class="table-wrap" style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Код</th><th>Скидка</th><th>Тарифы</th><th>Действует</th><th>Использован</th><th>Выручка</th><th></th></tr></thead>
+        <tbody>
+        <?php foreach ($r['promos'] as $code => $p): $dead = (!empty($p['until']) && $p['until'] < $r['now']) || (!empty($p['uses_max']) && ($p['used'] ?? 0) >= $p['uses_max']); ?>
+          <tr<?= $dead ? ' style="opacity:.55;"' : '' ?>>
+            <td><span class="rs-code"><?= rai_h($code) ?></span><?= !empty($p['note']) ? '<br><span class="muted" style="font-size:12px;">' . rai_h($p['note']) . '</span>' : '' ?></td>
+            <td>−<?= (int)$p['percent'] ?>%</td>
+            <td style="font-size:13px;"><?= rai_h($who($p['plans'] ?? [])) ?></td>
+            <td><?= !empty($p['until']) ? 'до ' . rai_date($p['until']) : 'бессрочно' ?><?= $dead ? '<br><span class="badge badge-dec">не действует</span>' : '' ?></td>
+            <td><?= (int)($p['used'] ?? 0) ?><?= !empty($p['uses_max']) ? ' из ' . (int)$p['uses_max'] : '' ?></td>
+            <td><?= rai_rub($r['promo_revenue'][$code] ?? 0) ?></td>
+            <td><form method="POST" action="?tab=rai_sale" style="margin:0;" onsubmit="return confirm('Удалить промокод <?= rai_h($code) ?>?')">
+              <input type="hidden" name="action" value="rai_promo_del"><input type="hidden" name="code" value="<?= rai_h($code) ?>"><button class="btn" type="submit" title="Удалить">🗑</button></form></td>
           </tr>
         <?php endforeach; ?>
         </tbody>

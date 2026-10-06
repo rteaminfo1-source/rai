@@ -181,6 +181,7 @@
   .welcome h1 { margin: 0; font: 800 clamp(30px, 5vw, 44px)/1.05 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
   .welcome h1 span { color: var(--red); }
   .welcome p { margin: 0; color: var(--muted); max-width: 60ch; }
+  .welcome .hello { color: var(--fg); font-size: clamp(17px, 2.2vw, 20px); font-weight: 600; margin-bottom: -6px; }
   .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
   .examples button {
     text-align: left; cursor: pointer; padding: 12px 14px; border-radius: 12px;
@@ -517,6 +518,8 @@
     color: #fff; background: linear-gradient(120deg, #ff2d2d, #ff3d81 45%, #8b5cff); }
   #input:disabled { opacity: .5; cursor: not-allowed; }
   .legal-mini { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .role-badge { font-style: normal; color: var(--fg); background: linear-gradient(120deg, rgba(255, 45, 45, .25), rgba(139, 92, 255, .25));
+    padding: 1px 7px; border-radius: 999px; font-size: 11px; white-space: nowrap; }
   .notify-btn { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 10px; padding: 7px 10px; font: inherit; font-size: 12.5px; cursor: pointer; text-align: left; }
   .notify-btn:hover { color: var(--fg); border-color: var(--red); }
   .notify-btn[aria-pressed="true"] { color: var(--fg); }
@@ -1256,10 +1259,39 @@
   }
 
   // ---------------------------------------------------------------- сообщения
+  /** Имя человека для приветствия и нейросети: из аккаунта (если это имя, а не логин) или «меня зовут …» в чате. */
+  function userFirstName() {
+    const u = account && account.user;
+    let n = u && u.name && u.name !== u.login ? String(u.name).trim().split(/\s+/)[0] : "";
+    if (!/^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'-]{1,24}$/.test(n)) n = "";
+    if (!n) {
+      for (const c of chats) for (const m of c.messages) {
+        const g = m.role === "user" && String(m.text || "").match(/(?:меня зовут|зови меня|называй меня)\s+([А-ЯЁA-Z][а-яёa-z-]{1,24})/i);
+        if (g) n = g[1];
+      }
+    }
+    return n ? n[0].toUpperCase() + n.slice(1) : "";
+  }
+  /** Приветствие нового чата: по времени суток и по имени; у каждого чата — своё (выбирается по его id). */
+  function greeting() {
+    const name = userFirstName();
+    const h = new Date().getHours();
+    const part = h < 5 ? "Доброй ночи" : h < 12 ? "Доброе утро" : h < 18 ? "Добрый день" : "Добрый вечер";
+    const id = (current() && current().id) || "";
+    let seed = 0;
+    for (const ch of id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    const to = name ? ", " + name : "";
+    const hello = [part + to + "!", "Привет" + to + "!", "Рад тебя видеть" + to + "!", "Здравствуйте" + to + "!",
+                   chats.some((c) => c.messages.length) ? "С возвращением" + to + "!" : "Добро пожаловать" + to + "!"];
+    const ask = [["Чем займёмся", "?"], ["С чего начнём", "?"], ["Что сделаем сегодня", "?"], ["Чем помочь", "?"], ["О чём поговорим", "?"]];
+    const emoji = h < 5 ? "🌙" : h < 12 ? "☀️" : h < 18 ? "👋" : "🌆";
+    return {hello: emoji + " " + hello[seed % hello.length], ask: ask[Math.floor(seed / 7) % ask.length]};
+  }
   function renderWelcome() {
     const w = document.createElement("div");
     w.className = "inner welcome";
-    w.innerHTML = `<h1>Чем займёмся<span>?</span></h1>` +
+    const g = greeting();
+    w.innerHTML = `<p class="hello">${esc(g.hello)}</p><h1>${esc(g.ask[0])}<span>${g.ask[1]}</span></h1>` +
       `<p>Rai отвечает на вопросы, считает, делает таблицы, рисует картинки, собирает презентации в любых цветах и пишет код. ` +
       `Можно писать или говорить голосом. Для программирования — вкладка <b>Code</b> сверху.</p>` +
       `<div class="examples"></div>`;
@@ -1969,7 +2001,12 @@ net.SAME_ORIGIN = ${JSON.stringify(SAME_ORIGIN_PROXY)}
 net.SANDBOX = ${sandbox ? "True" : "False"}
 _rai = brain.Brain(learned_path="/tmp/learned.json")
 
-def rai_ask(version_id, message, session_id, history_json="[]"):
+def rai_ask(version_id, message, session_id, history_json="[]", profile_json="{}"):
+    try:
+        brain.PROFILE.clear()
+        brain.PROFILE.update({k: v for k, v in json.loads(profile_json or "{}").items() if k in ("name",) and isinstance(v, str)})
+    except ValueError:
+        pass
     v = versions.resolve(version_id)
     if v is None:
         return json.dumps({"answer": "Неизвестная версия.", "error": "unknown_version"}, ensure_ascii=False)
@@ -2065,7 +2102,9 @@ def rai_code(action, code, lang, prompt):
     return {
       mode: "browser",
       async versions() { return JSON.parse(pyVersions()); },
-      async ask(v, message, sessionId, history) { return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history))); },
+      async ask(v, message, sessionId, history) {
+        return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history), JSON.stringify({name: userFirstName() || undefined})));
+      },
       async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); },
       async slides(action, args) { return JSON.parse(pySlides(action, JSON.stringify(args || {}))); },
       async context(query, force) { return JSON.parse(pyContext(query, !!force)); },
@@ -2616,6 +2655,9 @@ def rai_code(action, code, lang, prompt):
     const facts = memory();
     return window.RaiNeuro.SYSTEM + "\n\nСегодня " + now.toLocaleDateString("ru-RU", {weekday: "long", day: "numeric", month: "long", year: "numeric"}) +
       ", время " + now.toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"}) + "." +
+      (userFirstName() ? "\n\nПользователя зовут " + userFirstName() + " (из его аккаунта Rai). Иногда обращайся по имени — естественно, не в каждом ответе." : "") +
+      (account && account.user && account.user.role ? "\nЭтот пользователь — " + account.user.role.name.toLowerCase() +
+        (account.user.role.key === "creator" ? " Rai (твой создатель из команды Rteam). Относись с теплом и уважением." : " Rai из команды Rteam. Можно говорить технически подробно.") : "") +
       (facts.length ? "\n\nЧто ты знаешь о пользователе (из прошлых разговоров):\n" + facts.map((x) => "- " + x).join("\n") : "") +
       "\n\n" + AGENT_TOOLS + (thinking ? "\nЗадача сложная: подумай как следует, проверь себя (можно кодом) и только потом отвечай." : "");
   }
@@ -3046,7 +3088,8 @@ def rai_code(action, code, lang, prompt):
       const initial = esc((u.name || u.login || "?").trim().charAt(0).toUpperCase());
       box.className = "account";
       box.innerHTML = `<div class="avatar">${u.avatar && /^https:\/\//.test(u.avatar) ? `<img alt="" src="${esc(u.avatar)}" referrerpolicy="no-referrer">` : initial}</div>` +
-        `<div class="who-am"><b>${esc(u.name || u.login)}</b><span>@${esc(u.login)}</span></div>` +
+        `<div class="who-am"><b>${esc(u.name || u.login)}</b><span>@${esc(u.login)}` +
+        (u.role && u.role.name ? ` · <i class="role-badge">${esc(u.role.icon || "")} ${esc(u.role.name)}</i>` : "") + `</span></div>` +
         `<button class="icon-btn" type="button" id="logoutBtn">Выйти</button>`;
       $("logoutBtn").addEventListener("click", logout);
       $("storeNote").innerHTML = `Чаты сохраняются в аккаунте. <a href="${esc(account.account)}" style="color:inherit">Личный кабинет</a>`;
@@ -3068,6 +3111,7 @@ def rai_code(action, code, lang, prompt):
     } catch (e) { return; }
     renderAccount();
     updateComposer();
+    if (current() && !current().messages.length && account.user) renderAll();   // приветствие — уже по имени
     const q = new URLSearchParams(location.search);
     if (q.get("login") === "ok" && account.user) toast("Вы вошли: " + (account.user.name || account.user.login));
     if (q.get("login_error")) toast("Не получилось войти — попробуйте ещё раз");

@@ -110,6 +110,19 @@ class BrainTest(unittest.TestCase):
     def ask(self, version, text, sid="t"):
         return self.brain.answer(version, text, session_id=sid)
 
+    def test_profile_name_from_account(self):
+        # имя из аккаунта на сайте: Rai обращается по нему, пока человек сам не представится иначе
+        import brain
+        q = VERSIONS["pro-quasar"]
+        brain.PROFILE.update({"name": "Аня"})
+        try:
+            self.assertIn("Аня", self.ask(q, "как меня зовут", sid="p1")["answer"])
+            self.ask(q, "меня зовут Катя", sid="p2")
+            self.assertIn("Катя", self.ask(q, "как меня зовут", sid="p2")["answer"])
+        finally:
+            brain.PROFILE.clear()
+        self.assertNotIn("Аня", self.ask(q, "как меня зовут", sid="p3")["answer"])
+
     def test_no_false_topic_matches(self):
         # совпадение одного слова — ещё не ответ: «написал» ≠ «куда написать», «вечером» ≠ «добрый вечер»
         q = VERSIONS["pro-quasar"]
@@ -1706,6 +1719,96 @@ echo json_encode($out, JSON_UNESCAPED_UNICODE);
         self.assertIsNone(out["state_spec"])
         self.assertIn("нейросеть", out["edit_html"]["error"])
         self.assertIn("error", out["tiny"])
+
+    @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
+    def test_roles_forever_discounts(self):
+        """Админка: роль «Создатель», подписка навсегда, акция и промокоды — на главной, в оплате и в лимитах."""
+        import hashlib
+        import hmac
+        import http.cookiejar
+        import shutil
+        import socket
+        import subprocess
+        import time
+        import urllib.request
+        base = os.path.dirname(os.path.abspath(__file__))
+        with socket.socket() as sk:
+            sk.bind(("127.0.0.1", 0))
+            port = sk.getsockname()[1]
+        key = "k" * 40
+        with tempfile.TemporaryDirectory() as site:
+            shutil.copytree(os.path.join(base, "hosting", "rai"), site, dirs_exist_ok=True, ignore=shutil.ignore_patterns("data"))
+            url = f"http://127.0.0.1:{port}/"
+            env = dict(os.environ, ADMIN_API_KEY=key, RAI_URL=url.rstrip("/"), SSO_SECRET="s" * 40)
+            php = subprocess.Popen(["php", "-S", f"127.0.0.1:{port}", "-t", site], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                for _ in range(50):
+                    try:
+                        urllib.request.urlopen(url + "me.php", timeout=1)
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+                web = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+                get = lambda path: web.open(url + path).read().decode()
+
+                def admin(action, **data):
+                    body = json.dumps(dict(action=action, nonce=os.urandom(8).hex(), admin="boss", **data)).encode()
+                    t = str(int(time.time()))
+                    req = urllib.request.Request(url + "admin_api.php", data=body, headers={
+                        "Content-Type": "application/json", "X-Rai-Time": t,
+                        "X-Rai-Signature": hmac.new(key.encode(), (t + "\n").encode() + body, hashlib.sha256).hexdigest()})
+                    return json.loads(urllib.request.urlopen(req).read())
+
+                csrf = json.loads(get("me.php"))["csrf"]
+                web.open(urllib.request.Request(url + "auth.php", data=urllib.parse.urlencode(
+                    {"csrf": csrf, "action": "register", "login": "boss", "password": "secret123", "name": "Босс"}).encode()))
+                # роль «Создатель»: значок, полный доступ навсегда, не считается подписчиком
+                r = admin("role_set", login="boss", role="creator")
+                self.assertEqual((r["user"]["role"], r["user"]["plan"], r["user"]["forever"]), ("creator", "ultra", True))
+                me = json.loads(get("me.php"))
+                self.assertEqual(me["user"]["role"]["name"], "Создатель")
+                lim = json.loads(get("limits.php"))
+                self.assertEqual((lim["plan"], lim["left"]), ("ultra", None))
+                self.assertIn("max", lim["models"])
+                st = admin("stats")
+                self.assertEqual((st["subscribers"], [u["login"] for u in st["team"]]), (0, ["boss"]))
+                self.assertIn("навсегда", get("account.php"))
+                self.assertFalse(admin("role_set", login="boss", role="god")["ok"])
+                admin("role_set", login="boss", role="")
+                self.assertEqual(json.loads(get("limits.php"))["plan"], "free")
+                # подписка навсегда
+                r = admin("grant", login="boss", plan="premium", days=1, forever=True)
+                self.assertTrue(r["user"]["forever"])
+                self.assertGreater(r["user"]["until"], time.time() + 70 * 365 * 86400)
+                self.assertIn("навсегда", get("account.php"))
+                # акция −20% на Премиум: главная и оплата
+                self.assertFalse(admin("sale_save", percent=0)["ok"])
+                self.assertTrue(admin("sale_save", percent=20, plans=["premium"], days=7, title="Осень")["ok"])
+                self.assertIn("Ваш тариф", get("index.php"))
+                home = urllib.request.urlopen(url + "index.php").read().decode()   # без входа
+                self.assertIn("Осень: −20%", home)
+                self.assertIn("ribbon sale", home)
+                self.assertIn("479 ₽", home)                                   # 599 −20%
+                pay = get("pay.php?plan=premium&months=1")
+                self.assertIn("Оплатить 479 ₽", pay)
+                self.assertIn("Оплатить 249 ₽", get("pay.php?plan=plus&months=1"))   # на «Плюс» акция не действует
+                # промокоды: больше акции — применяется, меньше — нет, лимит использований
+                self.assertTrue(admin("promo_save", code="rai50", percent=50, uses_max=1)["ok"])
+                self.assertTrue(admin("promo_save", code="SMALL", percent=5)["ok"])
+                self.assertIn("Оплатить 300 ₽", get("pay.php?plan=premium&months=1&promo=rai50"))
+                self.assertIn("Оплатить 125 ₽", get("pay.php?plan=plus&months=1&promo=RAI50"))
+                self.assertIn("больше, чем этот промокод", get("pay.php?plan=premium&months=1&promo=small"))
+                self.assertIn("Такого промокода нет", get("pay.php?plan=premium&months=1&promo=nope"))
+                d = admin("discounts_get")
+                self.assertEqual(sorted(d["promos"]), ["RAI50", "SMALL"])
+                self.assertEqual(d["prices"]["premium"]["month"]["price"], 479)
+                admin("promo_delete", code="small")
+                self.assertTrue(admin("sale_off")["ok"])
+                self.assertIn("Оплатить 599 ₽", get("pay.php?plan=premium&months=1"))
+                self.assertEqual(sorted(admin("discounts_get")["promos"]), ["RAI50"])
+            finally:
+                php.terminate()
+                php.wait()
 
     @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
     def test_push_notifications(self):

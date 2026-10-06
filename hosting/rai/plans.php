@@ -35,6 +35,28 @@ const PAID_PLANS = ['plus', 'premium', 'ultra'];
 const GUEST_NEURO_DAY = 5;                 // без входа — столько сообщений в день (по IP); меняется в админке
 const YEAR_DISCOUNT = 25;                  // скидка за год, %
 const PLAN_PERIODS = [1 => 'месяц', 12 => 'год'];
+const PLAN_FOREVER = 4102444800;           // 1 января 2100 — подписка «навсегда» (выдаётся в админ-панели)
+// Особые роли (ставятся в админ-панели): значок у имени и полный доступ (как «Ультра») навсегда
+const USER_ROLES = [
+    'creator' => ['name' => 'Создатель', 'icon' => '👑'],
+    'developer' => ['name' => 'Разработчик', 'icon' => '🛠'],
+];
+
+function user_role($user) {
+    $r = is_array($user) ? (string)($user['role'] ?? '') : '';
+    return isset(USER_ROLES[$r]) ? $r : null;
+}
+
+/** Роль для страниц: {key, name, icon} или null. */
+function user_role_public($user) {
+    $r = user_role($user);
+    return $r ? ['key' => $r] + USER_ROLES[$r] : null;
+}
+
+function plan_is_forever($until) { return (int)$until >= PLAN_FOREVER - 365 * 86400; }
+
+/** «навсегда» или «до 5 октября 2026». */
+function until_text($until) { return plan_is_forever($until) ? 'навсегда' : 'до ' . ru_date($until); }
 
 /** Тарифы с учётом изменений из админ-панели. */
 function plans() {
@@ -66,10 +88,77 @@ function plan_price($key, $months) {
     return $price;
 }
 
+// ====================================================================== скидки и промокоды (админ-панель → «Rai: скидки»)
+// data/discounts.php: {"sale": {percent, plans: [], title, until}, "promos": {"КОД": {percent, plans: [], until, uses_max, used, note}}}
+// Акция действует сама для всех; промокод вводят при оплате. Скидки не складываются — берётся бо́льшая.
+
+function discounts() {
+    $d = load_json('discounts.json', []);
+    return ['sale' => is_array($d['sale'] ?? null) ? $d['sale'] : null, 'promos' => is_array($d['promos'] ?? null) ? $d['promos'] : []];
+}
+
+function discount_fits($d, $plan) { return empty($d['plans']) || in_array($plan, (array)$d['plans'], true); }
+
+/** Акция, которая действует сейчас (или null). */
+function sale_active() {
+    $s = discounts()['sale'];
+    if (!$s || (int)($s['percent'] ?? 0) <= 0) return null;
+    if (!empty($s['until']) && (int)$s['until'] < time()) return null;
+    return $s;
+}
+
+function promo_code($code) { return strtoupper(preg_replace('/[^A-Za-z0-9А-Яа-яЁё_-]/u', '', mb_substr(trim((string)$code), 0, 32))); }
+
+/** Проверить промокод для тарифа: [данные промокода | null, ошибка | null]. */
+function promo_check($code, $plan) {
+    $code = promo_code($code);
+    if ($code === '') return [null, null];
+    $p = discounts()['promos'][mb_strtoupper($code)] ?? null;
+    if (!$p) return [null, 'Такого промокода нет.'];
+    if (!empty($p['until']) && (int)$p['until'] < time()) return [null, 'Срок промокода закончился.'];
+    if (!empty($p['uses_max']) && (int)($p['used'] ?? 0) >= (int)$p['uses_max']) return [null, 'Промокод уже использовали максимальное число раз.'];
+    if (!discount_fits($p, $plan)) return [null, 'Промокод не действует для этого тарифа.'];
+    return [['code' => mb_strtoupper($code)] + $p, null];
+}
+
+/**
+ * Цена с учётом акции и промокода: base (без скидок), price (к оплате), percent, reason (sale | promo | ''), title,
+ * promo (код, если применён), promo_error (почему код не подошёл).
+ */
+function plan_offer($plan, $months, $promo = '') {
+    $base = plan_price($plan, $months);
+    $out = ['base' => $base, 'price' => $base, 'percent' => 0, 'reason' => '', 'title' => '', 'until' => null, 'promo' => null, 'promo_error' => null];
+    if ($base <= 0) return $out;   // бесплатный тариф
+    $sale = sale_active();
+    if ($sale && discount_fits($sale, $plan)) {
+        $out = array_merge($out, ['percent' => (int)$sale['percent'], 'reason' => 'sale', 'title' => (string)($sale['title'] ?? 'Скидка'), 'until' => $sale['until'] ?? null]);
+    }
+    list($p, $err) = promo_check($promo, $plan);
+    $out['promo_error'] = $err;
+    if ($p && (int)$p['percent'] > $out['percent']) {
+        $out = array_merge($out, ['percent' => (int)$p['percent'], 'reason' => 'promo', 'title' => 'Промокод ' . $p['code'], 'until' => $p['until'] ?? null, 'promo' => $p['code']]);
+    } elseif ($p) {
+        $out['promo_error'] = 'Акция уже даёт скидку больше, чем этот промокод.';
+    }
+    if ($out['percent'] > 0) $out['price'] = max(1, (int)round($base * (100 - min(95, $out['percent'])) / 100));
+    return $out;
+}
+
+/** Промокод использован (после оплаты). */
+function promo_used($code) {
+    $code = promo_code($code);
+    if ($code === '') return;
+    update_json('discounts.json', function (&$d) use ($code) {
+        $code = mb_strtoupper($code);
+        if (isset($d['promos'][$code])) $d['promos'][$code]['used'] = (int)($d['promos'][$code]['used'] ?? 0) + 1;
+    });
+}
+
 function rub($n) { return number_format((int)$n, 0, ',', ' ') . ' ₽'; }
 
 /** Действующий тариф пользователя: ['key', 'until'] (free — без срока). Просроченная подписка = free. */
 function user_plan($user) {
+    if (user_role($user)) return ['key' => 'ultra', 'until' => PLAN_FOREVER, 'role' => user_role($user)];   // создатель, разработчик
     $key = $user['plan'] ?? 'free';
     $until = (int)($user['plan_until'] ?? 0);
     if (!in_array($key, PAID_PLANS, true) || $until <= time()) return ['key' => 'free', 'until' => 0];
@@ -91,7 +180,7 @@ function set_subscription($login, $plan, $days, $source, $note = '') {
             $current = user_plan($u);
             $from = $current['key'] === $plan ? max(time(), $current['until']) : time();
             $u['plan'] = $plan;
-            $u['plan_until'] = $from + (int)$days * 86400;
+            $u['plan_until'] = $days >= 36500 ? PLAN_FOREVER : min(PLAN_FOREVER, $from + (int)$days * 86400);
         }
         $u['plan_source'] = $source;
         $u['plan_note'] = mb_substr((string)$note, 0, 200);
@@ -252,7 +341,9 @@ function order_confirm($order_id, $paid_amount) {
     if ($activated) {
         set_subscription($activated['login'], $activated['plan'], 30 * (int)$activated['months'], 'platega',
                          'Оплата ' . rub($activated['amount']) . ', заказ ' . $activated['id']);
-        sub_log('payment', $activated['login'], $activated['plan'], 30 * (int)$activated['months'], 'Platega · ' . rub($activated['amount']));
+        sub_log('payment', $activated['login'], $activated['plan'], 30 * (int)$activated['months'], 'Platega · ' . rub($activated['amount'])
+                . (!empty($activated['discount']) ? ' (скидка ' . (int)$activated['discount'] . '%' . (!empty($activated['promo']) ? ', промокод ' . $activated['promo'] : '') . ')' : ''));
+        if (!empty($activated['promo'])) promo_used($activated['promo']);
         // уведомления: админам — «пришла оплата», покупателю — «тариф включён» (push.php, после ответа Platega)
         require_once __DIR__ . '/push.php';
         $plan = plans()[$activated['plan']]['name'] ?? $activated['plan'];

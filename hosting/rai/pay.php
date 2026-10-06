@@ -14,11 +14,13 @@ if (!isset(PLAN_PERIODS[$months])) $months = 1;
 $user = current_user();
 if (!$user) {
     // после входа вернёмся сюда же с тем же тарифом
-    redirect('login.php?tab=register&next=' . rawurlencode('pay.php?plan=' . $plan . '&months=' . $months));
+    redirect('login.php?tab=register&next=' . rawurlencode('pay.php?plan=' . $plan . '&months=' . $months . (!empty($_REQUEST['promo']) ? '&promo=' . rawurlencode((string)$_REQUEST['promo']) : '')));
 }
 
 $p = plans()[$plan];
-$amount = plan_price($plan, $months);
+$promo = promo_code($_REQUEST['promo'] ?? '');
+$offer = plan_offer($plan, $months, $promo);
+$amount = $offer['price'];
 $error = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -28,10 +30,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Слишком много попыток оплаты. Подождите несколько минут.';
     } elseif (!platega_ready()) {
         $error = 'Оплата скоро заработает: владелец сайта ещё не подключил Platega. Напишите в поддержку — подписку можно выдать вручную.';
+    } elseif ($promo !== '' && $offer['promo_error'] && !$offer['promo']) {
+        $error = $offer['promo_error'];
     } else {
         $id = 'r' . date('ymd') . strtoupper(bin2hex(random_bytes(5)));
         $order = [
             'id' => $id, 'login' => $user['login'], 'plan' => $plan, 'months' => $months, 'amount' => $amount,
+            'base' => $offer['base'], 'discount' => $offer['percent'], 'promo' => $offer['promo'],
             'title' => 'Rai ' . $p['name'] . ' — ' . ($months >= 12 ? '12 месяцев' : '1 месяц') . ' (' . $user['login'] . ')',
             'status' => 'new', 'created' => time(), 'transaction' => null,
         ];
@@ -64,18 +69,30 @@ page_head('Оплата — Rai ' . $p['name'], $user);
     </ul>
     <div class="periods" role="radiogroup" aria-label="Срок">
       <?php foreach (PLAN_PERIODS as $m => $label): ?>
-        <a role="radio" aria-checked="<?= $m === $months ? 'true' : 'false' ?>" href="?plan=<?= h($plan) ?>&amp;months=<?= $m ?>">
-          <b><?= $m >= 12 ? '12 месяцев' : '1 месяц' ?></b><span><?= rub(plan_price($plan, $m)) ?><?= $m >= 12 ? ' · −' . YEAR_DISCOUNT . '%' : '' ?></span></a>
+        <?php $o = plan_offer($plan, $m, $promo); ?>
+        <a role="radio" aria-checked="<?= $m === $months ? 'true' : 'false' ?>" href="?plan=<?= h($plan) ?>&amp;months=<?= $m ?><?= $promo !== '' ? '&amp;promo=' . h(rawurlencode($promo)) : '' ?>">
+          <b><?= $m >= 12 ? '12 месяцев' : '1 месяц' ?></b><span><?php if ($o['percent']): ?><s><?= rub($o['base']) ?></s> <?php endif; ?><?= rub($o['price']) ?><?= $m >= 12 ? ' · −' . YEAR_DISCOUNT . '%' : '' ?></span></a>
       <?php endforeach; ?>
     </div>
     <?php if ($current['key'] !== 'free'): ?>
-      <p class="muted small">Сейчас у вас «<?= h(plans()[$current['key']]['name']) ?>» до <?= ru_date($current['until']) ?>.
+      <p class="muted small">Сейчас у вас «<?= h(plans()[$current['key']]['name']) ?>» <?= until_text($current['until']) ?>.
         <?= $current['key'] === $plan ? 'Оплата продлит подписку с этой даты.' : 'Новый тариф начнёт действовать сразу после оплаты.' ?></p>
     <?php endif; ?>
+    <?php if ($offer['percent']): ?>
+      <p class="sale-note">🏷 <b><?= h($offer['title']) ?>: −<?= (int)$offer['percent'] ?>%</b><?= !empty($offer['until']) ? ' · до ' . h(ru_date($offer['until'])) : '' ?>
+        <span class="muted small">Без скидки — <s><?= rub($offer['base']) ?></s></span></p>
+    <?php endif; ?>
+    <form method="get" class="promo-form">
+      <input type="hidden" name="plan" value="<?= h($plan) ?>"><input type="hidden" name="months" value="<?= $months ?>">
+      <input type="text" name="promo" value="<?= h($promo) ?>" placeholder="Промокод" maxlength="32" autocomplete="off" aria-label="Промокод">
+      <button class="btn small ghost" type="submit">Применить</button>
+    </form>
+    <?php if ($promo !== '' && $offer['promo_error']): ?><p class="error small"><?= h($offer['promo_error']) ?></p><?php endif; ?>
     <?php if ($error): ?><p class="error" role="alert"><?= h($error) ?></p><?php endif; ?>
     <form method="post" class="form">
       <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
       <input type="hidden" name="plan" value="<?= h($plan) ?>"><input type="hidden" name="months" value="<?= $months ?>">
+      <input type="hidden" name="promo" value="<?= h($offer['promo'] ?? '') ?>">
       <button class="btn big" type="submit">Оплатить <?= rub($amount) ?></button>
     </form>
     <p class="muted small">Оплата через Platega: СБП, банковские карты. Аккаунт: <b><?= h($user['login']) ?></b>.

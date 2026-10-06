@@ -1,4 +1,4 @@
-"""Встроить вкладки «Rai: подписки», «Rai: правила» и «Rai: уведомления» в admin.php основного сайта (rteam.info) — одним файлом.
+"""Встроить вкладки «Rai: подписки», «Rai: правила», «Rai: уведомления» и «Rai: скидки» в admin.php основного сайта (rteam.info) — одним файлом.
 
     python make_admin.py путь/к/admin.php готовый/admin.php            # без ключа: ключ вводится в самой вкладке
     python make_admin.py admin.php out/admin.php --key 64-символьный-ключ  # ключ сразу внутри (ADMIN_API_KEY Rai)
@@ -28,7 +28,16 @@ PERMS_RULES = '''    // Rai: правила — нарушения и блоки
 PERMS_PUSH = '''    // Rai: уведомления — рассылка и устройства админов
     "rai_push_send" => "users.manage", "rai_push_del" => "users.manage",
 '''
+PERMS_MORE = '''    // Rai: роли (создатель, разработчик), скидки и промокоды
+    "rai_role" => "users.manage", "rai_sale" => "settings.manage", "rai_sale_off" => "settings.manage",
+    "rai_promo" => "settings.manage", "rai_promo_del" => "settings.manage",
+'''
 TAB_PUSH = '''    "rai_push"  => ["Rai: уведомления", "🔔", ["users.manage"],                             "Работа"],
+'''
+TAB_SALE = '''    "rai_sale"  => ["Rai: скидки",    "🏷", ["settings.manage"],                            "Работа"],
+'''
+RENDER_SALE = '''    <?php elseif ($tab === "rai_sale"): rai_sale_render(); ?>
+
 '''
 RENDER_PUSH = '''    <?php elseif ($tab === "rai_push"): rai_push_render(); ?>
 
@@ -96,7 +105,8 @@ def block(key=None):
             "if ($tab === \"rai\") rai_admin_export();  // ?tab=rai&export=csv — файл вместо страницы\n"
             "if ($_SERVER[\"REQUEST_METHOD\"] === \"POST\" && $tab === \"rai\") rai_admin_post();\n"
             "if ($_SERVER[\"REQUEST_METHOD\"] === \"POST\" && $tab === \"rai_rules\") rai_rules_post();\n"
-            "if ($_SERVER[\"REQUEST_METHOD\"] === \"POST\" && $tab === \"rai_push\") rai_push_post();\n" + END + "\n\n")
+            "if ($_SERVER[\"REQUEST_METHOD\"] === \"POST\" && $tab === \"rai_push\") rai_push_post();\n"
+            "if ($_SERVER[\"REQUEST_METHOD\"] === \"POST\" && $tab === \"rai_sale\") rai_sale_post();\n" + END + "\n\n")
 
 
 def patch(text, key=None):
@@ -112,12 +122,15 @@ def patch(text, key=None):
     text = insert_after(text, '"save_perms" => "perms.manage", "reset_perms" => "perms.manage",', PERMS, '"rai_order_check" =>')
     text = insert_after(text, '"rai_plans_reset" => "settings.manage", "rai_platega" => "settings.manage",', PERMS_RULES, '"rai_ban" =>')
     text = insert_after(text, '"rai_ban" => "users.manage", "rai_unban" => "users.manage",', PERMS_PUSH, '"rai_push_send" =>')
+    text = insert_after(text, '"rai_push_send" => "users.manage", "rai_push_del" => "users.manage",', PERMS_MORE, '"rai_role" =>')
     text = insert_after(text, '"directors" => ["Директора школ"', TAB, '"rai"       => ["Rai')
     text = insert_after(text, '"rai"       => ["Rai: подписки"', TAB_RULES, '"rai_rules" => ["Rai')
     text = insert_after(text, '"rai_rules" => ["Rai: правила"', TAB_PUSH, '"rai_push"  => ["Rai')
+    text = insert_after(text, '"rai_push"  => ["Rai: уведомления"', TAB_SALE, '"rai_sale"  => ["Rai')
     text = insert_before(text, '<?php elseif ($tab === "directors"): ?>', RENDER, 'rai_admin_render(); ?>')
     text = insert_before(text, '<?php elseif ($tab === "directors"): ?>', RENDER_RULES, 'rai_rules_render(); ?>')
     text = insert_before(text, '<?php elseif ($tab === "directors"): ?>', RENDER_PUSH, 'rai_push_render(); ?>')
+    text = insert_before(text, '<?php elseif ($tab === "directors"): ?>', RENDER_SALE, 'rai_sale_render(); ?>')
     text = insert_after(text, 'if (can("projects.manage"))  $kpis[] = ["projects"', KPI, '$rai_kpi = rai_cached_stats()')
     text = insert_after(text, 'if ($my_unpaid_fines)                                 $notif[] = ["fines"', NOTIF, '$rai_n = rai_cached_stats()')
     text = insert_after(text, '$rai_n = rai_cached_stats()', NOTIF_RULES, '$rai_v = rai_cached_stats()')

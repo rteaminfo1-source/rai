@@ -268,4 +268,10 @@ tr.top td { background: linear-gradient(90deg, rgba(255,61,129,.14), transparent
   .rule-cards { grid-template-columns: minmax(0, 1fr); }
   .legal-docs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; border-radius: 18px; }
 }
+/* скидки и промокоды на странице оплаты */
+.sale-note { margin: 0; padding: 10px 14px; border-radius: 12px; background: linear-gradient(120deg, rgba(255,176,32,.14), rgba(255,61,129,.14)); border: 1px solid rgba(255,176,32,.4); }
+.sale-note .small { display: block; margin-top: 2px; }
+.promo-form { display: flex; gap: 8px; margin: 0; }
+.promo-form input { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; text-transform: uppercase; }
+.periods s, .sale-note s { opacity: .6; }
 </style>

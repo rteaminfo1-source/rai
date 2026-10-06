@@ -47,6 +47,8 @@ function public_user($u) {
         'plan' => $plan['key'], 'plan_name' => plans()[$plan['key']]['name'], 'until' => $plan['until'] ?: null,
         'source' => $u['plan_source'] ?? null, 'note' => $u['plan_note'] ?? null,
         'neuro_today' => usage_get('u:' . $u['login']),
+        'role' => user_role($u), 'role_name' => user_role($u) ? USER_ROLES[user_role($u)]['name'] : null,
+        'forever' => $plan['until'] ? plan_is_forever($plan['until']) : false,
     ];
 }
 
@@ -68,7 +70,9 @@ switch ($action) {
         $by_plan = array_fill_keys(PAID_PLANS, 0);
         $mrr = 0;
         $subs = [];
+        $team = [];
         foreach ($users as $u) {
+            if (user_role($u)) { $team[] = public_user($u); continue; }   // создатели и разработчики — не подписчики
             $p = user_plan($u);
             if ($p['key'] === 'free') continue;
             $by_plan[$p['key']]++;
@@ -102,6 +106,7 @@ switch ($action) {
             'neuro_today' => array_sum($usage), 'neuro_people_today' => count($usage),
             'subs' => array_slice($subs, 0, 300), 'orders' => $recent,
             'log' => array_slice(array_reverse(load_json('sub_log.json', [])), 0, 50),
+            'team' => $team, 'roles' => USER_ROLES,
             'plans' => plans(), 'platega' => platega_ready(), 'platega_source' => platega_conf()['source'], 'guest_limit' => guest_limit(),
             'revenue_days' => $revenue_days, 'neuro_days' => $neuro_days, 'expiring' => $expiring,
             'downloads' => (load_json('downloads.json', [])['total'] ?? []), 'app_version' => app_version(),
@@ -158,11 +163,23 @@ switch ($action) {
         $plan = (string)($req['plan'] ?? '');
         $days = (int)($req['days'] ?? 0);
         if (!in_array($plan, PAID_PLANS, true)) json_out(['ok' => false, 'error' => 'Неизвестный тариф']);
-        if ($days < 1 || $days > 3660) json_out(['ok' => false, 'error' => 'Срок — от 1 до 3660 дней']);
+        if (!empty($req['forever'])) $days = 36500;   // навсегда
+        if ($days < 1 || ($days > 3660 && $days !== 36500)) json_out(['ok' => false, 'error' => 'Срок — от 1 до 3660 дней или «навсегда»']);
         $note = (string)($req['note'] ?? '');
         set_subscription($u['login'], $plan, $days, 'admin', 'Выдал ' . $by . ($note !== '' ? ': ' . $note : ''));
         sub_log('grant', $u['login'], $plan, $days, $note, $by);
         json_out(['ok' => true, 'user' => public_user(users()[$u['login']])]);
+
+    case 'role_set':   // создатель, разработчик — значок у имени и полный доступ навсегда; пусто — снять роль
+        $u = find_login($req['login'] ?? '');
+        if (!$u) json_out(['ok' => false, 'error' => 'Пользователь «' . ($req['login'] ?? '') . '» не найден']);
+        $role = (string)($req['role'] ?? '');
+        if ($role !== '' && !isset(USER_ROLES[$role])) json_out(['ok' => false, 'error' => 'Неизвестная роль']);
+        update_json('users.json', function (&$users) use ($u, $role) {
+            if ($role === '') unset($users[$u['login']]['role']); else $users[$u['login']]['role'] = $role;
+        });
+        sub_log('role', $u['login'], $role ? 'ultra' : '', 0, $role ? 'Роль: ' . USER_ROLES[$role]['name'] : 'Роль снята', $by);
+        json_out(['ok' => true, 'user' => public_user(users()[$u['login']]), 'roles' => USER_ROLES]);
 
     case 'revoke':
         $u = find_login($req['login'] ?? '');
@@ -305,6 +322,55 @@ switch ($action) {
 
     case 'push_device_delete':
         push_delete([(string)($req['id'] ?? '')]);
+        json_out(['ok' => true]);
+
+    // ---------------------------------------------------------------- скидки и промокоды
+    case 'discounts_get':
+        $d = discounts();
+        $orders = array_filter(load_json('orders.json', []), function ($o) { return $o['status'] === 'paid' && !empty($o['discount']); });
+        $by_promo = [];
+        foreach ($orders as $o) if (!empty($o['promo'])) $by_promo[$o['promo']] = ($by_promo[$o['promo']] ?? 0) + (int)$o['amount'];
+        $prices = [];
+        foreach (PAID_PLANS as $k) $prices[$k] = ['month' => plan_offer($k, 1), 'year' => plan_offer($k, 12)];
+        json_out(['ok' => true, 'sale' => $d['sale'], 'sale_active' => (bool)sale_active(), 'promos' => $d['promos'], 'promo_revenue' => $by_promo,
+                  'discounted_orders' => count($orders), 'prices' => $prices, 'plans' => array_intersect_key(plans(), array_flip(PAID_PLANS)), 'now' => time()]);
+
+    case 'sale_save':
+        $pct = (int)($req['percent'] ?? 0);
+        if ($pct < 1 || $pct > 90) json_out(['ok' => false, 'error' => 'Скидка — от 1 до 90%.']);
+        $plans_in = array_values(array_intersect(PAID_PLANS, array_map('strval', (array)($req['plans'] ?? []))));
+        $days = (int)($req['days'] ?? 0);
+        $sale = ['percent' => $pct, 'plans' => $plans_in, 'title' => mb_substr(trim((string)($req['title'] ?? '')), 0, 60) ?: 'Скидка',
+                 'until' => $days > 0 ? time() + $days * 86400 : null, 'created' => time(), 'by' => $by];
+        update_json('discounts.json', function (&$d) use ($sale) { $d['sale'] = $sale; });
+        sub_log('discount', '', '', $days, 'Акция «' . $sale['title'] . '» −' . $pct . '%' . ($plans_in ? ' (' . implode(', ', $plans_in) . ')' : ''), $by);
+        json_out(['ok' => true, 'sale' => $sale]);
+
+    case 'sale_off':
+        update_json('discounts.json', function (&$d) { $d['sale'] = null; });
+        sub_log('discount', '', '', 0, 'Акция выключена', $by);
+        json_out(['ok' => true]);
+
+    case 'promo_save':
+        $code = mb_strtoupper(promo_code($req['code'] ?? ''));
+        if (mb_strlen($code) < 3) json_out(['ok' => false, 'error' => 'Промокод — от 3 символов (буквы, цифры, - и _).']);
+        $pct = (int)($req['percent'] ?? 0);
+        if ($pct < 1 || $pct > 95) json_out(['ok' => false, 'error' => 'Скидка по промокоду — от 1 до 95%.']);
+        $days = (int)($req['days'] ?? 0);
+        $promo = ['percent' => $pct, 'plans' => array_values(array_intersect(PAID_PLANS, array_map('strval', (array)($req['plans'] ?? [])))),
+                  'until' => $days > 0 ? time() + $days * 86400 : null, 'uses_max' => max(0, (int)($req['uses_max'] ?? 0)),
+                  'note' => mb_substr(trim((string)($req['note'] ?? '')), 0, 100), 'created' => time(), 'by' => $by];
+        update_json('discounts.json', function (&$d) use ($code, $promo) {
+            $promo['used'] = (int)($d['promos'][$code]['used'] ?? 0);   // счётчик при изменении сохраняется
+            $d['promos'][$code] = $promo;
+        });
+        sub_log('discount', '', '', $days, 'Промокод ' . $code . ' −' . $pct . '%', $by);
+        json_out(['ok' => true, 'code' => $code]);
+
+    case 'promo_delete':
+        $code = mb_strtoupper(promo_code($req['code'] ?? ''));
+        update_json('discounts.json', function (&$d) use ($code) { unset($d['promos'][$code]); });
+        sub_log('discount', '', '', 0, 'Промокод ' . $code . ' удалён', $by);
         json_out(['ok' => true]);
 
     case 'plans_reset':

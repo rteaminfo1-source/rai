@@ -13,8 +13,12 @@ $free = $plans['free'];
 $app_version = app_version();
 $pricing = [];
 foreach ($plans as $key => $p) {
-    $pricing[$key] = ['month' => plan_price($key, 1), 'year' => plan_price($key, 12), 'year_month' => (int)round(plan_price($key, 12) / 12)];
+    $m1 = plan_offer($key, 1);
+    $m12 = plan_offer($key, 12);
+    $pricing[$key] = ['month' => $m1['price'], 'year' => $m12['price'], 'year_month' => (int)round($m12['price'] / 12),
+                      'month_base' => $m1['base'], 'year_base' => $m12['base'], 'sale' => $m1['percent']];
 }
+$sale = sale_active();
 ?><!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -194,6 +198,9 @@ h2 { font: 800 clamp(30px, 4vw, 48px)/1.1 var(--head); letter-spacing: -.03em; m
 .plan.popular { background: linear-gradient(var(--bg2), var(--bg2)) padding-box, conic-gradient(from var(--a, 0deg), #ff2d2d, #8b5cff, #ff3d81, #ff2d2d) border-box; border: 1.5px solid transparent; animation: spin 6s linear infinite; box-shadow: 0 30px 90px -40px rgba(255,45,45,.6); }
 .plan .ribbon { position: absolute; top: -13px; left: 50%; transform: translateX(-50%); padding: 5px 14px; border-radius: 999px; background: var(--grad); font-size: 12.5px; font-weight: 700; color: #fff; white-space: nowrap; box-shadow: 0 8px 24px -8px rgba(255,61,129,.8); }
 .plan .ribbon.mine { background: var(--green); color: #052b1b; box-shadow: none; }
+.plan .ribbon.sale { background: linear-gradient(120deg, #ffb020, #ff3d81); }
+.sale-banner { display: inline-block; margin: 0 auto 18px; padding: 8px 18px; border-radius: 999px; background: linear-gradient(120deg, rgba(255,176,32,.18), rgba(255,61,129,.18)); border: 1px solid rgba(255,176,32,.45); }
+.per em { color: var(--green); font-style: normal; }
 .plan h3 { font: 700 21px var(--head); margin: 0 0 4px; }
 .plan .tl { color: var(--muted); font-size: 14.5px; margin: 0 0 22px; min-height: 22px; }
 .price { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
@@ -426,6 +433,7 @@ footer .sp { margin-left: auto; }
     <div class="wrap center">
       <div class="reveal"><span class="kicker">Тарифы</span><h2>Выберите <span class="grad-text">свой Rai</span></h2>
         <p class="sub">Движок Rai бесплатен всегда. Подписка добавляет сообщения нейросети, модели посильнее и режим «Думать глубже».</p></div>
+      <?php if ($sale): ?><p class="sale-banner reveal">🏷 <b><?= h($sale['title'] ?: 'Скидка') ?>: −<?= (int)$sale['percent'] ?>%</b><?= !empty($sale['until']) ? ' · до ' . h(ru_date($sale['until'])) : '' ?></p><?php endif; ?>
       <div class="toggle reveal" role="group" aria-label="Срок подписки">
         <span class="pill" id="pill"></span>
         <button type="button" aria-pressed="true" data-period="month">Месяц</button>
@@ -435,6 +443,7 @@ footer .sp { margin-left: auto; }
         <?php $i = 0; foreach ($plans as $key => $p): $is_mine = $user && $mine['key'] === $key; $i++; ?>
           <article class="plan reveal<?= !empty($p['popular']) ? ' popular' : '' ?>" style="--d:<?= ($i - 1) * 0.08 ?>s" data-plan="<?= h($key) ?>">
             <?php if ($is_mine): ?><span class="ribbon mine">Ваш тариф</span>
+            <?php elseif ($key !== 'free' && !empty($pricing[$key]['sale'])): ?><span class="ribbon sale">−<?= (int)$pricing[$key]['sale'] ?>%</span>
             <?php elseif (!empty($p['popular'])): ?><span class="ribbon">Популярный</span><?php endif; ?>
             <h3><?= h($p['name']) ?></h3>
             <p class="tl"><?= h($p['tagline']) ?></p>
@@ -445,7 +454,7 @@ footer .sp { margin-left: auto; }
               <a class="btn" href="<?= $user ? CHAT_URL : 'login.php?tab=register&amp;next=' . rawurlencode(CHAT_URL) ?>"><?= $user ? 'Открыть Rai' : 'Начать бесплатно' ?></a>
             <?php else: ?>
               <a class="btn<?= !empty($p['popular']) ? ' primary' : '' ?>" data-buy href="pay.php?plan=<?= h($key) ?>&amp;months=1"><?= $is_mine ? 'Продлить' : 'Подключить' ?> <span class="arrow">→</span></a>
-              <?php if ($is_mine): ?><div class="until">Действует до <?= ru_date($mine['until']) ?></div><?php endif; ?>
+              <?php if ($is_mine): ?><div class="until">Действует <?= until_text($mine['until']) ?></div><?php endif; ?>
             <?php endif; ?>
           </article>
         <?php endforeach; ?>
@@ -611,7 +620,8 @@ footer .sp { margin-left: auto; }
       price.style.opacity = 0;
       setTimeout(() => {
         price.textContent = rub(period === "year" ? p.year_month : p.month);
-        per.innerHTML = period === "year" ? `<s>${rub(p.month * 12)}</s> <em>${rub(p.year)} за год · −${DISCOUNT}%</em>` : "Оплата за месяц";
+        per.innerHTML = period === "year" ? `<s>${rub(p.month_base * 12)}</s> <em>${rub(p.year)} за год · −${p.sale ? Math.round(100 - p.year * 100 / (p.month_base * 12)) : DISCOUNT}%</em>`
+          : (p.sale ? `<s>${rub(p.month_base)}</s> <em>скидка −${p.sale}%</em>` : "Оплата за месяц");
         price.style.opacity = 1;
       }, still ? 0 : 180);
       if (buy) buy.href = `pay.php?plan=${encodeURIComponent(key)}&months=${period === "year" ? 12 : 1}`;
