@@ -195,6 +195,8 @@ def build(out):
     write_kb(os.path.join(out, "rai.rteam.info", "kb.php"))
     write_kb(os.path.join(out, "rai.rteam.info", "vision.php"), "vision_labels.json",
              "Зрение Rai: понятия для распознавания картинок (считает GitHub: tools/build_vision.py)")
+    write_kb(os.path.join(out, "rai.rteam.info", "meds.php"), "medicines.json",
+             "Лекарства для Rai: тысячи препаратов из Wikidata и Википедии (собирает GitHub: tools/build_medicines.py)")
     write_js(os.path.join(out, "aistudio.rteam.info", "assets", "neuro.php"), "neuro.js",
              "Нейросеть Rai Нейро для AI Studio — копия neuro.js из репозитория (собирает make_hosting.py)")
 

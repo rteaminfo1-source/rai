@@ -886,7 +886,7 @@
   if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
   if (params.get("py")) CFG.pyBase = params.get("py");
 
-  const PY_FILES = ["versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
+  const PY_FILES = ["meds.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
                     "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
@@ -1259,6 +1259,24 @@
   }
 
   // ---------------------------------------------------------------- сообщения
+  /** Страна посетителя (для лекарств и советов): по часовому поясу, иначе по языку браузера. ru, by, kz, ua, us, uk, de, tr, intl. */
+  function userRegion() {
+    let tz = "";
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { /* без часового пояса */ }
+    if (/^Europe\/Minsk$/.test(tz)) return "by";
+    if (/^Asia\/(Almaty|Qostanay|Qyzylorda|Aqtobe|Aqtau|Atyrau|Oral)$/.test(tz)) return "kz";
+    if (/^Europe\/(Kiev|Kyiv|Uzhgorod|Zaporozhye)$/.test(tz)) return "ua";
+    if (/^Europe\/(Moscow|Kaliningrad|Samara|Volgograd|Saratov|Ulyanovsk|Astrakhan|Kirov)$|^Asia\/(Yekaterinburg|Omsk|Novosibirsk|Barnaul|Tomsk|Novokuznetsk|Krasnoyarsk|Irkutsk|Chita|Yakutsk|Khandyga|Vladivostok|Ust-Nera|Magadan|Sakhalin|Srednekolymsk|Kamchatka|Anadyr)$/.test(tz)) return "ru";
+    if (/^America\/(New_York|Chicago|Denver|Los_Angeles|Phoenix|Anchorage|Detroit|Indiana|Kentucky|Boise)|^Pacific\/Honolulu$/.test(tz)) return "us";
+    if (/^Europe\/London$/.test(tz)) return "uk";
+    if (/^Europe\/(Berlin|Busingen)$/.test(tz)) return "de";
+    if (/^Europe\/Istanbul$/.test(tz)) return "tr";
+    const lang = (navigator.language || "").toLowerCase();
+    if (/-by$/.test(lang)) return "by";
+    if (/-kz$/.test(lang)) return "kz";
+    if (/^ru/.test(lang) && !tz) return "ru";
+    return tz ? "intl" : "ru";
+  }
   /** Имя человека для приветствия и нейросети: из аккаунта (если это имя, а не логин) или «меня зовут …» в чате. */
   function userFirstName() {
     const u = account && account.user;
@@ -1842,6 +1860,18 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     return r.ok ? r.text() : null;
   }
 
+  // Большая база лекарств (тысячи препаратов из Wikidata — tools/build_medicines.py): на хостинге — meds.php,
+  // рядом с страницей — medicines.json. Нет файла — работает встроенный справочник meds.py.
+  async function readMeds() {
+    if (window.RAI_MEDS_URL) {
+      const r = await fetch(window.RAI_MEDS_URL);
+      return r.ok ? r.text() : null;
+    }
+    if (document.getElementById("rai-files") || !/^https?:$/.test(location.protocol)) return null;
+    const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + "medicines.json", {cache: "no-cache"});
+    return r.ok && (r.headers.get("content-type") || "").includes("json") ? r.text() : null;
+  }
+
   // Откуда Python для запуска программ во вкладке Code: сначала тот источник, что уже сработал.
   let pyodideOK = null;
   function pyodideSources() {
@@ -2004,7 +2034,7 @@ _rai = brain.Brain(learned_path="/tmp/learned.json")
 def rai_ask(version_id, message, session_id, history_json="[]", profile_json="{}"):
     try:
         brain.PROFILE.clear()
-        brain.PROFILE.update({k: v for k, v in json.loads(profile_json or "{}").items() if k in ("name",) and isinstance(v, str)})
+        brain.PROFILE.update({k: v for k, v in json.loads(profile_json or "{}").items() if k in ("name", "region") and isinstance(v, str)})
     except ValueError:
         pass
     v = versions.resolve(version_id)
@@ -2037,7 +2067,11 @@ def rai_slides(action, args_json):
 
 def rai_context(query, force=False):
     """Сведения для нейросети: энциклопедия Rai (без интернета) + интернет (если вопрос о фактах, а не о коде)."""
-    import online, codeai, encyclopedia
+    import online, codeai, encyclopedia, meds
+    med = "" if codeai.is_build_request(query) else meds.context(query[:600], brain.PROFILE.get("region"))
+    if med:   # лекарства: точные сведения из справочника Rai — нейросеть опирается на них и не выдумывает
+        return json.dumps({"text": "Справочник лекарств Rai (это справка, а не назначение; дозы — только из инструкции, при "
+                                   "тревожных симптомах — к врачу):\\n" + med[:3000], "sources": []}, ensure_ascii=False)
     if not force and (codeai.is_build_request(query) or not online.needs_facts(query)):
         return json.dumps({"text": "", "sources": []})
     known = encyclopedia.context(query[:300])
@@ -2087,6 +2121,11 @@ def rai_code(action, code, lang, prompt):
       pyodide.FS.writeFile("/home/pyodide/rai/encyclopedia.json", text);
       pyodide.runPython("import encyclopedia\nencyclopedia.load()");
     }).catch((e) => console.warn("Энциклопедия Rai не загрузилась:", e));
+    readMeds().then((text) => {
+      if (!text) return;
+      pyodide.FS.writeFile("/home/pyodide/rai/medicines.json", text);
+      pyodide.runPython("import json, meds\nmeds.load(json.load(open('/home/pyodide/rai/medicines.json', encoding='utf-8')))");
+    }).catch(() => null);   // нет большой базы — хватит встроенного справочника
     const pyAsk = pyodide.globals.get("rai_ask");
     const pyVersions = pyodide.globals.get("rai_versions");
     const pyCode = pyodide.globals.get("rai_code");
@@ -2103,7 +2142,7 @@ def rai_code(action, code, lang, prompt):
       mode: "browser",
       async versions() { return JSON.parse(pyVersions()); },
       async ask(v, message, sessionId, history) {
-        return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history), JSON.stringify({name: userFirstName() || undefined})));
+        return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history), JSON.stringify({name: userFirstName() || undefined, region: userRegion()})));
       },
       async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); },
       async slides(action, args) { return JSON.parse(pySlides(action, JSON.stringify(args || {}))); },
@@ -2466,7 +2505,7 @@ def rai_code(action, code, lang, prompt):
 
   // ---------------------------------------------------------------- нейросеть в чате
   // Ответ «из интернета» (web) нейросеть переписывает связным текстом со ссылками, остальное — точные инструменты Rai
-  const TOOL_INTENTS = new Set(["violation", "crisis", "tool", "game", "tools_list", "weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory"]);
+  const TOOL_INTENTS = new Set(["violation", "crisis", "tool", "game", "tools_list", "weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory", "meds"]);
   // Имя и личные факты при включённой нейросети запоминает она сама — навсегда и для всех чатов
   const NEURO_MEMORY_INTENTS = new Set(["set_name", "get_name", "memory"]);
   function isToolAnswer(data) {

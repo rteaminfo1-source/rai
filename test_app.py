@@ -251,6 +251,103 @@ class BrainTest(unittest.TestCase):
             self.ask(PRO, "а" * 10000)
 
 
+class MedsTest(unittest.TestCase):
+    """Лекарства: справочник, страна, аналоги, сочетания, безопасность, большая база из Wikidata."""
+
+    def test_find_names_in_any_form(self):
+        import meds
+        self.assertEqual(meds.find("аналог нурофена"), ["ibuprofen"])
+        self.assertEqual(meds.find("смекты нет"), ["smectite"])
+        self.assertEqual(meds.find("АЦЦ от кашля"), ["acetylcysteine"])
+        self.assertEqual(meds.find("Tylenol"), ["paracetamol"])
+        for text in ("кандидат наук", "сбросить пароли", "iron man", "каменный уголь"):
+            self.assertEqual(meds.find(text), [], text)
+
+    def test_symptom_by_region(self):
+        import meds
+        tr = meds.answer("что выпить от головной боли в Турции")
+        self.assertIn("Parol", tr)
+        self.assertIn("112", tr)
+        self.assertIn("справка, а не назначение", tr)
+        us = meds.answer("что принять от температуры", "us")
+        self.assertIn("Tylenol", us)
+        self.assertIn("911", us)
+        by = meds.answer("болит горло что принять", "by")
+        self.assertIn("Стрепсилс", by)
+        self.assertIn("в Беларуси", by)
+        self.assertIsNone(meds.answer("болит голова от твоих шуток"))   # без вопроса о лекарствах — не справочник
+
+    def test_card_analogs_compare_together(self):
+        import meds
+        card = meds.answer("как называется нурофен в США")
+        self.assertIn("Advil", card.split("\n\n**Как называется")[1].split("\n")[1])   # своя страна — первой строкой
+        self.assertIn("Ibuprofen", card)
+        self.assertIn("Нурофен", meds.answer("аналог ибупрофена", "ru"))
+        self.assertIn("⚖️", meds.answer("что лучше нурофен или парацетамол"))
+        both = meds.answer("можно ли нурофен и аспирин вместе")
+        self.assertIn("два НПВП", both)
+        self.assertIn("тяжёлая реакция", meds.answer("метронидазол с алкоголем"))
+        self.assertIn("4 г в сутки", meds.answer("сколько можно выпить парацетамола"))
+        self.assertIn("не доказана", meds.answer("что такое арбидол"))
+
+    def test_safety(self):
+        import meds
+        self.assertIn("не подскажу", meds.answer("трамадол без рецепта где купить"))
+        self.assertIn("не подскажу", meds.answer("купить феназепам без рецепта"))
+        self.assertIn("только по рецепту", meds.answer("где купить амлодипин без рецепта"))
+        self.assertIn("8-800-2000-122", meds.answer("сколько таблеток парацетамола смертельно"))
+        self.assertIsNone(meds.answer("кто изобрел аспирин"))   # история — к энциклопедии
+
+    def test_large_base(self):
+        import meds
+        try:
+            meds.load({"items": [{"n": "трамадол", "en": "tramadol", "d": "опиоидный анальгетик", "atc": ["N02AX02"], "brands": ["Трамал"]},
+                                 {"n": "кислород", "en": "oxygen", "d": "химический элемент", "atc": ["V03AN01"]},
+                                 {"n": "ацетилсалициловая кислота", "en": "aspirin", "atc": ["N02BA01"], "rx": {"Германия": "рецептурный"}}]})
+            self.assertEqual(meds.db_find("ацетилсалициловую кислоту")["en"], "aspirin")
+            self.assertIn("tramadol", meds.answer("что такое трамадол"))
+            self.assertIn("tramadol", meds.answer("трамал инструкция"))
+            self.assertIsNone(meds.answer("что такое кислород"))
+        finally:
+            meds.load({})
+
+    def test_builder_parses_wikidata(self):
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+        import build_medicines as bm
+
+        def fake(url, params=None, tries=5):
+            if url == bm.SPARQL:
+                return {"results": {"bindings": [{"item": {"value": "http://www.wikidata.org/entity/Q1"}, "atc": {"value": "N02BE01"}}]}}
+            if url == bm.WD:
+                if params["props"] == "labels":
+                    return {"entities": {"Q9": {"labels": {"ru": {"value": "лихорадка"}}}}}
+                return {"entities": {"Q1": {"labels": {"ru": {"value": "парацетамол"}, "en": {"value": "paracetamol"}},
+                                            "sitelinks": {"ruwiki": {"title": "Парацетамол"}},
+                                            "claims": {"P2175": [{"mainsnak": {"datavalue": {"value": {"id": "Q9"}}}}]}}}}
+            return {"query": {"pages": {"1": {"title": "Парацетамол", "extract": "Парацетамол (лат. Paracetamolum) — анальгетик."}}}}
+        old = bm.fetch_json
+        bm.fetch_json = fake
+        try:
+            item = bm.build()["items"][0]
+        finally:
+            bm.fetch_json = old
+        self.assertEqual((item["n"], item["for"], item["atc"]), ("парацетамол", ["лихорадка"], ["N02BE01"]))
+        self.assertEqual(item["x"], "Парацетамол — анальгетик.")
+
+    def test_engine_routes_medicine_questions(self):
+        import brain
+        b = Brain(learned_path=os.path.join(tempfile.mkdtemp(), "l.json"))
+        brain.PROFILE.update({"region": "us"})
+        try:
+            r = b.answer(VERSIONS["pro-quasar"], "что выпить от головной боли", session_id="med")
+            self.assertEqual(r["intent"], "meds")
+            self.assertIn("Tylenol", r["answer"])
+            self.assertNotEqual(b.answer(VERSIONS["pro-quasar"], "напиши программу учёта лекарств на python", session_id="med")["intent"], "meds")
+        finally:
+            brain.PROFILE.clear()
+
+
 class CreativeTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

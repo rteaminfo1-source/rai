@@ -22,6 +22,7 @@ import compare
 import creative
 import net
 import nlp
+import meds
 import memes
 import moderation
 import online
@@ -439,6 +440,12 @@ class Brain:
                     return found[0], "meme"
             return ("Этого мема пока нет в моей базе. Спросите иначе («что за мем …» с точным названием) "
                     "или включите нейросеть — она поищет и объяснит."), "meme"
+
+        # ---- лекарства: что за препарат, аналоги, как называется в другой стране, что принять при симптоме
+        if not codeai.is_build_request(text):
+            med = meds.answer(text, PROFILE.get("region"))
+            if med:
+                return med, "meds"
 
         # ---- «сравни Python и JavaScript», «чем отличается Марс от Венеры», «что лучше кофе или чай» — таблица
         if not codeai.is_build_request(text):
