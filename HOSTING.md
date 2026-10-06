@@ -161,7 +161,8 @@ console.cloud.google.com → APIs & Services → Credentials → клиент `4
 
 После настройки каждый `git push` сам собирает оба сайта и выкладывает их на хостинг по FTP
 (файл `.github/workflows/deploy-hosting.yml`). Выкладываются только изменённые файлы. Папки `data/`
-(аккаунты, чаты) и опубликованные сайты `sites/<логин>/` на хостинге **не трогаются**.
+(аккаунты, чаты), опубликованные сайты `sites/<логин>/` и `config.php` с вашими ключами на хостинге **не трогаются**
+(поэтому секреты Google, Platega и SSO в GitHub вписывать не нужно — они только в config.php на хостинге).
 
 Один раз: github.com/rteaminfo1-source/rai → **Settings → Secrets and variables → Actions**.
 
@@ -172,8 +173,6 @@ console.cloud.google.com → APIs & Services → Credentials → клиент `4
 | `FTP_SERVER` | адрес FTP из панели хостинга, например `ftp.вашхостинг.ru` |
 | `FTP_USERNAME` | логин FTP |
 | `FTP_PASSWORD` | пароль FTP |
-| `GOOGLE_CLIENT_SECRET` | секрет Google (`GOCSPX-…`) |
-| `SSO_SECRET` | длинная случайная строка (64 символа 0-9a-f). Не меняйте её потом — иначе вход в студию перестанет совпадать |
 
 **Variables** (вкладка *Variables*):
 

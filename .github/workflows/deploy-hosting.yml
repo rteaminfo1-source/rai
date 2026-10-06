@@ -1,6 +1,6 @@
 # Выкладка на виртуальный хостинг: после каждого push собираем папки rai.rteam.info и aistudio.rteam.info
 # (make_hosting.py) и загружаем их по FTP. Пароли и секреты — только в Settings → Secrets and variables → Actions.
-# Данные пользователей (data/) и опубликованные сайты (sites/<логин>/) на хостинге не трогаются.
+# Данные пользователей (data/), опубликованные сайты (sites/<логин>/) и config.php (ваши ключи) на хостинге не трогаются.
 name: Выкладка на хостинг
 
 on:
@@ -25,12 +25,11 @@ jobs:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
-          SSO_SECRET: ${{ secrets.SSO_SECRET }}
           RAI_DIR: ${{ vars.RAI_DIR }}
           STUDIO_DIR: ${{ vars.STUDIO_DIR }}
         run: |
           missing=""
-          for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD SSO_SECRET RAI_DIR STUDIO_DIR; do
+          for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD RAI_DIR STUDIO_DIR; do
             [ -z "${!v}" ] && missing="$missing $v"
           done
           if [ -n "$missing" ]; then
@@ -48,14 +47,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      # config.php с ключами уже лежит на хостинге и не выкладывается — секреты для сборки не нужны
       - name: Собрать папки для хостинга
         if: steps.cfg.outputs.ready == 'true'
-        env:
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          SSO_SECRET: ${{ secrets.SSO_SECRET }}
-          PLATEGA_MERCHANT_ID: ${{ secrets.PLATEGA_MERCHANT_ID }}
-          PLATEGA_SECRET: ${{ secrets.PLATEGA_SECRET }}
-          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
         run: python make_hosting.py dist/hosting
 
       - name: Выложить rai.rteam.info
@@ -72,6 +66,7 @@ jobs:
           state-name: .rai-deploy-state.json
           exclude: |
             data/**
+            config.php
 
       - name: Выложить aistudio.rteam.info
         if: steps.cfg.outputs.ready == 'true'
@@ -88,3 +83,4 @@ jobs:
           exclude: |
             data/**
             sites/*/**
+            config.php
