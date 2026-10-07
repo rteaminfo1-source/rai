@@ -93,9 +93,23 @@ _SKIP_WORDS = {nlp.stem(w) for w in """такое это такой такая �
     собой представляет значит означает нужно нужен нужна нужны можно надо вот всё все весь вся мне нам пожалуйста простыми словами понятно
     кратко коротко подробно подробнее детально развернуто так же тоже ещё еще""".split()}
 _MEASURE = dict(encyclopedia._MEASURE, вес=("масс", "вес", "кг", "тонн", " т "), весит=("масс", "вес", "кг", "тонн", " т "),
-                живет=("лет", "продолжительн", "живут"), жив=("лет", "продолжительн", "живут"),
+                живет=("продолжительност", "живут", "доживают", "лет жизни", "срок жизни"),
+                жив=("продолжительност", "живут", "доживают", "лет жизни", "срок жизни"),
                 стоит=("руб", "долл", "$", "€", "₽", "стоимост", "цен"), сто=("руб", "долл", "$", "€", "₽", "стоимост", "цен"))
-_CREATE = ("придума", "изобр", "разработ", "предлож", "созда", "основ", "автор", "открыл", "открыт", "сформулир", "впервые")
+# Глаголы-«рамки» вопроса: «как *устроен* глаз», «как *работает* двигатель» — ищем не это слово, а нужные разделы статьи
+_FRAME = {
+    "работа": ("принцип", "работ", "устройств", "механизм", "действи", "функци"),
+    "устро": ("строени", "устройств", "анатоми", "структур", "состав", "конструкци"),
+    "образу": ("образовани", "происхождени", "формировани", "возникновени"),
+    "появ": ("происхождени", "появлени", "возникновени", "гипотез", "образовани", "формировани"),
+    "возник": ("происхождени", "возникновени", "гипотез", "образовани"),
+    "размнож": ("размножени", "жизненн", "цикл", "спор"),
+    "происход": ("процесс", "механизм", "причин", "происхождени"),
+    "выгляд": ("описани", "внешн", "строени", "морфологи"),
+    "действ": ("действи", "механизм", "принцип", "фармакологи"),
+    "раст": ("рост", "развити", "выращивани"),
+}
+_CREATE = ("придума", "изобр", "разработ", "предлож", "созда", "основ", "автор", "открыл", "открыт", "сформулир", "патент")
 _SYNONYMS = {k: _CREATE for k in ("приду", "изобр", "созда", "основ", "откры", "разра", "напис", "постр")}
 _SYNONYMS.update({"питаю": ("пита", "корм", "добыч", "едят", "поеда"), "живут": ("обита", "живут", "населя", "распростран"),
                   "обита": ("обита", "живут", "населя", "распростран")})
@@ -151,8 +165,17 @@ def understand(text):
     if not topic and content and deep.ready():
         topic = deep.title_of(" ".join(content))
         topic_words = {nlp.stem(w) for w in content} if topic else set()
-    focus = [nlp.stem(w) for w in content]
-    aspect = [w for w in content if nlp.stem(w) not in topic_words]
+    frame = []
+    for w in content:
+        st = nlp.stem(w)
+        if st not in topic_words and kind in ("how", "howto", "why", "which", "explain"):
+            key = next((k for k in _FRAME if st.startswith(k)), None)
+            if key:
+                frame += list(_FRAME[key])
+    focus = [nlp.stem(w) for w in content if not (frame and nlp.stem(w) not in topic_words and
+                                                   any(nlp.stem(w).startswith(k) for k in _FRAME))] or [nlp.stem(w) for w in content]
+    aspect = [w for w in content if nlp.stem(w) not in topic_words and
+              not (frame and any(nlp.stem(w).startswith(k) for k in _FRAME))]
     subject = re.sub(r"\s*\([^)]*\)$", "", topic) if topic else " ".join(content)
     web_q = (head + " " + rest).strip()
     if kind in ("explain", "what", "who") or not web_q:
@@ -163,7 +186,7 @@ def understand(text):
             if any(f.startswith(key) for f in focus):
                 measure = signs
                 break
-    return {"kind": kind, "depth": depth, "measure": measure, "simple": simple, "topic": topic, "topic_stems": topic_words,
+    return {"kind": kind, "depth": depth, "measure": measure, "frame": frame, "simple": simple, "topic": topic, "topic_stems": topic_words,
             "focus": list(dict.fromkeys(focus)), "aspect": aspect, "subject": subject, "rest": rest,
             "web_q": web_q[:200], "wiki_q": (topic or " ".join(content) or rest)[:150], "think": think, "explain": explain}
 
@@ -364,20 +387,93 @@ def _numbers(sentence):
     return out
 
 
+def _aspect_words(plan, docs):
+    """О чём именно спрашивают — основы слов + близкие: свой словарь синонимов и модель смыслов (среди слов
+    найденных текстов: «вымерли» ≈ «вымирание», «светит» ≈ «отражает»). {основа: вес}."""
+    out = {}
+    for w in plan["aspect"]:
+        st = nlp.stem(w)
+        out[st] = 1.0
+        for syn in _SYNONYMS.get(st[:5], ()):
+            out.setdefault(syn, 0.8)
+    if out and sense.ready():
+        vocab = set()
+        for d in docs[:40]:
+            vocab.update(nlp.tokens(d["text"][:6000]))
+        for st in list(out):
+            if out[st] < 1.0:
+                continue
+            base = sense._word_vec(st)
+            if base is None:
+                continue
+            norm = sum(x * x for x in base) ** 0.5 or 1
+            for v in vocab:
+                if v in out or len(v) < 4:
+                    continue
+                vec = sense._word_vec(v)
+                if vec is None:
+                    continue
+                cos = sum(a * b for a, b in zip(base, vec)) / (norm * (sum(x * x for x in vec) ** 0.5 or 1))
+                # близкие по смыслу соседи по теме («архозавр» рядом с «вымерли») — не то; берём другие формы того же
+                # слова («вымирание», «вымершие») и очень близкие по смыслу слова
+                same_root = len(st) >= 5 and v[:3] == st[:3] and cos >= 0.6
+                if same_root or cos >= 0.75:
+                    out[v] = round(min(0.8, cos), 2)
+    return out
+
+
+def _causal(sent, words):
+    """Есть ли в предложении причина. «В результате извержения возник остров» — это следствие извержения,
+    а не его причина: слово вопроса сразу после «в результате / из-за / благодаря» не считается."""
+    found = False
+    for m in _CAUSE_RE.finditer(sent):
+        after = set(nlp.tokens(sent[m.end():m.end() + 30])[:2])
+        if words and _hit(after, words) >= 0.55 and m.group(0).lower().startswith(("в результат", "вследстви", "из-за", "благодаря")):
+            continue
+        found = True
+    return found
+
+
+def _hit(stems, words):
+    """Вес совпадения слов предложения со словами вопроса (точно, по началу основы — «вымерл»/«вымер»)."""
+    best = 0.0
+    for w, weight in words.items():
+        if w in stems or (len(w) >= 5 and any(x.startswith(w[:5]) for x in stems)):
+            best = max(best, weight)
+    return best
+
+
+# Предложение, которое без предыдущего не понять: «Такой двигатель…», «Благодаря этому…», «Кроме того…»
+_ANAPHORA_RE = re.compile(r"^(?:так(?:ой|ая|ое|ие|им|их|ом)|эт(?:от|а|о|и|им|ого|ой|ом|у)|благодаря\s+этому|поэтому|таким\s+образом|"
+                          r"кроме\s+того|например|к\s+примеру|при\s+этом|однако|также|тем\s+не\s+менее|в\s+то\s+же\s+время|"
+                          r"он[аио]?|они|его|её|их|там|здесь|тогда|затем|впоследствии|также)(?![а-яё])", re.I)
+_NAME_RE = re.compile(r"(?<!^)(?<![.!?]\s)\b[А-ЯЁA-Z][а-яёa-z]+(?:\s+[А-ЯЁA-Z][а-яёa-z]+)?")
+
+
 def _score(sent, doc, idx, plan, qvec):
     st = set(nlp.tokens(sent))
     focus, topic = set(plan["focus"]), plan["topic_stems"]
-    aspect = {nlp.stem(w) for w in plan["aspect"]}
+    aspect = plan.get("aspect_words") or {nlp.stem(w): 1.0 for w in plan["aspect"]}
     f = len(focus & st)
-    if not f and not (doc["lead"] and idx == 0):
+    a = _hit(st, aspect) if aspect else 0.0
+    sec = (doc.get("section") or "").lower()
+    frame = plan.get("frame") or ()
+    in_frame = bool(frame) and any(x in sec for x in frame)
+    if not f and not a and not in_frame and not (doc["lead"] and idx == 0):
         return None
-    s = 1.5 * f + 1.3 * len(aspect & st) + (0.4 if topic & st else 0)
+    s = 1.0 * f + 3.0 * a + (0.4 if topic & st else 0)
+    if in_frame:
+        s += 2.5                                   # раздел «Строение», «Принцип работы», «Происхождение»…
+    elif frame and any(x in sent.lower() for x in frame):
+        s += 1.0
+    if aspect and not a and plan["kind"] not in ("what", "explain", "list"):
+        s -= 1.5                                   # предложение не о том, что спрашивают
     kind = plan["kind"]
     if kind == "why":
-        s += 3.0 if _CAUSE_RE.search(sent) else 0
+        s += (2.5 if a >= 0.55 or not aspect else 0.3) if _causal(sent, aspect) else 0
     elif kind == "how":
         s += 1.5 if _HOW_RE.search(sent) else 0
-        s += 1.0 if idx == 0 and doc["lead"] else 0
+        s += 2.0 if idx == 0 and doc["lead"] else 0
     elif kind in ("howto", "advice"):
         s += 2.0 if _ADVICE_RE.search(sent) else 0
         s += 1.0 if _STEP_RE.match(sent) else 0
@@ -397,9 +493,17 @@ def _score(sent, doc, idx, plan, qvec):
     elif kind in ("what", "who", "explain", "which"):
         s += 2.0 if idx == 0 and doc["lead"] else 0
         s += 1.0 if _DEF_RE.search(sent[:120]) and idx < 2 else 0
+        if kind == "who" and a and _NAME_RE.search(sent):
+            s += 2.0                               # «кто изобрёл телефон» — нужно имя
+        if kind == "who" and sec and _NAME_RE.fullmatch(doc["section"].strip()):
+            s += 1.0
     if qvec is not None:
         s += 4.0 * max(0.0, sense.cosine(qvec, sense.vector(sent)) - 0.15)
     s -= 0.04 * idx
+    if _ANAPHORA_RE.match(sent):
+        s -= 1.2
+    if sent.rstrip().endswith(":"):
+        s -= 2.5                                   # «…основана на следующих преобразованиях:» — список потерян
     n = len(sent)
     s -= 2.0 if n < 40 else 1.2 if n > 380 else 0
     return s * doc["w"]
@@ -412,6 +516,7 @@ def _jaccard(a, b):
 def rank(docs, plan):
     """Все предложения всех текстов с оценкой: [{"text", "score", "doc", "pos", "stems"}] — лучшие первыми."""
     qvec = sense.vector(" ".join(plan["focus"]), stems=plan["focus"]) if sense.ready() else None
+    plan["aspect_words"] = _aspect_words(plan, docs)
     out = []
     for d_no, doc in enumerate(docs):
         for idx, sent in enumerate(_sentences(doc)):
@@ -489,23 +594,25 @@ def _check(plan, chosen, docs):
     notes.append(("✅" if cov >= 0.6 else "⚠️") + f" Слова вопроса в ответе: {len(covered)} из {len(plan['focus'])}")
     main = " ".join(c["text"] for c in chosen[:2])
     kind = plan["kind"]
-    checks = {"why": (_CAUSE_RE.search(main), "есть объяснение причины", "прямой причины в текстах нет"),
+    words = plan.get("aspect_words") or {}
+    because = [c for c in chosen[:3] if _causal(c["text"], words) and (not words or _hit(c["stems"], words) >= 0.55)]
+    signs = plan.get("measure")
+    numeric = [c for c in chosen[:2] if _numbers(c["text"]) and (not signs or any(m in c["text"].lower() for m in signs))]
+    checks = {"why": (because, "есть объяснение причины", "прямой причины в текстах нет"),
               "when": (_DATE_RE.search(main), "есть дата", "точной даты не нашёл"),
-              "num": (any(_numbers(c["text"]) for c in chosen[:2]) or re.search(r"\d", main), "есть число", "точного числа не нашёл"),
+              "num": (numeric, "есть число", "точного числа не нашёл"),
               "where": (_PLACE_RE.search(main), "есть место", "точного места не нашёл"),
               "howto": (len(chosen) >= 2, "есть шаги", "шагов мало"),
               "list": (len(chosen) >= 3, "есть пункты", "пунктов мало")}
     ok = True
     # «кто придумал теорию струн», «чем питаются ежи» — в ответе должно быть то, о чём именно спрашивают
-    aspect = [nlp.stem(w) for w in plan["aspect"]]
-    if aspect and kind in ("who", "which", "what", "explain", "how"):
-        text = " ".join(c["text"].lower() for c in chosen[:2])
-        hit = [a for a in aspect if a[:5] in text or any(x in text for x in _SYNONYMS.get(a[:5], ()))]
-        ok = bool(hit)
+    if words and kind not in ("what", "explain", "list"):
+        hit = max((_hit(c["stems"], words) for c in chosen[:2]), default=0.0)
+        ok = hit >= 0.55
         notes.append(("✅ Есть ответ именно на «" if ok else "⚠️ Нет ответа именно на «") + " ".join(plan["aspect"]) + "»")
     if kind in checks:
-        ok, good, bad = checks[kind]
-        ok = bool(ok)
+        good_kind, good, bad = checks[kind]
+        ok = ok and bool(good_kind)
         notes.append(("✅ Ответ на вопрос: " + good) if ok else ("⚠️ " + _cap(bad)))
     sources = {docs[c["doc"]]["url"] or docs[c["doc"]]["title"] for c in chosen}
     notes.append(("✅" if len(sources) >= 2 else "•") + f" Источников в ответе: {len(sources)}")
@@ -519,8 +626,12 @@ def _check(plan, chosen, docs):
     conf = 0.35 * cov + 0.25 * (1.0 if ok else 0.0) + 0.15 * strength + 0.1 * min(1.0, len(sources) / 2) + 0.15 * material
     if agree and agree[0] == "ok":
         conf = min(1.0, conf + 0.05)
-    if not ok and cov < 0.75:
-        conf = min(conf, 0.25)     # на сам вопрос ответа нет — лучше честно поискать дальше, чем отвечать не о том
+    clar = re.search(r"\(([^)]+)\)$", plan.get("topic") or "")
+    if clar and not set(nlp.tokens(clar.group(1))) & set(plan["focus"]):
+        conf -= 0.25               # «Трава (фармацевтика)» на вопрос про траву на лугу — тема, скорее всего, не та
+        notes.append("⚠️ Тема в базе — «" + plan["topic"] + "», возможно, не та")
+    if not ok:
+        conf = min(conf, 0.3)      # на сам вопрос ответа нет — лучше честно поискать дальше, чем отвечать не о том
     return round(conf, 2), notes
 
 
@@ -529,19 +640,38 @@ def _in_order(items, docs):
     return sorted(items, key=lambda c: (c["doc"], c["pos"]))
 
 
+def _lead_definition(plan, docs):
+    """Первое предложение статьи о теме («Компьютер — устройство…») — лучшее «Суть» для «как работает…»."""
+    topic = plan["topic_stems"]
+    for d_no, doc in enumerate(docs):
+        if not doc["lead"] or doc["section"]:
+            continue
+        sents = _sentences(doc)
+        if sents and topic & set(nlp.tokens(sents[0])) and _DEF_RE.search(sents[0][:160]):
+            return {"text": sents[0], "score": 0, "doc": d_no, "pos": 0, "stems": set(nlp.tokens(sents[0]))}
+    return None
+
+
 def compose(plan, chosen, docs):
     """Текст ответа из выбранных предложений — по типу вопроса."""
     kind = plan["kind"]
     first, rest = chosen[0], chosen[1:]
     lines = []
     if kind == "why":
-        cause = next((c for c in chosen[:3] if _CAUSE_RE.search(c["text"])), first)
+        words = plan.get("aspect_words") or {}
+        cause = next((c for c in chosen[:4] if _causal(c["text"], words) and (not words or _hit(c["stems"], words) >= 0.55)),
+                     next((c for c in chosen[:3] if _causal(c["text"], words)), first))
         rest = [c for c in chosen if c is not cause]
         lines.append(f"**Коротко:** {cause['text']}")
         if rest:
             lines.append("**Почему так:**\n" + "\n".join(f"- {c['text']}" for c in _in_order(rest, docs)))
     elif kind == "how":
-        define = next((c for c in chosen[:4] if _DEF_RE.search(c["text"][:120]) and c["pos"] == 0), first)
+        lead = _lead_definition(plan, docs)
+        if lead and all(lead["text"] != c["text"] for c in chosen):
+            chosen = [lead] + chosen
+            first, rest = chosen[0], chosen[1:]
+        define = next((c for c in chosen if docs[c["doc"]]["lead"] and c["pos"] == 0 and _DEF_RE.search(c["text"][:120])),
+                      next((c for c in chosen[:4] if _DEF_RE.search(c["text"][:120]) and c["pos"] == 0), first))
         rest = [c for c in chosen if c is not define]
         lines.append(f"**Суть:** {define['text']}")
         if rest:

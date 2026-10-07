@@ -56,7 +56,7 @@ def time_left():
 # ------------------------------------------------------------------ тексты
 
 def _cut(text, limit):
-    text = re.sub(r"[ \t]+", " ", text).strip()
+    text = re.sub(r"[ \t]+", " ", text.replace("\u0301", "")).strip()   # без знаков ударения
     if len(text) <= limit:
         return text
     cut = text[:limit]

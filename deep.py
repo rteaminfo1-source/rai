@@ -111,7 +111,8 @@ def article(name):
         return None
     lead, sections = raw[0], raw[1] if len(raw) > 1 else []
     import encyclopedia
-    return {"title": title, "lead": lead, "sections": [{"title": h, "text": t} for h, t in sections if t],
+    clean = lambda t: (t or "").replace("\u0301", "")   # ударения («Компью́тер») мешают узнавать слова
+    return {"title": title, "lead": clean(lead), "sections": [{"title": h, "text": clean(t)} for h, t in sections if t],
             "url": encyclopedia.page_url(title)}
 
 
@@ -123,8 +124,13 @@ def find(subject):
     if exact:
         return exact
     import encyclopedia
+    import nlp
     found = encyclopedia.lookup(subject)
-    return article(found["title"]) if found else None
+    if not found:
+        return None
+    # «слон» — не город Слоним: основы слов названия и вопроса должны совпасть по-настоящему
+    want, have = set(nlp.tokens(subject)), set(nlp.tokens(found["title"]))
+    return article(found["title"]) if not want or want & have else None
 
 
 def stats():

@@ -32,7 +32,7 @@ _EN_ENDINGS = ("ing", "ed", "es", "s")
 
 
 def normalize(text: str) -> str:
-    text = (text or "").lower().replace("ё", "е")
+    text = (text or "").lower().replace("ё", "е").replace("\u0301", "")   # без ударений: «компью́тер» = «компьютер»
     return " ".join(_WORD_RE.findall(text))
 
 
