@@ -2677,6 +2677,16 @@ class MindTest(unittest.TestCase):
         self.assertEqual(r["intent"], "code")
         self.assertIn("`2550`", r["answer"])
 
+    def test_slides_from_deep_knowledge(self):
+        # Low: без интернета — презентация из статьи целиком в глубоких знаниях
+        before = len(fake_net.calls)
+        r = self.brain.answer(SUN, "сделай презентацию про небо", session_id="m", level="low")
+        deck = next(a for a in r["attachments"] if a["type"] == "slides")
+        text = json.dumps(deck, ensure_ascii=False)
+        self.assertIn("рассеяни", text)
+        self.assertIn("знаний Rai", r["answer"])
+        self.assertEqual(fake_net.calls[before:], [])                 # в интернет не ходил
+
     def test_web_research_reads_pages(self):
         import mind
         net.PROXY = "https://rai.test/net.php"

@@ -1362,7 +1362,7 @@ def answer(text: str):
     if not code:
         have = ", ".join(sorted(S[topic]))
         return (f"Готового примера «{title.lower()}» для {lang} у меня нет. Есть для: {have}. "
-                f"Включите Rai Нейро — нейросеть напишет пример на {lang}.")
+                f"Пример на {lang} напишет внешняя нейросеть Rai Нейро — её можно подключить в меню модели внизу.")
     others = [name for name in S[topic] if name != lang]
     return (f"## {title} на {lang}\n\n```{_HL.get(lang, 'text')}\n{code}\n```\n\n{hint}\n\n"
             f"*Этот же пример есть на других языках: {', '.join(others[:8])} — спросите, например, "

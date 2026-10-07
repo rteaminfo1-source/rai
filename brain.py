@@ -643,6 +643,18 @@ class Brain:
             if known:
                 return self._known(known, attachments), "encyclopedia"
 
+        if best >= version.threshold and not code_answer and mind.wants(text):
+            # совпадение с темой базы знаний только «по буквам» («зачем нужен сон» ≈ «зачем нужен питон») —
+            # ни одного смыслового слова вопроса в теме нет: лучше подумать самому, чем отвечать не о том
+            words = set(mind.understand(text)["focus"]) - nlp.GENERIC
+            have = self.intent_tokens.get(results[0][0], set())
+            close = any(w in have or (len(w) >= 4 and any(nlp.levenshtein(w, h, 2) <= (1 if len(w) < 7 else 2) for h in have))
+                        for w in words)                  # «pyton» ≈ «python» — опечатка, а не другая тема
+            if words and not close:
+                thought = self._think(version, text, attachments, min_conf=0.4)
+                if thought:
+                    return thought
+                best = 0.0
         if best >= version.threshold:
             intent = self.intents[results[0][0]]
             if version.context:
@@ -1191,8 +1203,8 @@ class Brain:
                 lines.append("Возможно, вы имели в виду:\n" + "\n".join(f"- {t}" for t in titles))
         if version.memory and subject:
             lines.append(f"Научите меня: напишите «запомни, что {subject} — это …», и я запомню.")
-        lines.append("Включите **Rai Нейро** (кнопка сверху) — нейросеть ответит на любой вопрос. "
-                     "Или напишите «найди в интернете …», или «что ты умеешь».")
+        lines.append("Поднимите уровень **«сколько думать»** внизу (High, Extra или Ultra) — Rai поищет и прочитает больше "
+                     "источников. Или напишите «подумай: …», «найди в интернете …», или «что ты умеешь».")
         return "\n\n".join(lines)
 
 
