@@ -653,7 +653,8 @@ ${live ? `<div class="bar">✦ Нейросеть Rai пишет сайт… э�
   }
 
   // ---------------------------------------------------------------- интерфейс
-  function mode() { return stored(MODE_KEY, "neuro"); }
+  // По умолчанию — свой конструктор Rai (ничего не скачивает); внешняя нейросеть — только если её выбрали
+  function mode() { return stored(MODE_KEY, "template"); }
   function setMode(m) {
     store(MODE_KEY, m);
     document.querySelectorAll("#aiMode button").forEach((b) => {

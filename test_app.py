@@ -8,7 +8,9 @@ import unittest
 import urllib.parse
 from unittest import mock
 
-import app as rai_app
+# Тесты не зависят от больших данных, которые собирает GitHub (папка deep/)
+os.environ["RAI_DEEP_DIR"] = os.path.join(tempfile.gettempdir(), "rai-tests-no-deep")
+import app as rai_app  # noqa: E402
 import nlp
 import skills
 from brain import Brain, RaiError
@@ -2583,6 +2585,246 @@ echo json_encode($out, JSON_UNESCAPED_UNICODE);
             self.assertIn("версии с интернетом", b.answer(FAST, "https://t.me/channel")["answer"])
             # «сделай сайт как …» — это код, а не анализ
             self.assertNotEqual(b.answer(SUN, "сделай сайт как https://example.com")["intent"], "social")
+
+
+class MindTest(unittest.TestCase):
+    """Rai Разум: сам понимает вопрос, ищет в своей базе и в интернете, читает страницы, проверяет ответ."""
+
+    ARTICLE = {"Небо": ["Небо — пространство над поверхностью Земли, видимое с её поверхности.", [
+        ["Цвет неба", "Днём небо голубое из-за рассеяния солнечного света в атмосфере. Синий свет рассеивается молекулами "
+                      "воздуха сильнее красного — это называют рэлеевским рассеянием. На закате свет проходит через толстый "
+                      "слой воздуха, и небо становится красным."],
+        ["В культуре", "Небо часто изображают на картинах и упоминают в стихах. Многие народы считали небо обителью богов."]]],
+        "Интернет": ["Интернет — всемирная система объединённых компьютерных сетей для хранения и передачи информации.", [
+            ["Как работает", "Данные передаются пакетами по протоколу TCP/IP. Каждое устройство получает IP-адрес. "
+                             "Маршрутизаторы передают пакеты от сети к сети, пока они не дойдут до адресата."]]]}
+
+    def setUp(self):
+        import deep
+        import encyclopedia
+        self.deep, self.enc = deep, encyclopedia
+        self.saved = (encyclopedia._data, encyclopedia._index, deep.DIR, deep.URL)
+        encyclopedia.load(data=QuestionTest.DATA)
+        self.tmp = tempfile.TemporaryDirectory()
+        import gzip
+        import zlib
+        n = 3
+        parts = [{} for _ in range(n)]
+        for title, art in self.ARTICLE.items():
+            parts[zlib.crc32(title.encode()) % n][title] = art
+        for k, part in enumerate(parts):
+            with gzip.open(os.path.join(self.tmp.name, f"{k:02d}.json.gz"), "wt", encoding="utf-8") as f:
+                json.dump(part, f, ensure_ascii=False)
+        with open(os.path.join(self.tmp.name, "manifest.json"), "w", encoding="utf-8") as f:
+            json.dump({"n": n, "titles": sorted(self.ARTICLE), "count": 2}, f, ensure_ascii=False)
+        deep.DIR, deep.URL = self.tmp.name, ""
+        deep.load_manifest()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+        net._cache.clear()
+
+    def tearDown(self):
+        import brain as brain_mod
+        self.enc._data, self.enc._index, self.deep.DIR, self.deep.URL = self.saved
+        self.deep._manifest = None
+        self.deep._titles = {}
+        brain_mod.PROFILE.pop("level", None)
+        self.tmp.cleanup()
+
+    def test_understands_questions(self):
+        import mind
+        cases = {"почему небо голубое": "why", "как работает интернет": "how", "как научиться программировать": "howto",
+                 "когда началась война": "when", "где находится Эверест": "where", "сколько весит слон": "num",
+                 "какие бывают облака": "list", "что такое небо": "what", "объясни подробно квантовую физику": "explain",
+                 "стоит ли учить python": "advice", "подумай, почему вымерли динозавры": "why"}
+        for q, kind in cases.items():
+            self.assertEqual(mind.understand(q)["kind"], kind, q)
+        p = mind.understand("подумай, почему вымерли динозавры")
+        self.assertTrue(p["think"])
+        self.assertEqual(p["depth"], 2)
+        self.assertEqual(mind.understand("почему небо голубое")["topic"], "Небо")
+        self.assertEqual(mind.understand("почему небо голубое")["aspect"], ["голубое"])
+        self.assertFalse(mind.wants("привет"))
+        self.assertIsNone(mind.understand("сколько весит слон")["topic"])     # не город Слоним
+
+    def test_offline_from_deep_knowledge(self):
+        import mind
+        r = mind.think("почему небо голубое", web=False, level="low")
+        self.assertIsNotNone(r)
+        self.assertIn("**Коротко:** Днём небо голубое из-за рассеяния", r["text"])
+        self.assertIn("ru.wikipedia.org", r["text"])
+        self.assertIn("Rai Разум · Low", r["text"])
+        kinds = [s["kind"] for s in r["trace"]]
+        self.assertEqual(kinds[0], "think")
+        self.assertIn("check", kinds)
+        self.assertGreaterEqual(r["confidence"], 0.55)
+        # нет причины в текстах — не выдумывает
+        self.assertIsNone(mind.think("почему пушкино", web=False))
+
+    def test_brain_uses_mind_with_levels(self):
+        import brain as brain_mod
+        r = self.brain.answer(SUN, "почему небо голубое", session_id="m", level="low")
+        self.assertEqual(r["intent"], "mind")                      # в глубоких знаниях статья целиком — Rai Разум
+        self.assertEqual(r["attachments"][0]["type"], "trace")
+        self.assertEqual(r["attachments"][0]["title"], "Как Rai думал")
+        r = self.brain.answer(SUN, "объясни подробно как работает интернет", session_id="m", level="low")
+        self.assertEqual(r["intent"], "mind")
+        self.assertIn("пакетами", r["answer"])
+        # без глубоких знаний — короткий ответ энциклопедии, как раньше
+        self.deep._manifest = None
+        self.assertEqual(self.brain.answer(SUN, "как работает интернет", session_id="m")["intent"], "encyclopedia")
+        brain_mod.PROFILE["level"] = "code"            # уровень из страницы (профиль)
+        r = self.brain.answer(PLUS, "посчитай сумму чётных чисел от 1 до 100", session_id="m")
+        self.assertEqual(r["intent"], "code")
+        self.assertIn("`2550`", r["answer"])
+
+    def test_web_research_reads_pages(self):
+        import mind
+        net.PROXY = "https://rai.test/net.php"
+        try:
+            r = mind.think("почему трава зелёная", web=True, level="high")
+        finally:
+            net.PROXY = ""
+        self.assertIsNotNone(r)
+        self.assertIn("хлорофилл", r["text"].lower())
+        self.assertIn("(https://example.ru/grass)", r["text"])
+        self.assertNotIn("скидк", r["text"])                     # мусор со страницы отброшен
+        self.assertIn("open", [s["kind"] for s in r["trace"]])
+        self.assertTrue(any("net.php?read=" in c for c in fake_net.calls))
+        # Low не ходит в интернет
+        before = len(fake_net.calls)
+        mind.think("почему трава зелёная", web=True, level="low")
+        self.assertEqual(len(fake_net.calls), before)
+
+    def test_meaning_model(self):
+        import sense
+        words = ["планет", "орбит", "звезд", "борщ", "свекл", "суп"]
+        import base64
+        vec = [[100, 20, 0], [90, 30, 0], [80, 10, 10], [0, 10, 100], [5, 0, 95], [0, 20, 90]]
+        raw = bytes(v & 0xFF for row in vec for v in row)
+        saved = (sense._dim, sense._words, sense._index, sense._vecs, sense._related)
+        try:
+            self.assertEqual(sense.load({"dim": 3, "words": words, "vectors": base64.b64encode(raw).decode(), "related": {"0": [1, 2]}}), 6)
+            self.assertGreater(sense.similarity("планета на орбите", "звезды"), sense.similarity("планета на орбите", "борщ из свеклы"))
+            self.assertEqual(sense.related("планета"), ["орбит", "звезд"])
+        finally:
+            sense._dim, sense._words, sense._index, sense._vecs, sense._related = saved
+
+
+class CodeMindTest(unittest.TestCase):
+    """Rai пишет программы сам: разбирает задачу, собирает код и проверяет его запуском."""
+
+    def test_compositional_programs(self):
+        import codemind
+        cases = {
+            "напиши программу которая выводит сумму чётных чисел от 1 до 100": "2550",
+            "посчитай сумму квадратов нечётных чисел от 1 до 10": "165",
+            "найди второе по величине число в списке [4, 9, 2, 9, 7]": "7",
+            "первые 10 простых чисел": "2 3 5 7 11 13 17 19 23 29",
+        }
+        for task, out in cases.items():
+            r = codemind.generate(task)
+            self.assertTrue(r and r["ok"], task)
+            self.assertIn(f"`{out}`", r["about"], task)
+            self.assertIn("def ", r["code"] if "первые" not in task else "def _is_prime")
+        r = codemind.generate("пользователь вводит список чисел, выведи сумму положительных")
+        self.assertTrue(r["ok"])
+        self.assertIn("input(", r["code"])
+        out, err = codemind.run(r["code"], ["3 -8 14"])
+        self.assertEqual((out.strip(), err), ("17", None))
+
+    def test_user_example_and_alternatives(self):
+        import codemind
+        r = codemind.generate("напиши программу: вводится число, найти его факториал. например для 5 ответ 120")
+        self.assertTrue(r["ok"])
+        self.assertIn("✅ ваш пример 5 → `120`", r["about"])
+        r = codemind.generate("программа: дано число, вывести количество цифр, например 777 → 4")
+        self.assertFalse(r["ok"])                                     # пример неверный — Rai честно об этом говорит
+        self.assertIn("не сходится ни с одним", r["about"])
+
+    def test_sandbox(self):
+        import codemind
+        out, err = codemind.run("while True:\n    pass\n", max_steps=5000)
+        self.assertIn("бесконечный цикл", err)
+        out, err = codemind.run("import os\nprint(os.listdir('/'))")
+        self.assertIn("ImportError", err)
+        out, err = codemind.run("print(input())", ["привет"])
+        self.assertEqual(out.strip(), "привет")
+
+    def test_javascript_and_routing(self):
+        import codemind
+        r = codemind.generate("напиши на javascript программу: сумма чётных чисел от 1 до 100", "javascript")
+        self.assertEqual(r["lang"], "javascript")
+        self.assertIn("filter((x) => x % 2 === 0)", r["code"])
+        with tempfile.TemporaryDirectory() as d:
+            b = Brain(learned_path=os.path.join(d, "l.json"))
+            r = b.answer(PLUS, "напиши программу: пользователь вводит список чисел, найди среднее положительных")
+            self.assertEqual(r["intent"], "code")
+            self.assertIn("проверил запуском", r["answer"])
+            self.assertEqual(r["attachments"][0]["type"], "code")
+            self.assertIn("Калькулятор", b.answer(PLUS, "напиши калькулятор на python")["answer"])   # готовые программы остались
+
+
+class DeepBuildTest(unittest.TestCase):
+    """Сборщик глубоких знаний (GitHub): разделы статей, части меньше 30 МБ, модель смыслов, выкладка на хостинг."""
+
+    def test_split_parts_and_hosting(self):
+        import sys
+        import gzip
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+        import build_deep
+        import deep
+        import make_hosting
+        text = ("Марс — четвёртая планета.\n\n== История изучения ==\n" + "Марс изучают давно. " * 10 +
+                "\n\n== Примечания ==\nСсылка. " + "x " * 100 + "\n\n=== Подраздел примечаний ===\nещё ссылки " * 5)
+        lead, sections = build_deep.split_article(text)
+        self.assertEqual(lead, "Марс — четвёртая планета.")
+        self.assertEqual([h for h, _ in sections], ["История изучения"])
+        with tempfile.TemporaryDirectory() as d:
+            arts = {f"Тема {i}": [f"Тема {i} — это тема номер {i}.", [["Раздел", "Текст раздела. " * 20]]] for i in range(300)}
+            m = build_deep.write_parts(arts, d)
+            self.assertEqual(m["count"], 300)
+            saved = (deep.DIR, deep.URL, deep._manifest, dict(deep._titles))
+            try:
+                deep.DIR, deep.URL = d, ""
+                deep.load_manifest()
+                self.assertEqual(deep.part_of("Тема 7"), build_deep.zlib.crc32("Тема 7".encode()) % m["n"])
+                self.assertEqual(deep.article("тема 7")["lead"], "Тема 7 — это тема номер 7.")
+            finally:
+                deep.DIR, deep.URL, deep._manifest, deep._titles = saved
+            with open(os.path.join(d, "sense.json.gz"), "wb") as f:
+                f.write(gzip.compress(b'{"dim": 1, "words": ["a"], "vectors": "AQ=="}'))
+            with tempfile.TemporaryDirectory() as out:
+                import shutil
+                shutil.copytree(d, os.path.join(out, "repo", "deep"))
+                with mock.patch.object(make_hosting, "BASE", os.path.join(out, "repo")):
+                    n = make_hosting.write_deep(os.path.join(out, "site", "deep"))
+                self.assertEqual(n, m["n"])
+                for name in os.listdir(os.path.join(out, "site", "deep")):
+                    path = os.path.join(out, "site", "deep", name)
+                    self.assertTrue(name.endswith(".php"))
+                    self.assertLess(os.path.getsize(path), 30 * 1024 * 1024)
+                back = json.loads(make_hosting.read_kb(os.path.join(out, "site", "deep", "manifest.php")))
+                self.assertEqual(back["count"], 300)
+                part = json.loads(make_hosting.read_kb(os.path.join(out, "site", "deep", "00.php")))
+                self.assertTrue(all(t.startswith("Тема") for t in part))
+
+    @unittest.skipUnless(__import__("importlib").util.find_spec("numpy") and __import__("importlib").util.find_spec("scipy"), "нет numpy/scipy")
+    def test_train_sense(self):
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+        import build_deep
+        import sense
+        paras = []
+        for _ in range(40):
+            paras += [nlp.tokens("планета вращается по орбите вокруг звезды солнце"), nlp.tokens("звезда солнце светит планете на орбите"),
+                      nlp.tokens("борщ варят из свеклы капусты и мяса суп"), nlp.tokens("суп борщ с капустой и свеклой вкусный обед")]
+        model = build_deep.train_sense(paras, vocab_size=100, dim=4, min_count=2)
+        saved = (sense._dim, sense._words, sense._index, sense._vecs, sense._related)
+        try:
+            sense.load(model)
+            self.assertGreater(sense.similarity("планета", "звезды солнце"), sense.similarity("планета", "борщ с капустой"))
+        finally:
+            sense._dim, sense._words, sense._index, sense._vecs, sense._related = saved
 
 
 if __name__ == "__main__":

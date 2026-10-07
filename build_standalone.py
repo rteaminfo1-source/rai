@@ -14,7 +14,7 @@ import os
 import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FILES = ["meds.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
+FILES = ["meds.py", "mind.py", "deep.py", "sense.py", "codemind.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
          "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"]
 
 
@@ -49,6 +49,8 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
     vision_path = os.path.join(BASE_DIR, "vision_labels.json")
     if cdn:
         html = html.replace("window.RAI_PYODIDE_SOURCES = [", 'window.RAI_KB_URL = "kb.php";\n  window.RAI_VISION_URL = "vision.php";\n  window.RAI_PYODIDE_SOURCES = [', 1)
+        if os.path.exists(os.path.join(BASE_DIR, "deep", "manifest.json")):   # глубокие знания — папка deep/ (части до 30 МБ)
+            html = html.replace("window.RAI_PYODIDE_SOURCES = [", 'window.RAI_DEEP_URL = "deep/";\n  window.RAI_PYODIDE_SOURCES = [', 1)
         if os.path.exists(os.path.join(BASE_DIR, "medicines.json")):   # большая база лекарств — отдельным файлом meds.php
             html = html.replace("window.RAI_PYODIDE_SOURCES = [", 'window.RAI_MEDS_URL = "meds.php";\n  window.RAI_PYODIDE_SOURCES = [', 1)
     elif os.path.exists(vision_path):  # словарь зрения (~0,3 МБ) — внутрь офлайн-версии

@@ -1,0 +1,68 @@
+# Глубокие знания Rai: статьи Википедии целиком по разделам (папка deep/, части по ~1 МБ, любой файл меньше 30 МБ)
+# и модель смыслов «Rai Смысл» (deep/sense.json.gz) — собирает tools/build_deep.py. Раз в месяц сама, а ещё
+# вручную: Actions → «Глубокие знания Rai» → Run workflow. После сборки сайт выкладывается сам (если настроен FTP).
+name: Глубокие знания Rai
+
+on:
+  push:
+    branches: [main, claude/peaceful-allen-c7nn4t]
+    paths:
+      - "tools/build_deep.py"
+      - ".github/workflows/deep.yml"
+  schedule:
+    - cron: "23 2 7 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: deep
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Библиотеки для модели смыслов
+        run: pip install numpy scipy
+
+      - name: Собрать глубокие знания и модель смыслов
+        env:
+          RAI_BUILD_MINUTES: "170"
+        run: python tools/build_deep.py -o deep
+
+      - name: Проверить размеры (каждый файл меньше 30 МБ)
+        run: |
+          find deep -type f -size +29M -print -exec false {} +
+          du -sh deep
+
+      - name: Сохранить в репозиторий
+        id: save
+        run: |
+          git add deep
+          if git diff --cached --quiet; then
+            echo "Глубокие знания не изменились"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          count=$(python -c "import json; print(json.load(open('deep/manifest.json', encoding='utf-8'))['count'])")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Глубокие знания Rai: $count статей целиком + модель смыслов [skip ci]"
+          for i in 1 2 3; do git pull --rebase origin "$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && break; sleep 5; done
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Выложить сайт
+        if: steps.save.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-hosting.yml --ref "$GITHUB_REF_NAME"

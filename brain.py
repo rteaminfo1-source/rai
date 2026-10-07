@@ -5,7 +5,9 @@
 2. встроенные навыки (калькулятор, время, конвертер, …);
 3. поиск по базе знаний knowledge.json (+ learned.json);
 4. поиск по запомненным фактам (Pro Sun);
-5. если ничего не подошло — честно говорит и предлагает похожие темы.
+5. Rai Разум (mind.py): сам рассуждает — план, поиск в своей базе и интернете, чтение, проверка ответа;
+   уровень размышления (Low…Ultra) выбирается внизу чата и приходит в PROFILE["level"];
+6. если ничего не подошло — честно говорит и предлагает похожие темы.
 """
 
 import json
@@ -18,12 +20,15 @@ from collections import OrderedDict
 
 import codeai
 import codelib
+import codemind
 import compare
 import creative
+import deep
 import net
 import nlp
 import meds
 import memes
+import mind
 import moderation
 import online
 import proglangs
@@ -250,7 +255,8 @@ class Brain:
 
     # ------------------------------------------------------------ ответы
 
-    def answer(self, version: Version, message: str, session_id=None, history=None) -> dict:
+    def answer(self, version: Version, message: str, session_id=None, history=None, level=None) -> dict:
+        _REQ.level = level if level in mind.LEVELS else PROFILE.get("level")
         message = (message or "").strip()
         if not message:
             raise RaiError("Пустой запрос.")
@@ -483,6 +489,12 @@ class Brain:
             if known:
                 return self._known(known, attachments), "encyclopedia"
 
+        # ---- «подумай…», «исследуй…», «объясни подробно…» — Rai Разум: план, поиск, чтение, проверка
+        if not codeai.is_build_request(text) and not codeai.extract_code(text)[0] and mind.explicit(text):
+            thought = self._think(version, text, attachments, min_conf=0.35)
+            if thought:
+                return thought
+
         # ---- разговор: стихи, советы фильмов и книг, поддержка
         if talk.is_poem_request(text) and not creative.is_slides_request(text):
             return talk.poem(text), "poem"
@@ -509,6 +521,13 @@ class Brain:
             asked = encyclopedia.question(text)
             if asked and asked.get("life"):
                 return self._known(asked, attachments), "encyclopedia"
+
+        # ---- уровень Code: вычислительная задача — Rai пишет программу, запускает и показывает результат
+        if _level() == "code" and "code" in version.skills and not codeai.extract_code(text)[0]:
+            built = codemind.generate(text, codelib.lang_from_text(text))
+            if built:
+                self._code_attachment(built, attachments)
+                return built["about"], "code"
 
         # ---- 100+ точных функций: математика, деньги, здоровье, время, текст, справочник, игры (toolbox, facts, games)
         if not codeai.is_build_request(text) and not online.explicit_search(text):  # «найди …» — это интернет
@@ -592,6 +611,11 @@ class Brain:
         # Готовая тема из базы знаний важнее, только если она про то же самое (а не «как работает» → отладка кода).
         asked = None if code_answer else encyclopedia.question(text)
         if asked and not (best >= version.threshold and self._about(results[0][0], asked["title"])):
+            # «почему…», «как работает…» — в глубоких знаниях есть статья целиком: Rai Разум ответит полнее
+            if not asked.get("life") and mind.richer(text, asked["title"]):
+                thought = self._think(version, text, attachments, min_conf=0.55)
+                if thought:
+                    return thought
             return self._known(asked, attachments), "encyclopedia"
 
         if version.memory:
@@ -630,6 +654,12 @@ class Brain:
                     session.pop("last_intent", None)
             return self._render(intent, version, session), intent["id"]
 
+        # ---- Rai Разум: вопрос, на который нет готового ответа, — подумать самому (своя база + интернет)
+        if not code_answer and self._worth_searching(text) and mind.wants(text):
+            thought = self._think(version, text, attachments, min_conf=0.4)
+            if thought:
+                return thought
+
         note = ""
         if "web" in version.skills and self._worth_searching(text):
             try:
@@ -640,6 +670,24 @@ class Brain:
             if found:
                 return found
         return self._fallback(version, results, text) + note, None
+
+    def _think(self, version, text, attachments, min_conf=0.4):
+        """Rai Разум: (ответ, "mind") — уверен; (ответ, "mind_draft") — черновик, нейросеть (если включена) может
+        переписать его своими словами; None — не получилось. Ход мыслей — вложением «Как Rai думал»."""
+        level = _level() or ("high" if version.detailed else mind.DEFAULT_LEVEL)
+        subject = mind.understand(text)["subject"]
+        local = [{"title": a["title"], "text": a["answers"][0], "src": "Словарь Rai"}
+                 for a in (self._glossary_for(subject, 2) if subject else [])]
+        try:
+            r = mind.think(text, web="web" in version.skills, local=local, min_conf=min_conf, level=level)
+        except net.NetError:
+            return None
+        if not r:
+            return None
+        attachments.append({"type": "trace", "title": "Как Rai думал", "steps": r["trace"]})
+        if r.get("photo"):
+            attachments.append(dict(r["photo"], type="photo"))
+        return r["text"], ("mind" if r["confidence"] >= 0.55 else "mind_draft")
 
     def _enrich(self, version, text, answer, attachments):
         """Quasar: дополнить короткое определение фактами из Википедии (если статья про то же самое)."""
@@ -700,7 +748,8 @@ class Brain:
         req = creative.parse_deck_request(text)
         topic = req["topic"] or (" и ".join(req["compare"]) if req["compare"] else "")
         theme = creative.deck_theme(text)
-        online_ok = "web" in version.skills
+        level = _level() or ("high" if version.detailed else mind.DEFAULT_LEVEL)
+        online_ok = "web" in version.skills and level != "low"      # Low — мгновенно, из своих знаний
         results = self.search(version, topic, limit=4, correct=False) if topic else []
         found = [self.intents[k] for k, score in results if score >= version.threshold * 0.8]
         big = version.detailed
@@ -724,6 +773,15 @@ class Brain:
             page = web(online.wiki_page, topic)
             if page and not online._relevant(topic, page["title"] + " " + page["lead"][:800]):
                 page = None
+        from_deep, researched = False, []
+        if not page and topic and deep.ready():
+            # нет интернета (или Low) — статья целиком из глубоких знаний Rai (собирает GitHub)
+            art = deep.find(topic)
+            if art:
+                known = encyclopedia.lookup(art["title"]) or {}
+                page = {"title": art["title"], "lead": art["lead"], "sections": art["sections"], "link": art["url"],
+                        "image": known.get("image"), "lang": "ru"}
+                from_deep = True
         web_articles = []
         if page:
             photo = page["image"]
@@ -773,6 +831,14 @@ class Brain:
                 found.append({"title": art["title"], "answers": [art["text"]], "web": True})
                 if set(nlp.tokens(topic)) <= set(nlp.tokens(art["title"])):
                     topic = art["title"]
+        # Extra и Ultra: исследование темы с разных сторон — несколько сайтов (история, факты, значение…)
+        if level in ("extra", "ultra") and online_ok and topic and not offline:
+            more, research_notes = mind.research(topic, web=True, want=req["sections"], budget=10 if level == "ultra" else 6)
+            for d in more:
+                if d.get("src") == "сайт" and all(d["title"] != a.get("title") for a in found):
+                    found.append({"title": d["title"], "answers": [d["text"]], "web": True, "url": d["url"],
+                                  "blocks": creative.web_blocks(d["title"], d["text"], first=False)})
+            researched = [n for n in research_notes if "сайт" in n]
         if req["pictures"] != "none" and page:
             photos = [p["url"] for p in (web(online.wiki_images, page["title"], page["lang"]) or [])] + photos
         # Отдельно заказанные слайды: сравнение, цитата, таблица
@@ -824,7 +890,7 @@ class Brain:
         quality = creative.deck_quality(deck, req["count"], req["pictures"])
         redone = []
         # Плохой результат (мало слайдов, пустые пункты, нет фото) — ищем ещё текст и фото в интернете и пересобираем
-        if online_ok and (topic or title) and quality["score"] < 75 and not offline:
+        if online_ok and (topic or title) and quality["score"] < (90 if level in ("extra", "ultra") else 75) and not offline:
             query = topic or title
             if quality["needs_text"]:
                 more, seen_urls = [], set()
@@ -877,9 +943,10 @@ class Brain:
         colors = " в ваших цветах" if theme["custom"] else ""
         done = []
         if page:
-            done.append(f"текст — из Википедии ([{page['title']}]({page['link']}))")
+            done.append(f"текст — из {'знаний Rai: статья Википедии целиком' if from_deep else 'Википедии'} ([{page['title']}]({page['link']}))")
         if any(s.get("pic") for s in deck["slides"]):
             done.append("фото — из интернета")
+        done += researched
         kinds = {s["kind"] for s in deck["slides"]}
         names = {"timeline": "хронология", "stats": "цифры", "table": "таблица", "quote": "цитата", "compare": "сравнение"}
         done += [names[k] for k in names if k in kinds]
@@ -1141,8 +1208,14 @@ def _word_forms(word):
     return forms
 
 
-# Профиль из аккаунта на сайте (страница передаёт его с каждым вопросом): {"name": "Аня"}
+# Профиль из аккаунта на сайте (страница передаёт его с каждым вопросом): {"name": "Аня", "region": "RU",
+# "level": "high"} — level: уровень размышления, выбранный внизу чата (mind.LEVELS)
 PROFILE = {}
+_REQ = threading.local()   # уровень размышления текущего запроса (на сервере запросы идут в разных потоках)
+
+
+def _level():
+    return getattr(_REQ, "level", None) or None
 
 
 def _name_from_history(history):

@@ -8,27 +8,32 @@
  */
 
 // Тарифы по умолчанию. neuro_day — сообщений нейросети в день (0 — без ограничений).
-// models — какие модели Rai Нейро доступны: fast (Лайт), normal (Стандарт), strong (Про), max (Макс), coder (Код).
+// models — какие модели внешней нейросети доступны (если её подключили): fast, normal, strong, max, coder.
+// levels — уровни размышления своего движка Rai (выбор внизу чата): low, medium, high, extra, code, ultra.
 const PLAN_DEFAULTS = [
     'free' => [
         'name' => 'Старт', 'price' => 0, 'neuro_day' => 15, 'think' => false, 'models' => ['fast', 'normal'],
+        'levels' => ['low', 'medium', 'high'],
         'tagline' => 'Чтобы познакомиться',
-        'features' => ['15 сообщений нейросети в день', 'Модели Лайт и Стандарт', 'Движок Rai без ограничений: погода, курсы, перевод, код, презентации', 'Чаты в аккаунте на всех устройствах'],
+        'features' => ['Rai думает сам: уровни Low, Medium и High', 'Поиск и чтение сайтов, ответы со ссылками', 'Погода, курсы, перевод, код, презентации — без ограничений', 'Чаты в аккаунте на всех устройствах'],
     ],
     'plus' => [
         'name' => 'Плюс', 'price' => 249, 'neuro_day' => 150, 'think' => true, 'models' => ['fast', 'normal', 'strong'],
+        'levels' => ['low', 'medium', 'high', 'extra', 'code'],
         'tagline' => 'Для учёбы и каждого дня',
-        'features' => ['150 сообщений нейросети в день', 'Модель Про — умнее и точнее', 'Режим «Думать глубже» для сложных задач', 'Разбор соцсетей и сайтов нейросетью'],
+        'features' => ['Уровни Extra и Code: глубже ищет, сам пишет и проверяет программы', 'Разбор тем по разделам статей', 'Разбор соцсетей и сайтов', 'Внешняя нейросеть: 150 сообщений в день'],
     ],
     'premium' => [
         'name' => 'Премиум', 'price' => 599, 'neuro_day' => 600, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
+        'levels' => ['low', 'medium', 'high', 'extra', 'code', 'ultra'],
         'tagline' => 'Для работы и кода', 'popular' => true,
-        'features' => ['600 сообщений нейросети в день', 'Все модели: Макс (9B) и Код (7B)', 'Rai Code с самой сильной моделью для программ', 'Приоритетная поддержка'],
+        'features' => ['Все уровни, включая Ultra: максимум источников и сверка', 'Rai Code: программы с проверкой запуском', 'Внешняя нейросеть: 600 сообщений в день', 'Приоритетная поддержка'],
     ],
     'ultra' => [
         'name' => 'Ультра', 'price' => 1290, 'neuro_day' => 0, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
+        'levels' => ['low', 'medium', 'high', 'extra', 'code', 'ultra'],
         'tagline' => 'Без ограничений',
-        'features' => ['Нейросеть без лимита', 'Все модели и режимы', 'Ранний доступ к новым моделям и функциям', 'Личная поддержка команды Rteam'],
+        'features' => ['Все уровни размышления без ограничений', 'Внешняя нейросеть без лимита', 'Ранний доступ к новым функциям', 'Личная поддержка команды Rteam'],
     ],
 ];
 const PAID_PLANS = ['plus', 'premium', 'ultra'];
@@ -231,8 +236,19 @@ function limits_state($user) {
         'models' => $user ? $p['models'] : PLAN_DEFAULTS['free']['models'],
         'think' => $user ? (bool)$p['think'] : false,
         'unlock' => model_unlocks(),
+        'levels' => $user ? ($p['levels'] ?? PLAN_DEFAULTS['free']['levels']) : PLAN_DEFAULTS['free']['levels'],
+        'level_unlock' => level_unlocks(),
         'pricing' => './#pricing',
     ];
+}
+
+/** Для каждого уровня размышления — самый дешёвый тариф, где он есть: {"extra": "Плюс", "ultra": "Премиум"}. */
+function level_unlocks() {
+    $out = [];
+    $paid = array_intersect_key(plans(), array_flip(PAID_PLANS));
+    uasort($paid, function ($a, $b) { return $a['price'] <=> $b['price']; });
+    foreach ($paid as $p) foreach (($p['levels'] ?? []) as $l) if (!isset($out[$l])) $out[$l] = $p['name'];
+    return $out;
 }
 
 /** Для каждой модели — самый дешёвый тариф, где она есть: {"strong": "Плюс", "max": "Премиум", …}. */

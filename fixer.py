@@ -77,7 +77,18 @@ def known(word):
     """Известное русское слово (или его форма)."""
     w = word.lower().replace("ё", "е")
     L = lex()
-    return w in L["words"] or w in nlp.COMMON or w in nlp.STOPWORDS or (len(w) > 3 and nlp.stem(w) in L["stems"])
+    if w in L["words"] or w in nlp.COMMON or w in nlp.STOPWORDS or (len(w) > 3 and nlp.stem(w) in L["stems"]):
+        return True
+    # формы прилагательных: «чётных», «нечётным», «простыми» — известны, если известна другая форма того же слова
+    for end, alts in _ADJ_FORMS:
+        if len(w) > len(end) + 2 and w.endswith(end) and any(w[:-len(end)] + a in L["words"] for a in alts):
+            return True
+    return False
+
+
+_ADJ_FORMS = (("ыми", ("ые", "ый", "ая")), ("ими", ("ие", "ий", "яя")), ("ых", ("ые", "ый", "ая", "ое")), ("их", ("ие", "ий", "ая", "ее")),
+              ("ым", ("ые", "ый", "ая")), ("им", ("ие", "ий", "ая")), ("ую", ("ые", "ый", "ая")), ("ой", ("ые", "ый", "ая")),
+              ("ей", ("ие", "ий", "яя")))
 
 
 def _dist(a, b, limit):

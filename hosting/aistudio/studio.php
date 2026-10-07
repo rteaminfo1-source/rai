@@ -50,8 +50,8 @@ $initial = mb_strtoupper(mb_substr($user['name'] ?: $name, 0, 1));
     <section class="panel" aria-labelledby="h-ai">
       <h2 id="h-ai">ИИ-конструктор</h2>
       <div class="ai-mode" id="aiMode" role="group" aria-label="Чем делать сайт">
-        <button type="button" data-mode="neuro"><b>🧠 Нейросеть Rai</b><small>сама придумывает сайт: разделы, тексты, цены, отзывы — под ваш запрос</small></button>
-        <button type="button" data-mode="template"><b>⚡ Быстрые шаблоны</b><small>мгновенно, без нейросети: готовые разделы и тексты-образцы</small></button>
+        <button type="button" data-mode="template"><b>⚡ Конструктор Rai</b><small>мгновенно, ничего не скачивает: свои разделы, тексты и дизайн по описанию</small></button>
+        <button type="button" data-mode="neuro"><b>🧠 Внешняя нейросеть</b><small>необязательно: придумывает тексты сама, но сначала скачивает модель (0,5–5 ГБ)</small></button>
       </div>
       <div class="neuro-bar" id="neuroBar">
         <div class="row">

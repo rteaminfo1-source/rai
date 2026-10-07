@@ -21,6 +21,31 @@
   }, window.RAI_CONFIG || {});
   /* Откуда пробовать загрузить Pyodide, по очереди: свой адрес (если задан),
      папка pyodide/ рядом со страницей (есть в репозитории), затем CDN. */
+  // Телефон, планшет или компьютер — у каждого свои настройки. На компьютере интерфейс подстраивается под монитор:
+  // на большом экране всё крупнее, в маленьком окне — чуть мельче (вручную: меню модели → «Масштаб»).
+  (function () {
+    var root = document.documentElement;
+    var coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+    var small = Math.min(screen.width || 0, screen.height || 0) < 600;
+    root.dataset.device = coarse && small ? "phone" : coarse ? "tablet" : "pc";
+    function wanted() {
+      var saved = null;
+      try { saved = localStorage.getItem("rai_zoom"); } catch (e) { /* по умолчанию — авто */ }
+      if (saved && saved !== "auto" && !isNaN(+saved)) return Math.min(2, Math.max(0.6, +saved));
+      if (root.dataset.device !== "pc" || innerWidth < 1000) return 1;
+      var r = Math.min(innerWidth / 1440, innerHeight / 820);
+      var z = r >= 1 ? Math.min(1.6, 1 + (r - 1) * 0.55) : Math.max(0.9, r);
+      return Math.abs(z - 1) < 0.04 ? 1 : Math.round(z * 20) / 20;
+    }
+    function scale() {
+      var z = wanted();
+      if (z === 1) { root.style.removeProperty("zoom"); root.style.removeProperty("--z"); delete root.dataset.zoom; }
+      else { root.style.zoom = z; root.style.setProperty("--z", z); root.dataset.zoom = String(z); }
+    }
+    window.RaiScale = {apply: scale, current: wanted};
+    scale();
+    addEventListener("resize", scale);
+  })();
   window.RAI_PYODIDE_SOURCES = [
     "pyodide/",
     "https://cdn.jsdelivr.net/npm/pyodide@314.0.7/",
@@ -597,6 +622,61 @@
     .welcome { padding-block: 2vh 12px; }
   }
   @media (prefers-reduced-motion: reduce) { .msg { animation: none; } }
+
+  /* ---------- выбор модели и уровня размышления — внизу, под полем ввода ---------- */
+  .pickers { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; flex-wrap: wrap; min-width: 0; }
+  .pick { position: relative; }
+  .pick-btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--glass); color: var(--fg); font: 500 13px/1 var(--font-body); cursor: pointer;
+    transition: border-color .2s, background .2s; max-width: 260px; }
+  .pick-btn:hover, .pick-btn[aria-expanded="true"] { border-color: var(--line-2); background: var(--glass-2); }
+  .pick-btn .pk-ic { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800;
+    background: var(--grad); color: #fff; flex: none; }
+  .pick-btn .pk-ic.lv { background: none; font-size: 14px; }
+  .pick-btn .pk-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pick-btn .chev { color: var(--muted); font-size: 10px; }
+  .pick-btn[data-level="ultra"] { border-color: rgba(255, 209, 102, .55); }
+  .pick-btn[data-level="code"] { border-color: rgba(120, 200, 255, .5); }
+  .pick-menu { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40; width: 330px; max-height: min(70vh, 520px); overflow: auto;
+    background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 16px; padding: 6px; box-shadow: 0 18px 50px rgba(0, 0, 0, .55); }
+  .pick-menu .pm-head { padding: 8px 10px 6px; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .pick-menu button.pm-item { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; width: 100%; text-align: left; padding: 9px 10px;
+    border: 0; border-radius: 10px; background: none; color: var(--fg); cursor: pointer; font: inherit; }
+  .pick-menu button.pm-item:hover, .pick-menu button.pm-item:focus-visible { background: rgba(255, 255, 255, .06); outline: none; }
+  .pick-menu button.pm-item[aria-checked="true"] { background: rgba(255, 61, 129, .12); }
+  .pick-menu .pm-name { font-weight: 600; font-size: 14px; }
+  .pick-menu .pm-desc { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+  .pick-menu .pm-mark { font-size: 13px; color: var(--pink, #ff3d81); }
+  .pick-menu button.pm-item.locked { opacity: .55; }
+  .pick-menu button.pm-item.locked .pm-mark { color: var(--muted); font-size: 11.5px; }
+  .pick-menu .pm-sep { height: 1px; background: var(--line); margin: 6px 4px; }
+  .pick-menu .pm-ext { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; background: none; color: var(--muted);
+    font: 12.5px/1.4 var(--font-body); cursor: pointer; border-radius: 10px; }
+  .pick-menu .pm-ext:hover { color: var(--fg); background: rgba(255, 255, 255, .04); }
+  .pick-note { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  #versions, #features { display: none; }
+  .neuro-btn[hidden] { display: none !important; }
+
+  /* ---------- телефон: крупные кнопки, меню снизу на всю ширину, без тяжёлых эффектов ---------- */
+  html[data-device="phone"] #input { font-size: 16px; }   /* меньше 16px — iPhone увеличивает страницу при вводе */
+  html[data-device="phone"] .composer { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); backdrop-filter: none; -webkit-backdrop-filter: none;
+    background: rgba(7, 7, 11, .96); }
+  html[data-device="phone"] .msg { animation: none; }
+  html[data-device="phone"] #sidebar, html[data-device="phone"] #toast { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  html[data-device="phone"] .pick-btn { height: 34px; font-size: 13px; }
+  html[data-device="phone"] .pick-note { display: none; }
+  html[data-device="phone"] .pick-menu { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto;
+    max-height: 70vh; border-radius: 20px; padding: 8px; }
+  html[data-device="phone"] .pick-menu button.pm-item { padding: 12px; }
+  html[data-device="phone"] .pick-menu .pm-name { font-size: 15px; }
+  html[data-device="phone"] details.trace .step .md { max-height: 200px; }
+  @media (max-width: 420px) { .pick-btn { max-width: 47vw; } }
+
+  /* ---------- компьютер: шире колонка чата; на больших мониторах всё крупнее (масштаб считает скрипт) ---------- */
+  html[data-device="pc"] .inner { max-width: 900px; }
+  @media (min-width: 1500px) { html[data-device="pc"] .inner { max-width: 960px; } html[data-device="pc"] .app { grid-template-columns: 300px minmax(0, 1fr); } }
+  .stage:fullscreen { width: calc(100vw / var(--z, 1)); height: calc(100vh / var(--z, 1)); }
+  .stage:fullscreen .slide { width: min(calc(100vw / var(--z, 1)), calc(177.78vh / var(--z, 1))); }
 </style>
 <style id="slide-css">
   /* Цвета слайда — из темы презентации (--s-*), по умолчанию чёрно-красные */
@@ -778,7 +858,7 @@
         <button type="button" role="tab" id="modeSlides" aria-selected="false"><svg class="i"><use href="#i-full"/></svg>Слайды</button>
       </div>
       <span class="spacer"></span>
-      <button id="neuroBtn" class="neuro-btn" type="button" data-state="off" title="Нейросеть в браузере: сама пишет код и отвечает на любые вопросы">
+      <button id="neuroBtn" class="neuro-btn" type="button" data-state="off" hidden title="Нейросеть в браузере: сама пишет код и отвечает на любые вопросы">
         <span class="nd" aria-hidden="true"></span><span id="neuroText">Нейросеть</span></button>
       <div class="status" id="status" data-state="loading" role="status" aria-live="polite">
         <span class="dot" aria-hidden="true"></span><span id="statusText">Подключение…</span>
@@ -826,7 +906,20 @@
         <button id="mic" class="round" type="button" aria-label="Голосовой ввод" title="Голосовой ввод"><svg class="i"><use href="#i-mic"/></svg></button>
         <button id="send" class="round" type="submit" aria-label="Отправить" title="Отправить (Enter)"><svg class="i"><use href="#i-send"/></svg></button>
       </form>
-      <p class="hint">Enter — отправить, Shift+Enter — новая строка. Скрепка — любые файлы: документы, таблицы, PDF, код, архивы, звук, видео, картинки (или Ctrl+V), экран — снимок и запись.</p>
+      <div class="pickers" id="pickers">
+        <div class="pick">
+          <button type="button" class="pick-btn" id="modelBtn" aria-haspopup="menu" aria-expanded="false" title="Модель Rai">
+            <span class="pk-ic" aria-hidden="true">R</span><span class="pk-name" id="modelName">Rai</span><span class="chev" aria-hidden="true">▾</span></button>
+          <div class="pick-menu" id="modelMenu" role="menu" aria-label="Модель" hidden></div>
+        </div>
+        <div class="pick">
+          <button type="button" class="pick-btn" id="levelBtn" aria-haspopup="menu" aria-expanded="false" title="Сколько думать">
+            <span class="pk-ic lv" aria-hidden="true">🧠</span><span class="pk-name" id="levelName">Medium</span><span class="chev" aria-hidden="true">▾</span></button>
+          <div class="pick-menu" id="levelMenu" role="menu" aria-label="Сколько думать" hidden></div>
+        </div>
+        <span class="pick-note" id="pickNote"></span>
+      </div>
+      <p class="hint">Enter — отправить, Shift+Enter — новая строка. Скрепка — любые файлы, картинки (или Ctrl+V), экран — снимок и запись.</p>
     </div>
     </section>
     <section id="codeView" aria-label="Code" hidden></section>
@@ -886,7 +979,7 @@
   if (params.get("pyodide")) CFG.pyodide = params.get("pyodide");
   if (params.get("py")) CFG.pyBase = params.get("py");
 
-  const PY_FILES = ["meds.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
+  const PY_FILES = ["meds.py", "mind.py", "deep.py", "sense.py", "codemind.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
                     "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
@@ -906,8 +999,8 @@
     ["Нарисуй закат над морем", "картинка"],
     ["Презентация про космос в синих тонах", "презентация в ваших цветах"],
     ["Напиши игру змейка", "код · Pro Plus / Sun / Quasar"],
-    ["Найди в интернете Эйфелева башня", "поиск в интернете"],
-    ["Сделай архив чата", "ZIP: ответы, картинки, слайды, код"]
+    ["Подумай, почему вымерли динозавры", "рассуждает, ищет и проверяет"],
+    ["Напиши программу: сумма чётных чисел от 1 до 100", "пишет код и проверяет запуском"]
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -1250,6 +1343,7 @@
     }
     const cur = VERSIONS.find((v) => v.id === chat.version);
     $("features").textContent = cur ? cur.name + ": " + (cur.features || []).join(" · ") : "";
+    renderPickers();
     // на телефоне версии листаются — выбранная должна быть видна
     const on = box.querySelector('[aria-pressed="true"]');
     if (on && box.scrollWidth > box.clientWidth) {
@@ -1257,6 +1351,126 @@
       if (left < box.scrollLeft || right > box.scrollLeft + box.clientWidth) box.scrollLeft = right - box.clientWidth + 16;
     }
   }
+  // ---------------------------------------------------------------- внизу у поля ввода: модель и «сколько думать»
+  // Отвечает свой движок Rai (Python в браузере) — ничего не скачивает, кроме своих файлов с сайта (их собирает GitHub).
+  // Внешняя нейросеть Qwen больше не нужна и не загружается сама: её можно подключить вручную в меню модели.
+  const LEVELS = [
+    {id: "low", name: "Low", icon: "⚡", about: "Мгновенно: только своя база знаний, без интернета"},
+    {id: "medium", name: "Medium", icon: "🧠", about: "Своя база + Википедия и поиск в интернете"},
+    {id: "high", name: "High", icon: "🧠", about: "Читает найденные страницы и перепроверяет ответ"},
+    {id: "extra", name: "Extra", icon: "🔬", about: "Несколько кругов поиска и разбор темы по разделам"},
+    {id: "code", name: "Code", icon: "💻", about: "Сначала код: пишет программу, запускает и проверяет её"},
+    {id: "ultra", name: "Ultra", icon: "🚀", about: "Максимум: много источников, сверка чисел, подробный отчёт"}
+  ];
+  const DEVICE = document.documentElement.dataset.device || "pc";
+  function planInfo() { try { return limits; } catch (e) { return null; } }   // тариф может быть ещё не загружен
+  function levelAllowed(id) { const l = planInfo(); return !l || !Array.isArray(l.levels) || l.levels.includes(id); }
+  function currentLevel() {
+    let v = null;
+    try { v = localStorage.getItem("rai_level"); } catch (e) { /* по умолчанию */ }
+    if (!LEVELS.some((l) => l.id === v)) v = DEVICE === "phone" ? "medium" : "high";   // на телефоне — быстрее и меньше трафика
+    if (!levelAllowed(v)) v = ["high", "medium", "low"].find(levelAllowed) || "low";
+    return v;
+  }
+  function externalBrain() {
+    try { return localStorage.getItem("rai_brain") === "qwen"; } catch (e) { return false; }
+  }
+  function closePickers(except) {
+    for (const [btn, menu] of [["modelBtn", "modelMenu"], ["levelBtn", "levelMenu"]]) {
+      if (menu === except) continue;
+      $(menu).hidden = true;
+      $(btn).setAttribute("aria-expanded", "false");
+    }
+  }
+  function togglePicker(btn, menu, render) {
+    const open = $(menu).hidden;
+    closePickers(menu);
+    if (open) render();
+    $(menu).hidden = !open;
+    $(btn).setAttribute("aria-expanded", String(open));
+    if (open) { const first = $(menu).querySelector('[aria-checked="true"]') || $(menu).querySelector("button"); if (first) first.focus(); }
+  }
+  function renderPickers() {
+    const chat = current() || {};   // чаты ещё не загружены — покажем версию по умолчанию
+    const v = VERSIONS.find((x) => x.id === chat.version) || VERSIONS[0];
+    $("modelName").textContent = v ? v.name : "Rai";
+    const lv = LEVELS.find((l) => l.id === currentLevel());
+    $("levelName").textContent = lv.name;
+    $("levelBtn").querySelector(".pk-ic").textContent = lv.icon;
+    $("levelBtn").dataset.level = lv.id;
+    $("levelBtn").title = "Сколько думать: " + lv.name + " — " + lv.about;
+    const ext = externalBrain() && window.RaiNeuro && window.RaiNeuro.ready();
+    $("pickNote").textContent = ext ? "подключена внешняя нейросеть" : lv.about;
+  }
+  function renderModelMenu() {
+    const chat = current() || {};
+    const menu = $("modelMenu");
+    const items = VERSIONS.map((v) => `<button type="button" class="pm-item" role="menuitemradio" data-id="${esc(v.id)}" aria-checked="${v.id === chat.version}">` +
+      `<span class="pm-name">${esc(v.name)}${v.id === TOP_VERSION ? " ✦" : ""}</span><span class="pm-mark">${v.id === chat.version ? "✓" : ""}</span>` +
+      `<span class="pm-desc">${esc(v.description || (v.features || []).slice(0, 4).join(" · "))}</span></button>`).join("");
+    const zoom = (window.RaiScale && window.RaiScale.current()) || 1;
+    const ext = externalBrain();
+    menu.innerHTML = `<div class="pm-head">Модель — свой движок Rai</div>${items}<div class="pm-sep"></div>` +
+      (DEVICE === "pc" ? `<button type="button" class="pm-ext" data-zoom="1">🔍 Масштаб: ${Math.round(zoom * 100)}% · ` +
+        `<u data-z="-">меньше</u> · <u data-z="auto">авто</u> · <u data-z="+">больше</u></button>` : "") +
+      `<button type="button" class="pm-ext" data-ext="1">${ext ? "⏻ Отключить внешнюю нейросеть Qwen (Rai ответит сам)" :
+        "Внешняя нейросеть Qwen — не нужна: Rai думает сам. Подключить вручную (скачивает 0,5–5 ГБ)…"}</button>`;
+    menu.querySelectorAll(".pm-item").forEach((b) => b.addEventListener("click", () => {
+      chat.version = lastVersion = b.dataset.id;
+      save(); renderVersions(); renderSidebar(); closePickers();
+      toast("Модель: " + ((VERSIONS.find((x) => x.id === b.dataset.id) || {}).name || b.dataset.id));
+    }));
+    const zb = menu.querySelector("[data-zoom]");
+    if (zb) zb.addEventListener("click", (e) => {
+      const what = (e.target.closest("[data-z]") || {}).dataset;
+      if (!what || !what.z) return;
+      let next = "auto";
+      if (what.z !== "auto") next = String(Math.min(2, Math.max(0.6, Math.round((zoom + (what.z === "+" ? 0.1 : -0.1)) * 20) / 20)));
+      try { localStorage.setItem("rai_zoom", next); } catch (err) { /* не сохранится */ }
+      window.RaiScale.apply();
+      renderModelMenu();
+    });
+    menu.querySelector("[data-ext]").addEventListener("click", () => {
+      closePickers();
+      if (ext) {
+        try { localStorage.setItem("rai_brain", "rai"); } catch (e) { /* ок */ }
+        if (window.RaiNeuro) window.RaiNeuro.disable();
+        $("neuroBtn").hidden = true;
+        toast("Внешняя нейросеть отключена — отвечает Rai");
+      } else {
+        try { localStorage.setItem("rai_brain", "qwen"); } catch (e) { /* ок */ }
+        $("neuroBtn").hidden = false;
+        $("neuroBtn").click();
+      }
+      renderPickers();
+    });
+  }
+  function renderLevelMenu() {
+    const cur = currentLevel();
+    const unlock = (planInfo() && planInfo().level_unlock) || {};
+    $("levelMenu").innerHTML = `<div class="pm-head">Сколько думать</div>` + LEVELS.map((l) => {
+      const ok = levelAllowed(l.id);
+      return `<button type="button" class="pm-item${ok ? "" : " locked"}" role="menuitemradio" data-id="${l.id}" aria-checked="${l.id === cur}">` +
+        `<span class="pm-name">${l.icon} ${l.name}</span><span class="pm-mark">${l.id === cur ? "✓" : ok ? "" : "🔒 " + esc(unlock[l.id] || "тариф")}</span>` +
+        `<span class="pm-desc">${esc(l.about)}</span></button>`;
+    }).join("");
+    $("levelMenu").querySelectorAll(".pm-item").forEach((b) => b.addEventListener("click", () => {
+      const l = LEVELS.find((x) => x.id === b.dataset.id);
+      closePickers();
+      if (!levelAllowed(l.id)) {
+        showPaywall(`Уровень ${l.name} есть в тарифе «${unlock[l.id] || "Премиум"}».`, "Думать: " + l.name);
+        return;
+      }
+      try { localStorage.setItem("rai_level", l.id); } catch (e) { /* не сохранится */ }
+      renderPickers();
+      toast(l.icon + " " + l.name + ": " + l.about.charAt(0).toLowerCase() + l.about.slice(1));
+    }));
+  }
+  $("modelBtn").addEventListener("click", () => togglePicker("modelBtn", "modelMenu", renderModelMenu));
+  $("levelBtn").addEventListener("click", () => togglePicker("levelBtn", "levelMenu", renderLevelMenu));
+  document.addEventListener("click", (e) => { if (!e.target.closest(".pick")) closePickers(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePickers(); });
+
 
   // ---------------------------------------------------------------- сообщения
   /** Страна посетителя (для лекарств и советов): по часовому поясу, иначе по языку браузера. ru, by, kz, ua, us, uk, de, tr, intl. */
@@ -1310,18 +1524,20 @@
     w.className = "inner welcome";
     const g = greeting();
     w.innerHTML = `<p class="hello">${esc(g.hello)}</p><h1>${esc(g.ask[0])}<span>${g.ask[1]}</span></h1>` +
-      `<p>Rai отвечает на вопросы, считает, делает таблицы, рисует картинки, собирает презентации в любых цветах и пишет код. ` +
+      `<p>Rai отвечает на вопросы, рассуждает, ищет в интернете, считает, собирает презентации и сам пишет и проверяет код. ` +
       `Можно писать или говорить голосом. Для программирования — вкладка <b>Code</b> сверху.</p>` +
       `<div class="examples"></div>`;
     const ex = w.querySelector(".examples");
     showSandboxNote(w);
-    if (window.RaiNeuro && !window.RaiNeuro.ready() && !window.RAI_SANDBOX) {
-      // Подсказка: с нейросетью Rai сам пишет любой код и отвечает на любые вопросы
+    {
+      // Подсказка: Rai думает сам — внизу выбирается, сколько думать (Low … Ultra)
       const tip = document.createElement("button");
       tip.type = "button";
       tip.className = "neuro-tip";
-      tip.innerHTML = `<b>🧠 Включить нейросеть</b><small>Rai сам напишет любой код и ответит на любой вопрос. Работает в браузере, без API.</small>`;
-      tip.addEventListener("click", () => $("neuroBtn").click());
+      const lv = LEVELS.find((l) => l.id === currentLevel());
+      tip.innerHTML = `<b>🧠 Rai думает сам · ${esc(lv.name)}</b><small>Ищет в своих знаниях и в интернете, читает сайты, проверяет себя и пишет код — ` +
+        `без внешних нейросетей. Сколько думать — выберите внизу: Low, Medium, High, Extra, Code или Ultra.</small>`;
+      tip.addEventListener("click", (e) => { e.stopPropagation(); togglePicker("levelBtn", "levelMenu", renderLevelMenu); });
       w.insertBefore(tip, ex);
     }
     for (const [q, note] of EXAMPLES) {
@@ -1795,7 +2011,7 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
         const r = await fetch(root + "api/chat", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({message: message, version: v, session_id: sessionId, history: history})
+          body: JSON.stringify({message: message, version: v, session_id: sessionId, history: history, level: currentLevel()})
         });
         return await r.json();
       },
@@ -1870,6 +2086,22 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     if (document.getElementById("rai-files") || !/^https?:$/.test(location.protocol)) return null;
     const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + "medicines.json", {cache: "no-cache"});
     return r.ok && (r.headers.get("content-type") || "").includes("json") ? r.text() : null;
+  }
+
+  // Глубокие знания: список тем (deep/manifest.php на сайте). Части — deep/00.php … (их читает сам Python).
+  async function readDeep() {
+    if (!window.RAI_DEEP_URL) return null;
+    const r = await fetch(window.RAI_DEEP_URL + "manifest.php");
+    return r.ok ? {text: await r.text(), base: new URL(window.RAI_DEEP_URL, location.href).href} : null;
+  }
+  // Модель смыслов «Rai Смысл» (deep/sense.php): несколько мегабайт — грузим после запуска и только когда сеть позволяет
+  async function readSense() {
+    if (!window.RAI_DEEP_URL) return null;
+    const conn = navigator.connection || {};
+    if (conn.saveData || (DEVICE === "phone" && /cellular|2g|3g/.test((conn.type || "") + " " + (conn.effectiveType || "")))) return null;
+    await new Promise((r) => setTimeout(r, DEVICE === "phone" ? 15000 : 4000));   // сначала — чат, потом модель
+    const r = await fetch(window.RAI_DEEP_URL + "sense.php");
+    return r.ok ? r.text() : null;
   }
 
   // Откуда Python для запуска программ во вкладке Code: сначала тот источник, что уже сработал.
@@ -2034,7 +2266,7 @@ _rai = brain.Brain(learned_path="/tmp/learned.json")
 def rai_ask(version_id, message, session_id, history_json="[]", profile_json="{}"):
     try:
         brain.PROFILE.clear()
-        brain.PROFILE.update({k: v for k, v in json.loads(profile_json or "{}").items() if k in ("name", "region") and isinstance(v, str)})
+        brain.PROFILE.update({k: v for k, v in json.loads(profile_json or "{}").items() if k in ("name", "region", "level") and isinstance(v, str)})
     except ValueError:
         pass
     v = versions.resolve(version_id)
@@ -2126,6 +2358,20 @@ def rai_code(action, code, lang, prompt):
       pyodide.FS.writeFile("/home/pyodide/rai/medicines.json", text);
       pyodide.runPython("import json, meds\nmeds.load(json.load(open('/home/pyodide/rai/medicines.json', encoding='utf-8')))");
     }).catch(() => null);   // нет большой базы — хватит встроенного справочника
+    // Глубокие знания Rai (статьи целиком, частями до 30 МБ — собирает GitHub): сначала только список тем,
+    // а сами части Python догружает по одной, когда нужна тема из этой части. Модель смыслов «Rai Смысл» —
+    // в фоне; на телефоне — только по Wi-Fi и не в режиме экономии трафика (без неё Rai работает по словам).
+    readDeep().then((d) => {
+      if (!d) return;
+      pyodide.FS.writeFile("/home/pyodide/rai/deep_manifest.json", d.text);
+      pyodide.runPython(`import deep\ndeep.URL = ${JSON.stringify(d.base)}\ndeep.MAX_PARTS = ${DEVICE === "phone" ? 3 : 8}\n` +
+        "deep.load_manifest(open('/home/pyodide/rai/deep_manifest.json', encoding='utf-8').read())");
+    }).catch(() => null);
+    readSense().then((text) => {
+      if (!text) return;
+      pyodide.FS.writeFile("/home/pyodide/rai/sense.json", text);
+      pyodide.runPython("import sense\nsense.load(open('/home/pyodide/rai/sense.json', encoding='utf-8').read())");
+    }).catch(() => null);
     const pyAsk = pyodide.globals.get("rai_ask");
     const pyVersions = pyodide.globals.get("rai_versions");
     const pyCode = pyodide.globals.get("rai_code");
@@ -2142,7 +2388,8 @@ def rai_code(action, code, lang, prompt):
       mode: "browser",
       async versions() { return JSON.parse(pyVersions()); },
       async ask(v, message, sessionId, history) {
-        return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history), JSON.stringify({name: userFirstName() || undefined, region: userRegion()})));
+        return JSON.parse(pyAsk(v, message, sessionId, JSON.stringify(history),
+          JSON.stringify({name: userFirstName() || undefined, region: userRegion(), level: currentLevel()})));
       },
       async code(action, code, lang, prompt) { return JSON.parse(pyCode(action, code || "", lang || "", prompt || "")); },
       async slides(action, args) { return JSON.parse(pySlides(action, JSON.stringify(args || {}))); },
@@ -2339,7 +2586,7 @@ def rai_code(action, code, lang, prompt):
             "3–5 идей для следующих публикаций. Таблицу с цифрами не повторяй — она уже показана.";
         }
         // Сложная задача (математика, логика, ошибки в коде) — нейросеть сначала думает; кнопка «лампочка» — думать всегда
-        reply = await neuroAnswer(pending, history, prompt, t0, facts.sources, {thinking: canThinkPlan() && (thinkOn() || isHard(text)), question: text});
+        reply = await neuroAnswer(pending, history, prompt, t0, facts.sources, {thinking: canThinkPlan() && (thinkOn() || isHard(text) || ["extra", "ultra"].includes(currentLevel())), question: text});
         reply.q = text;
         // Самообучение: Rai этого не знал — запоминает ответ нейросети и в следующий раз ответит сам
         const unknown = !data || intent.every((i) => !i || i === "unknown" || i === "web");
@@ -2505,7 +2752,7 @@ def rai_code(action, code, lang, prompt):
 
   // ---------------------------------------------------------------- нейросеть в чате
   // Ответ «из интернета» (web) нейросеть переписывает связным текстом со ссылками, остальное — точные инструменты Rai
-  const TOOL_INTENTS = new Set(["violation", "crisis", "tool", "game", "tools_list", "weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory", "meds"]);
+  const TOOL_INTENTS = new Set(["violation", "crisis", "tool", "game", "tools_list", "weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory", "meds", "mind"]);
   // Имя и личные факты при включённой нейросети запоминает она сама — навсегда и для всех чатов
   const NEURO_MEMORY_INTENTS = new Set(["set_name", "get_name", "memory"]);
   function isToolAnswer(data) {
@@ -2538,6 +2785,7 @@ def rai_code(action, code, lang, prompt):
       limits = await r.json();
       if (window.RaiNeuro && window.RaiNeuro.setAllowed) window.RaiNeuro.setAllowed(limits.models);
       renderLimits();
+      renderPickers();
     } catch (e) { /* без лимитов */ } finally { limitsDone(); }
   }
   function canThinkPlan() { return !limits || limits.think !== false; }
@@ -2638,10 +2886,10 @@ def rai_code(action, code, lang, prompt):
   // Справка из базы знаний Rai — для тем, где там точные сведения (программирование, команда Rteam)
   const KB_FACTS = new Set(["python", "python_hello", "python_loops", "python_functions", "python_lists", "variable", "php", "html", "css",
     "javascript", "sql", "git", "api", "json", "http_errors", "hosting", "flask", "ai", "algorithm", "debug", "learn_programming", "security",
-    "compare_python_php", "rteam", "creator", "contact", "join_team", "who_are_you", "abilities", "proglang", "meme"]);
+    "compare_python_php", "rteam", "creator", "contact", "join_team", "who_are_you", "abilities", "proglang", "meme", "mind_draft"]);
   function kbFacts(data) {
     const intents = [].concat(data.intent || []);
-    return data.answer && intents.some((i) => KB_FACTS.has(i)) ? data.answer.slice(0, 1800) : "";
+    return data.answer && intents.some((i) => KB_FACTS.has(i)) ? data.answer.slice(0, intents.includes("mind_draft") ? 3000 : 1800) : "";
   }
   async function viaProxy(params, ms) {
     const proxy = await proxyReady;
@@ -2811,10 +3059,13 @@ def rai_code(action, code, lang, prompt):
   function renderTrace(a) {
     const box = document.createElement("details");
     box.className = "trace";
-    const names = {think: "🧠 Ход мыслей", search: "🔎 Поиск", open: "📄 Прочитала страницу", python: "▶ Код", memory: "📌 Запомнила"};
-    box.innerHTML = `<summary>Как нейросеть отвечала · ${a.steps.length} ${a.steps.length === 1 ? "шаг" : a.steps.length < 5 ? "шага" : "шагов"}</summary>` +
+    const rai = !!a.title;
+    const names = {think: "🧠 Ход мыслей", search: "🔎 Поиск", open: rai ? "📄 Прочитал страницу" : "📄 Прочитала страницу", python: "▶ Код",
+      memory: "📌 Запомнила", read: "📖 Чтение", check: "✅ Проверка себя"};
+    const n = a.steps.length;
+    box.innerHTML = `<summary>${esc(a.title || "Как нейросеть отвечала")} · ${n} ${n % 10 === 1 && n % 100 !== 11 ? "шаг" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "шага" : "шагов"}</summary>` +
       a.steps.map((s) => `<div class="step"><b>${names[s.kind] || esc(s.kind)}</b>` + (
-        s.kind === "think" ? `<div class="md">${renderMarkdown(s.text || "")}</div>` :
+        s.kind === "think" || s.kind === "read" || s.kind === "check" ? `<div class="md">${renderMarkdown(s.text || "")}</div>` :
         s.kind === "search" || s.kind === "open" ? ` ${esc(s.query || "")}` + ((s.found || []).length ? `<ul>${s.found.slice(0, 5).map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : " — ничего не нашлось") :
         s.kind === "python" ? `<pre><code>${hl(s.code || "", "python")}</code></pre>` +
           `<pre class="out${s.error ? " err" : ""}">${esc((s.output || "").trim() || "(пусто)")}${s.error ? "\n" + esc(s.error) : ""}</pre>` :
@@ -3037,6 +3288,7 @@ def rai_code(action, code, lang, prompt):
       $("neuroOff").hidden = st.state === "off";
       $("thinkBtn").hidden = !(st.state === "ready" && N.canThink());
       renderMemory();
+      renderPickers();
       if (window.RaiCode && window.RaiCode.neuroChanged) window.RaiCode.neuroChanged();
     });
     $("neuroBtn").addEventListener("click", () => { renderNeuroModels(); renderMemory(); dialog.showModal ? dialog.showModal() : dialog.setAttribute("open", ""); });
@@ -3047,7 +3299,9 @@ def rai_code(action, code, lang, prompt):
     });
     $("neuroOff").addEventListener("click", () => { N.disable(); toast("Нейросеть выключена — отвечает движок Rai"); });
     initThink();
-    Promise.all([mirrorReady, limitsReady]).then(() => N.auto());
+    // Внешняя нейросеть загружается только если её выбрали в меню модели — по умолчанию отвечает свой движок Rai
+    $("neuroBtn").hidden = !externalBrain();
+    Promise.all([mirrorReady, limitsReady]).then(() => { if (externalBrain()) N.auto(); });
     $("memClear").addEventListener("click", () => { setMemory([]); renderMemory(); toast("Нейросеть всё забыла"); });
     // Нейросеть включается сама (после поиска своего сервера): модель подбирается под компьютер и грузится в фоне
   }

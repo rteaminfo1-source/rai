@@ -1395,11 +1395,29 @@ def find_task(text):
     return None
 
 
+# Простые задачи, где своя сборка программы (codemind) лучше готового примера, если в просьбе есть условия
+ALGO_KEYS = {"fizzbuzz", "fibonacci", "factorial", "prime", "sort", "palindrome", "wordcount", "temperature", "binary_search"}
+
+
 def generate(prompt, lang=None):
-    """Код по описанию: {"code", "lang", "filename", "title", "about"} или None."""
+    """Код по описанию: {"code", "lang", "filename", "title", "about"} или None.
+
+    Порядок: готовые программы и игры → Rai сам собирает программу по условиям задачи и проверяет её запуском
+    (codemind) → небольшие функции по образцу (funcgen)."""
+    import codemind
     key = find_task(prompt)
+    explicit = lang_from_text(prompt)
+    smart = None
+    if (not key or key in ALGO_KEYS) and explicit in (None, "python", "javascript", "typescript"):
+        smart = codemind.generate(prompt, explicit or lang)
+        own = smart and smart["ok"] and (not key or smart["score"] >= 4 or any(c["user"] for c in smart["checks"]))
+        if own:
+            return smart
     if not key:
-        return funcgen.generate(prompt, lang_from_text(prompt) or lang)
+        found = funcgen.generate(prompt, explicit or lang)
+        if found and not (smart and smart["score"] >= 3):
+            return found
+        return smart or found
     t = T[key]
     explicit = lang_from_text(prompt)
     # Игры и страницы по умолчанию делаем для браузера — их сразу видно в предпросмотре

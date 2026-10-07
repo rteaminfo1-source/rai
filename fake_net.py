@@ -88,6 +88,14 @@ APOD = {"title": "The Andromeda Galaxy", "date": "2026-10-04", "media_type": "im
 
 calls = []
 
+# Страницы, которые «читает» посредник net.php (?read=): {"url", "title", "text"}
+PAGES = {"https://example.ru/grass": {"url": "https://example.ru/grass", "title": "Почему трава зелёная — Наука просто", "text": (
+    "Подпишитесь на наш канал и получите скидку на курс!\n"
+    "Трава зелёная потому, что в её листьях много хлорофилла — пигмента, который поглощает красный и синий свет.\n"
+    "Зелёную часть солнечного света хлорофилл почти не поглощает, а отражает, поэтому трава и кажется нам зелёной.\n"
+    "Хлорофилл нужен растениям для фотосинтеза: с его помощью трава превращает энергию света в питательные вещества.\n"
+    "Осенью хлорофилл разрушается, и листья желтеют: становятся видны другие пигменты — каротиноиды.")}}
+
 
 def fetch_text(address, timeout=10):
     calls.append(address)
@@ -144,8 +152,16 @@ def fetch_text(address, timeout=10):
         if term.startswith("марс"):
             return json.dumps({"query": {"search": [{"title": "Марс"}]}})
         return json.dumps({"query": {"search": []}})
+    if "net.php" in address and "read" in q:
+        page = PAGES.get(q["read"][0])
+        return json.dumps(page if page else {"error": "страница не открылась"})
     if "net.php" in address and "search" in q:
         term = q["search"][0].lower()
+        if "трава" in term or "хлорофилл" in term:
+            return json.dumps({"engine": "duckduckgo", "results": [
+                {"title": "Почему трава зелёная — Наука просто", "url": "https://example.ru/grass",
+                 "snippet": "Трава зелёная из-за хлорофилла в листьях."},
+                {"title": "Хлорофилл — Википедия", "url": "https://ru.wikipedia.org/wiki/Хлорофилл", "snippet": "Хлорофилл — пигмент."}]})
         if "радио" in term:
             return json.dumps({"engine": "duckduckgo", "results": [
                 {"title": "Кто изобрёл радио", "url": "https://example.ru/radio", "snippet": "Радио изобрели Попов и Маркони в 1895 году."},

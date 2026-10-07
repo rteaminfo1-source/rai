@@ -13,6 +13,8 @@ from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import codeai
+import deep
+import sense
 from brain import Brain, RaiError
 from versions import DEFAULT_VERSION, VERSIONS, resolve
 
@@ -27,6 +29,9 @@ _origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",")
 CORS(app, origins=_origins or "*")
 
 brain = Brain()
+# Глубокие знания и модель смыслов (папка deep/, собирает GitHub: tools/build_deep.py) — если они есть рядом
+deep.load_manifest()
+sense.load_file(os.path.join(deep.DIR, "sense.json.gz"))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -76,7 +81,8 @@ def chat(version_id=None):
 
     try:
         return jsonify(
-            brain.answer(version, data.get("message", ""), data.get("session_id"), data.get("history"))
+            brain.answer(version, data.get("message", ""), data.get("session_id"), data.get("history"),
+                         level=str(data.get("level") or "")[:10] or None)
         )
     except RaiError as e:
         return jsonify({"answer": str(e), "error": "rai_error", "version": version.id}), e.status

@@ -11,6 +11,7 @@ SSO_SECRET, они вписываются в config.php собранных па�
 import argparse
 import base64
 import gzip
+import json
 import hashlib
 import os
 import shutil
@@ -149,6 +150,58 @@ def write_kb(path, name="encyclopedia.json", title="Энциклопедия Rai
     return True
 
 
+def write_gz_php(path, gz, title, cache=86400):
+    """Уже сжатые данные (gzip) → .php: так же, как write_kb, но без повторного сжатия (части глубоких знаний)."""
+    tag = hashlib.sha1(gz).hexdigest()[:16]
+    packed = base64.b64encode(gz).decode("ascii")
+    lines = "\n".join(packed[i:i + 76] for i in range(0, len(packed), 76))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(f"<?php\n// {title}\n"
+                "header('Content-Type: application/json; charset=utf-8');\n"
+                f"header('Cache-Control: public, max-age={cache}');\n"
+                "header('Vary: Accept-Encoding');\n"
+                "header('Access-Control-Allow-Origin: *');\n"
+                f"header('ETag: \"{tag}\"');\n"
+                f"if (trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === '\"{tag}\"') {{ http_response_code(304); exit; }}\n"
+                "$gz = base64_decode(file_get_contents(__FILE__, false, null, __COMPILER_HALT_OFFSET__));\n"
+                "if (ini_get('zlib.output_compression') || stripos($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '', 'gzip') === false) {\n"
+                "    echo gzdecode($gz);\n"
+                "} else {\n"
+                "    header('Content-Encoding: gzip');\n"
+                "    header('Content-Length: ' . strlen($gz));\n"
+                "    echo $gz;\n"
+                "}\n"
+                "__halt_compiler();\n" + lines + "\n")
+    if os.path.getsize(path) > MAX_FILE:
+        raise SystemExit(f"{path}: больше 30 МБ — так не выкладываем")
+
+
+MAX_FILE = 30 * 1024 * 1024
+
+
+def write_deep(out_dir):
+    """Глубокие знания (deep/ из GitHub) → deep/manifest.php, deep/NN.php, deep/sense.php — каждый файл меньше 30 МБ."""
+    src = os.path.join(BASE, "deep")
+    if not os.path.exists(os.path.join(src, "manifest.json")):
+        return 0
+    with open(os.path.join(src, "manifest.json"), "rb") as f:
+        manifest = f.read()
+    n = json.loads(manifest)["n"]
+    write_gz_php(os.path.join(out_dir, "manifest.php"), gzip.compress(manifest, 9, mtime=0),
+                 "Глубокие знания Rai: список тем и частей (собирает GitHub: tools/build_deep.py)", cache=3600)
+    for k in range(n):
+        with open(os.path.join(src, f"{k:02d}.json.gz"), "rb") as f:
+            write_gz_php(os.path.join(out_dir, f"{k:02d}.php"), f.read(),
+                         f"Глубокие знания Rai, часть {k + 1} из {n}: статьи Википедии целиком (CC BY-SA)", cache=7 * 86400)
+    sense = os.path.join(src, "sense.json.gz")
+    if os.path.exists(sense):
+        with open(sense, "rb") as f:
+            write_gz_php(os.path.join(out_dir, "sense.php"), f.read(),
+                         "Rai Смысл: своя модель значений слов (PPMI + SVD), обучена GitHub на текстах Википедии", cache=7 * 86400)
+    return n
+
+
 def write_js(path, name, title):
     """JS-файл как .php (на хостинге только PHP и HTML): AI Studio берёт нейросеть Rai (neuro.js) отсюда и кэширует её."""
     with open(os.path.join(BASE, name), encoding="utf-8") as f:
@@ -197,6 +250,7 @@ def build(out):
              "Зрение Rai: понятия для распознавания картинок (считает GitHub: tools/build_vision.py)")
     write_kb(os.path.join(out, "rai.rteam.info", "meds.php"), "medicines.json",
              "Лекарства для Rai: тысячи препаратов из Wikidata и Википедии (собирает GitHub: tools/build_medicines.py)")
+    write_deep(os.path.join(out, "rai.rteam.info", "deep"))
     write_js(os.path.join(out, "aistudio.rteam.info", "assets", "neuro.php"), "neuro.js",
              "Нейросеть Rai Нейро для AI Studio — копия neuro.js из репозитория (собирает make_hosting.py)")
 
