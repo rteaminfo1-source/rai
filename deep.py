@@ -117,30 +117,89 @@ def article(name):
             "url": encyclopedia.page_url(title)}
 
 
-_stem_index = None   # основы слов названия (без уточнения в скобках) → название; строится при первом поиске
+_stem_index = None   # основы слов названия (без уточнения в скобках) → [названия]; строится при первом поиске
+_QUALIFIER = {"сериал": "сериал", "телесериал": "сериал", "фильм": "фильм", "кино": "фильм", "мультфильм": "мультфильм",
+              "роман": "роман", "книга": "роман", "книг": "роман", "песня": "песня", "песн": "песня", "альбом": "альбом",
+              "игра": "игра", "игр": "игра", "город": "город", "река": "река", "рек": "река", "группа": "группа", "групп": "группа"}
 
 
-def lookup(text):
-    """Тема из глубоких знаний, названная в тексте: «расскажи о сериале Игра престолов» → «Игра престолов».
-    Ищет самые длинные совпадения основ слов. None — такой темы нет."""
+_WORKS = {"фильм", "сериал", "мультфильм", "роман", "песня", "альбом", "игра", "группа"}
+_PREPS = {"на", "в", "во", "из", "у", "под", "над", "за", "при", "по", "до", "от", "с", "со"}
+
+
+def candidates(text, raw=None, kind=None):
+    """Темы, названные в тексте: [(оценка, название, сколько слов совпало)] — лучшие первыми.
+
+    Важнее: длинное совпадение («Игра престолов», а не «Игра»), имя собственное (слово с большой буквы в вопросе),
+    уточнение из вопроса в скобках названия («сериал» → «Игра престолов (телесериал)»). Общее слово из словаря
+    («фильм», «игра») само по себе — слабое совпадение."""
     global _stem_index
     if not _manifest:
-        return None
+        return []
     import re
+    import lexicon
     import nlp
     if _stem_index is None:
         _stem_index = {}
         for t in _titles.values():
-            key = tuple(nlp.tokens(re.sub(r"\s*\([^)]*\)$", "", t)))
-            if key and (len(key) > 1 or len(key[0]) >= 4):
-                _stem_index.setdefault(key, t)
-    words = nlp.tokens(text)
-    for size in range(min(6, len(words)), 0, -1):
-        for i in range(len(words) - size + 1):
-            hit = _stem_index.get(tuple(words[i:i + size]))
-            if hit:
-                return hit
-    return None
+            base = re.sub(r"\s*\([^)]*\)$", "", t)
+            if "," in base:            # человек «Оппенгеймер, Роберт» — по фамилии и по «Роберт Оппенгеймер»
+                last, first = [x.strip() for x in base.split(",", 1)]
+                keys = [tuple(nlp.tokens(last)), tuple(nlp.tokens(first.split()[0] + " " + last)) if first else ()]
+            else:
+                keys = [tuple(nlp.tokens(base))]
+            for key in keys:
+                if key and (len(key) > 1 or len(key[0]) >= 4):
+                    _stem_index.setdefault(key, []).append(t)
+    words = nlp.normalize(text).split()
+    stems = [nlp.stem(w) for w in words if w not in nlp.STOPWORDS]
+    plain = [w for w in words if w not in nlp.STOPWORDS]
+    capital = {nlp.stem(nlp.normalize(w)) for w in re.findall(r"(?<![.!?]\s)(?<!^)\b[A-ZА-ЯЁ][\w-]+", raw or "")}
+    asked = {_QUALIFIER[w] for w in plain if w in _QUALIFIER} | {_QUALIFIER[s] for s in stems if s in _QUALIFIER}
+    common = getattr(lexicon, "_ru_set", None)
+    if common is None:
+        common = lexicon._ru_set = set(lexicon.RU.split())
+    raw_words = nlp.normalize(raw or text).split()
+    out = []
+    for size in range(min(6, len(stems)), 0, -1):
+        for i in range(len(stems) - size + 1):
+            titles = _stem_index.get(tuple(stems[i:i + size]))
+            if not titles:
+                continue
+            gram = plain[i:i + size]
+            for t in titles:
+                score = 2.0 * size
+                if any(st in capital for st in stems[i:i + size]):
+                    score += 1.5
+                if size == 1 and gram[0] in common and not any(st in capital for st in stems[i:i + size]):
+                    score -= 1.5
+                if "," in t:
+                    score += 2.0 if kind == "who" else -0.5      # «кто такой Оппенгеймер» — человек, а не фильм
+                q = re.search(r"\(([^)]+)\)$", t)
+                if q:
+                    kinds = {_QUALIFIER.get(w, _QUALIFIER.get(nlp.stem(w))) for w in nlp.normalize(q.group(1)).split()}
+                    if asked & kinds:
+                        score += 1.5
+                    elif kinds & _WORKS:
+                        score -= 2.5                 # фильм, альбом, книга — только если о них спросили («Слон (фильм)»)
+                    else:
+                        score -= 0.3
+                # «как появилась жизнь на Земле»: слово после «на», «в», «из» — уточнение, а не тема
+                if gram[0] in raw_words:
+                    k = raw_words.index(gram[0])
+                    if k > 0 and raw_words[k - 1] in _PREPS:
+                        score -= 2.0
+                if score >= 1.0:
+                    out.append((score, t, size))
+    out.sort(key=lambda x: -x[0])
+    return out
+
+
+def lookup(text, raw=None, kind=None):
+    """Тема из глубоких знаний, названная в тексте: «расскажи о сериале Игра престолов» → «Игра престолов (телесериал)».
+    None — такой темы нет."""
+    found = candidates(text, raw, kind)
+    return found[0][1] if found else None
 
 
 def find(subject):

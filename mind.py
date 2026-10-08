@@ -113,6 +113,8 @@ _CREATE = ("придума", "изобр", "разработ", "предлож",
 _SYNONYMS = {k: _CREATE for k in ("приду", "изобр", "созда", "основ", "откры", "разра", "напис", "постр")}
 _SYNONYMS.update({"питаю": ("пита", "корм", "добыч", "едят", "поеда"), "живут": ("обита", "живут", "населя", "распростран"),
                   "обита": ("обита", "живут", "населя", "распростран")})
+import lexicon  # noqa: E402 — частые слова языка: «фильм», «игра» — общие, а не названия
+_COMMON_WORDS = set(lexicon.RU.split())
 _SUFFIX = {"why": "причина", "how": "принцип работы", "howto": "инструкция", "list": "виды", "when": "дата",
            "where": "где находится", "num": "", "advice": "советы", "what": "", "who": "", "which": "", "explain": ""}
 
@@ -162,11 +164,20 @@ def understand(text):
             if stems & names:          # «слон» — не город Слоним: основы слов должны совпасть по-настоящему
                 topic, topic_words = item[0], stems
                 break
-    if not topic and content and deep.ready():
-        topic = deep.title_of(" ".join(content)) or deep.lookup(" ".join(content))
-        if topic:
-            named = set(nlp.tokens(re.sub(r"\s*\([^)]*\)$", "", topic)))
-            topic_words = {nlp.stem(w) for w in content if nlp.stem(w) in named} or {nlp.stem(w) for w in content}
+    if content and deep.ready():
+        # тема из глубоких знаний (там и то, чего нет в энциклопедии: фильмы, сериалы, игры…) — если она названа
+        # точнее, чем тема энциклопедии («Игра престолов (телесериал)», а не просто «Игра»)
+        exact = deep.title_of(" ".join(content))
+        found = [(9.0, exact, len(content))] if exact else deep.candidates(" ".join(content), raw, kind)
+        if found:
+            score, title, size = found[0]
+            enc_size = len(topic_words)
+            # тема энциклопедии — общее слово («Фильм», «Игра»), а в вопросе названо что-то конкретное («Оппенгеймер»)
+            enc_common = bool(topic) and enc_size == 1 and nlp.normalize(topic).split()[0] in _COMMON_WORDS
+            if not topic or size > enc_size or (size == enc_size and enc_common and score >= 3.0):
+                topic = title
+                named = set(nlp.tokens(re.sub(r"\s*\([^)]*\)$", "", topic)))
+                topic_words = {nlp.stem(w) for w in content if nlp.stem(w) in named} or {nlp.stem(w) for w in content}
     frame = []
     for w in content:
         st = nlp.stem(w)
