@@ -259,14 +259,25 @@
     if (photo >= 0 && photoBest >= PHOTO_SAME) {
       return [item(photo, byName && best === photo ? "both" : "photo", photoBest)];
     }
-    if (byName) return [item(best, photoScore[best] >= 0.7 ? "both" : "name", nameScore[best])];
+    if (byName) {
+      // порода или подвид («Сиамская кошка») — только если она заметно вернее общего названия («Кошка»)
+      const words = data.topics[best][0].toLowerCase().split(/\s+/);
+      if (words.length > 1) {
+        const last = words[words.length - 1];
+        for (let k = 0; k < n; k++) {
+          if (k !== best && eligible(k) && (data.topics[k][4] & 1) && data.topics[k][0].toLowerCase() === last &&
+              nameScore[k] >= nameScore[best] - 0.02) { best = k; break; }
+        }
+      }
+      return [item(best, photoScore[best] >= 0.7 ? "both" : "name", nameScore[best])];
+    }
     return [];
   }
 
   /** Что в разных частях картинки (4 четверти и центр) — для подробного разбора. */
   async function regions(raw, labels) {
     // часть картинки — только то, в чём модель уверена и что видно и на всей картинке (иначе в углу кота «находится» собака)
-    const W = raw.width, H = raw.height, out = [], seen = new Set(), whole = new Set(labels.map((l) => l.ru));
+    const W = raw.width, H = raw.height, out = [], seen = new Set(), whole = new Set(labels.filter((l) => l.p >= 0.05).map((l) => l.ru));
     const main = labels[0] && labels[0].ru;
     const parts = [["слева вверху", 0, 0, 0.55, 0.55], ["справа вверху", 0.45, 0, 1, 0.55], ["слева внизу", 0, 0.45, 0.55, 1],
                    ["справа внизу", 0.45, 0.45, 1, 1], ["в центре", 0.25, 0.25, 0.75, 0.75]];

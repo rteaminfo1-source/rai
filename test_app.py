@@ -1599,7 +1599,7 @@ class SightTest(unittest.TestCase):
         import sight
         seen = [{"labels": [{"ru": "башня", "p": 0.55, "group": "Город и здания"}, {"ru": "небо", "p": 0.2, "group": "Небо и погода"}],
                  "attrs": [{"key": "kind", "value": "фотография", "p": 0.9}, {"key": "place", "value": "на улице", "p": 0.97},
-                           {"key": "time", "value": "ночью", "p": 0.8}, {"key": "weather", "value": "ясно", "p": 0.7},
+                           {"key": "time", "value": "ночью", "p": 0.8}, {"key": "weather", "value": "ясно", "p": 0.85},
                            {"key": "people", "value": "людей нет", "p": 0.9}, {"key": "view", "value": "общий план", "p": 0.8}],
                  "known": [{"title": "Эйфелева башня", "by": "photo", "score": 0.86}],
                  "regions": [{"where": "в центре", "ru": "башня", "p": 0.5}, {"where": "слева вверху", "ru": "ночное небо", "p": 0.6}],

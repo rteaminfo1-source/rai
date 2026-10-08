@@ -81,11 +81,14 @@ def caption(img):
         if t:
             when.append(t)
         if where == "на улице":
-            for key, p in (("weather", 0.6), ("season", 0.6)):
+            for key, p in (("weather", 0.75), ("season", 0.6)):
                 v = _attr(img, key, p)
                 if v:
                     when.append(v)
     text = " ".join(head) + (", " + ", ".join(when) if when else "")
+    # «Картина: картина» — повтор; берём следующее понятие («Картина: портрет»)
+    if len(labels) > 1 and labels[0]["ru"].lower() in (kind, _KIND.get(kind, "").lower(), "рисунок", "картина", "скриншот"):
+        labels = labels[1:]
     main = labels[0]["ru"]
     rest = [x["ru"] for x in labels[1:5] if x.get("p", 0) >= 0.04 and x["ru"] != main]
     out = f"{text}: **{main}**" + (f", ещё видно: {', '.join(rest)}" if rest else "") + "."
