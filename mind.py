@@ -163,8 +163,10 @@ def understand(text):
                 topic, topic_words = item[0], stems
                 break
     if not topic and content and deep.ready():
-        topic = deep.title_of(" ".join(content))
-        topic_words = {nlp.stem(w) for w in content} if topic else set()
+        topic = deep.title_of(" ".join(content)) or deep.lookup(" ".join(content))
+        if topic:
+            named = set(nlp.tokens(re.sub(r"\s*\([^)]*\)$", "", topic)))
+            topic_words = {nlp.stem(w) for w in content if nlp.stem(w) in named} or {nlp.stem(w) for w in content}
     frame = []
     for w in content:
         st = nlp.stem(w)

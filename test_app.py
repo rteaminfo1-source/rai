@@ -2841,6 +2841,31 @@ class DeepBuildTest(unittest.TestCase):
                 part = json.loads(make_hosting.read_kb(os.path.join(out, "site", "deep", "00.php")))
                 self.assertTrue(all(t.startswith("Тема") for t in part))
 
+    def test_extra_topics_and_lookup(self):
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+        import build_deep
+        import deep
+
+        def members(url, params):
+            name = params["cmtitle"]
+            got = ["Игра престолов", "Список королей Англии", "Кошка"] if "Избранные" in name else ["Чёрная дыра", "Ёж"]
+            yield {"query": {"categorymembers": [{"title": t} for t in got]}}
+
+        def top(url, tries=4):
+            return {"items": [{"articles": [{"article": "Заглавная_страница"}, {"article": "Служебная:Поиск"}, {"article": "Оппенгеймер_(фильм)"}]}]}
+        with mock.patch.object(build_deep.be, "query_all", members), mock.patch.object(build_deep.be, "rest", top):
+            extra = build_deep.extra_titles({"Кошка"}, 100)
+        self.assertEqual(extra, ["Игра престолов", "Чёрная дыра", "Ёж", "Оппенгеймер (фильм)"])   # без списков, служебных и уже известных
+        saved = (deep._manifest, dict(deep._titles), deep._stem_index)
+        try:
+            deep.load_manifest({"n": 1, "titles": ["Игра престолов", "Оппенгеймер (фильм)", "Ёж"]})
+            self.assertEqual(deep.lookup("расскажи про сериал игра престолов"), "Игра престолов")
+            self.assertEqual(deep.lookup("что за фильм оппенгеймер"), "Оппенгеймер (фильм)")
+            self.assertIsNone(deep.lookup("привет как дела"))
+        finally:
+            deep._manifest, deep._titles, deep._stem_index = saved
+
     @unittest.skipUnless(__import__("importlib").util.find_spec("numpy") and __import__("importlib").util.find_spec("scipy"), "нет numpy/scipy")
     def test_train_sense(self):
         import sys

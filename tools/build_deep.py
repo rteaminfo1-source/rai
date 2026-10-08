@@ -2,7 +2,8 @@
 
     python tools/build_deep.py -o deep
 
-1. Знания. Для каждой темы энциклопедии (encyclopedia.json, ~15 000 тем) — статья русской Википедии целиком,
+1. Знания. Для каждой темы энциклопедии (encyclopedia.json, ~15 000 тем) и ещё для тысяч статей сверх неё —
+   избранных и хороших статей русской Википедии и самых читаемых за последние полгода — статья целиком,
    по разделам: вступление и главные разделы (без «Примечаний», «Литературы», «Ссылок»), до ~6000 знаков на тему.
    Темы раскладываются по частям: номер части = crc32(название) % n. Каждая часть — deep/NN.json.gz около 1 МБ,
    любая часть меньше 30 МБ (проверяется). deep/manifest.json — список тем и частей.
@@ -114,7 +115,7 @@ def old_texts(out_dir):
         return {}
 
 
-def collect(titles, previous, workers=5):
+def collect(titles, previous, workers=6):
     """{название: статья} для всех тем: из Википедии, а не успели — из прошлой сборки."""
     out, failed = {}, 0
     reserve = 25 * 60                      # оставить время на модель смыслов и запись
@@ -173,6 +174,52 @@ def write_parts(articles, out_dir):
         json.dump(manifest, f, ensure_ascii=False, separators=(",", ":"))
     log(f"частей: {n}, всего {round(sum(sizes) / 1048576, 1)} МБ, самая большая {round(max(sizes) / 1048576, 2)} МБ")
     return manifest
+
+
+# ------------------------------------------------------------------ больше тем: избранные, хорошие, популярные
+
+_SKIP_TITLE = re.compile(r"^(?:список|заглавная страница|служебная:|википедия:|категория:|файл:|портал:|шаблон:)|порн|эрот|xxx|секс", re.I)
+
+
+def category_titles(category, limit):
+    """Статьи из категории русской Википедии (например, «Википедия:Избранные статьи по алфавиту»)."""
+    out = []
+    for data in be.query_all(be.RU, {"list": "categorymembers", "cmtitle": "Категория:" + category, "cmnamespace": 0,
+                                     "cmlimit": 500, "cmprop": "title"}):
+        out += [m["title"] for m in (data.get("query") or {}).get("categorymembers", [])]
+        if len(out) >= limit:
+            break
+    return out[:limit]
+
+
+def popular_titles(months=6, per_month=1000):
+    """Самые читаемые статьи русской Википедии за последние месяцы (Wikimedia pageviews)."""
+    out = []
+    today = datetime.date.today().replace(day=1)
+    for k in range(1, months + 1):
+        y, m = today.year, today.month - k
+        while m <= 0:
+            y, m = y - 1, m + 12
+        data = be.rest(f"https://wikimedia.org/api/rest_v1/metrics/pageviews/top/ru.wikipedia.org/all-access/{y}/{m:02d}/all-days")
+        for item in ((data or {}).get("items") or [{}])[0].get("articles", [])[:per_month]:
+            out.append(item["article"].replace("_", " "))
+    return list(dict.fromkeys(out))
+
+
+def extra_titles(known, limit):
+    """Темы сверх энциклопедии: избранные → хорошие → популярные (без списков и служебных страниц)."""
+    found = []
+    for name, fn in (("избранные", lambda: category_titles("Википедия:Избранные статьи по алфавиту", 4000)),
+                     ("хорошие", lambda: category_titles("Википедия:Хорошие статьи по алфавиту", 8000)),
+                     ("популярные", popular_titles)):
+        try:
+            got = [t for t in fn() if t not in known and not _SKIP_TITLE.search(t)]
+        except Exception as e:  # noqa: BLE001 — нет списка — соберём без него
+            log(f"  {name}: не получилось ({e})")
+            got = []
+        log(f"  {name}: {len(got)} новых тем")
+        found += got
+    return list(dict.fromkeys(found))[:limit]
 
 
 # ------------------------------------------------------------------ модель смыслов
@@ -273,14 +320,21 @@ def main():
     parser.add_argument("--encyclopedia", default=os.path.join(ROOT, "encyclopedia.json"))
     parser.add_argument("--limit", type=int, default=0, help="только первые N тем (для проверки)")
     parser.add_argument("--no-fetch", action="store_true", help="не ходить в Википедию: только модель смыслов на прошлых текстах")
+    parser.add_argument("--extra", type=int, default=12000, help="сколько тем добавить сверх энциклопедии (0 — не добавлять)")
     args = parser.parse_args()
     with open(args.encyclopedia, encoding="utf-8") as f:
         enc = json.load(f)
     items = enc["items"][:args.limit] if args.limit else enc["items"]
     titles = list(dict.fromkeys(it[0] for it in items))
+    if args.extra and not args.no_fetch:
+        titles += extra_titles(set(titles), args.extra if not args.limit else min(args.extra, 50))
     previous = old_texts(args.out)
+    # сначала — новые темы (их ещё нет совсем), потом обновляем прошлые, пока хватает времени
+    titles = [t for t in titles if t not in previous] + [t for t in titles if t in previous]
     log(f"тем: {len(titles)}, из прошлой сборки: {len(previous)}")
     articles = {t: previous[t] for t in titles if t in previous} if args.no_fetch else collect(titles, previous)
+    if args.no_fetch:   # без сети — все прошлые темы, в том числе сверх энциклопедии
+        articles = dict(previous, **articles)
     if len(articles) < (20 if args.limit else 1000):
         sys.exit(f"слишком мало статей ({len(articles)}) — прошлая сборка не тронута")
     write_parts(articles, args.out)

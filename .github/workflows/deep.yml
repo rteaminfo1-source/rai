@@ -24,7 +24,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 200
+    timeout-minutes: 230
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +37,7 @@ jobs:
 
       - name: Собрать глубокие знания и модель смыслов
         env:
-          RAI_BUILD_MINUTES: "170"
+          RAI_BUILD_MINUTES: "200"
         run: python tools/build_deep.py -o deep
 
       - name: Проверить размеры (каждый файл меньше 30 МБ)

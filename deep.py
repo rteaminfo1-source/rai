@@ -36,7 +36,7 @@ def _key(title):
 
 def load_manifest(data=None):
     """Загрузить список тем. Без него глубоких знаний просто нет. Возвращает число тем."""
-    global _manifest, _titles
+    global _manifest, _titles, _stem_index
     if data is None:
         path = os.path.join(DIR, "manifest.json")
         if not os.path.exists(path):
@@ -49,6 +49,7 @@ def load_manifest(data=None):
         return 0
     _manifest = data
     _titles = {_key(t): t for t in data["titles"]}
+    _stem_index = None
     _parts.clear()
     _order.clear()
     _failed.clear()
@@ -116,6 +117,32 @@ def article(name):
             "url": encyclopedia.page_url(title)}
 
 
+_stem_index = None   # основы слов названия (без уточнения в скобках) → название; строится при первом поиске
+
+
+def lookup(text):
+    """Тема из глубоких знаний, названная в тексте: «расскажи о сериале Игра престолов» → «Игра престолов».
+    Ищет самые длинные совпадения основ слов. None — такой темы нет."""
+    global _stem_index
+    if not _manifest:
+        return None
+    import re
+    import nlp
+    if _stem_index is None:
+        _stem_index = {}
+        for t in _titles.values():
+            key = tuple(nlp.tokens(re.sub(r"\s*\([^)]*\)$", "", t)))
+            if key and (len(key) > 1 or len(key[0]) >= 4):
+                _stem_index.setdefault(key, t)
+    words = nlp.tokens(text)
+    for size in range(min(6, len(words)), 0, -1):
+        for i in range(len(words) - size + 1):
+            hit = _stem_index.get(tuple(words[i:i + size]))
+            if hit:
+                return hit
+    return None
+
+
 def find(subject):
     """Статья о теме по названию в любом падеже («пушкине», «французской революции») или None."""
     if not _manifest or not (subject or "").strip():
@@ -127,7 +154,8 @@ def find(subject):
     import nlp
     found = encyclopedia.lookup(subject)
     if not found:
-        return None
+        other = lookup(subject)          # темы сверх энциклопедии: избранные, хорошие, популярные статьи
+        return article(other) if other else None
     # «слон» — не город Слоним: основы слов названия и вопроса должны совпасть по-настоящему
     want, have = set(nlp.tokens(subject)), set(nlp.tokens(found["title"]))
     return article(found["title"]) if not want or want & have else None
