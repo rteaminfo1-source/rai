@@ -1617,6 +1617,12 @@ class SightTest(unittest.TestCase):
         self.assertIn("Рисунок: **кошка**.", b)
         self.assertNotIn("Пушкин", b)
         self.assertIn("узнал", sight.summary(seen))
+        # вопросы о картинке — прямой ответ над описанием
+        r = self.brain.answer(SUN, "сколько людей на фото и это день или ночь?\n[[screen]]\n\n[[vision]]\n" + json.dumps(seen, ensure_ascii=False), session_id="s")
+        self.assertIn("**Ответ:** Людей на картинке не видно.", r["answer"])
+        self.assertEqual(sight.answer(seen[0], "что это за здание"), "Это, очень похоже, **Эйфелева башня**.")
+        self.assertEqual(sight.answer(seen[0], "это день или ночь"), "Снято ночью или в темноте.")
+        self.assertIsNone(sight.answer(seen[0], "что на картинке"))
 
     @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
     def test_vision_js_syntax_and_wiring(self):

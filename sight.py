@@ -79,6 +79,55 @@ def _is_person(title):
     return bool(encyclopedia._PERSON_RE.match(title or "") or encyclopedia._MONARCH_RE.match(title or ""))
 
 
+# Вопросы о картинке: «сколько людей», «день или ночь», «какого цвета», «что за здание», «где это», «это фото или рисунок»
+_Q_PEOPLE = re.compile(r"сколько\s+(?:тут\s+|здесь\s+|на\s+\w+\s+)?(?:людей|человек)|есть\s+ли\s+(?:тут\s+|здесь\s+)?(?:люди|человек)|кто\s+на\s+(?:фото|картинк|снимк)", re.I)
+_Q_TIME = re.compile(r"день\s+или\s+ночь|ночь\s+или\s+день|когда\s+(?:сделан|снят|сфотограф)|время\s+суток|какое\s+время", re.I)
+_Q_WEATHER = re.compile(r"какая\s+(?:тут\s+|там\s+)?погода|погода\s+на\s+(?:фото|картинк)|время\s+года|какой\s+сезон|зима\s+или\s+лето", re.I)
+_Q_COLOR = re.compile(r"как(?:ого|ие|ой|ая)\s+цвет|какие\s+цвета|цвет\w*\s+(?:на\s+)?(?:фото|картинк)", re.I)
+_Q_WHAT = re.compile(r"что\s+(?:это\s+)?за\s+(\w+)|как\w*\s+это\s+(\w+)|кто\s+это|что\s+это\s+(?:такое)?|где\s+(?:это|сделан|снят)|что\s+(?:за\s+)?место", re.I)
+_Q_KIND = re.compile(r"(?:это\s+)?(?:фото|фотография)\s+или\s+(?:рисунок|картина|арт)|нарисован|настоящ\w*\s+(?:фото|или)|скриншот\s+или", re.I)
+_PEOPLE_ANSWER = {"людей нет": "Людей на картинке не видно.", "один человек": "На картинке, похоже, один человек.",
+                  "два человека": "На картинке, похоже, два человека.", "несколько человек": "На картинке несколько человек.",
+                  "толпа": "На картинке много людей — толпа."}
+
+
+def answer(img, question):
+    """Прямой ответ на вопрос о картинке (одна-две фразы) или None — тогда просто описание."""
+    q = (question or "").strip()
+    if not q:
+        return None
+    labels = [x for x in img.get("labels") or [] if isinstance(x, dict) and x.get("ru")]
+    if _Q_PEOPLE.search(q):
+        people = _attr(img, "people", 0.35)
+        if people:
+            return _PEOPLE_ANSWER.get(people, people) + " Кто это — по лицу не определяю."
+    if _Q_TIME.search(q):
+        t = _attr(img, "time", 0.4)
+        if t:
+            return {"днём": "Снято днём.", "ночью": "Снято ночью или в темноте.", "на закате или рассвете": "Снято на закате или рассвете."}.get(t, t)
+    if _Q_WEATHER.search(q):
+        parts = [x for x in (_attr(img, "weather", 0.4), _attr(img, "season", 0.4)) if x]
+        if parts:
+            return "Похоже: " + ", ".join(parts) + "."
+    if _Q_COLOR.search(q):
+        colors = [c["name"] for c in img.get("colors") or [] if isinstance(c, dict) and c.get("name")]
+        if colors:
+            return "Основные цвета: " + ", ".join(colors[:4]) + (f"; {img['tone']} тона" if img.get("tone") else "") + "."
+    if _Q_KIND.search(q):
+        kind = _attr(img, "kind", 0.4)
+        if kind:
+            return f"Это {kind}" + (" — не фотография." if kind != "фотография" else ".")
+    if _Q_WHAT.search(q):
+        known = [k for k in img.get("known") or [] if isinstance(k, dict) and k.get("title") and not _is_person(k["title"])]
+        if known:
+            k = known[0]
+            sure = "очень похоже" if k.get("by") == "photo" else "похоже"
+            return f"Это, {sure}, **{k['title']}**."
+        if labels:
+            return f"Похоже на **{labels[0]['ru']}**" + (f" (уверенность {_pct(labels[0].get('p', 0))})." if labels[0].get("p") else ".")
+    return None
+
+
 def describe(data, question=""):
     """Markdown «что на картинке» или None, если модель ничего уверенно не увидела."""
     blocks = []
@@ -87,7 +136,8 @@ def describe(data, question=""):
         if not labels:
             continue
         head = f"## Что на картинке{f' {n}' if len(data) > 1 else ''}"
-        lines = [head, "", caption(img)]
+        reply = answer(img, question)
+        lines = [head, ""] + ([f"**Ответ:** {reply}", ""] if reply else []) + [caption(img)]
         # конкретная вещь из энциклопедии: по сходству с фото из статьи или по названию (людей не узнаём)
         info_done = False
         for k in [x for x in img.get("known") or [] if isinstance(x, dict) and x.get("title")][:2]:
