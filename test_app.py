@@ -1623,6 +1623,10 @@ class SightTest(unittest.TestCase):
         self.assertEqual(sight.answer(seen[0], "что это за здание"), "Это, очень похоже, **Эйфелева башня**.")
         self.assertEqual(sight.answer(seen[0], "это день или ночь"), "Снято ночью или в темноте.")
         self.assertIsNone(sight.answer(seen[0], "что на картинке"))
+        # «один человек» на фото лисы (людей среди понятий нет) и неуверенная «3D-графика» — не говорим
+        fox = [{"labels": [{"ru": "лиса", "p": 0.99, "group": "Животные"}], "attrs": [{"key": "kind", "value": "3D-графика", "p": 0.46},
+                {"key": "place", "value": "на улице", "p": 0.81}, {"key": "people", "value": "один человек", "p": 0.7}]}]
+        self.assertEqual(sight.caption(fox[0]), "Фото на улице: **лиса**.")
 
     @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
     def test_vision_js_syntax_and_wiring(self):

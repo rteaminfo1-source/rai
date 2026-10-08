@@ -218,7 +218,8 @@
   //  • по фото из статьи: надёжно только почти тот же снимок (≥ 0,93) — разные снимки разных мостов бывают похожи на 0,8;
   //  • общие понятия («туризм», «газовые гиганты», «масляная живопись») не считаются — только конкретные вещи
   //    (название с большой буквы) и виды животных, растений, еды.
-  const NAME_MIN = 0.265, NAME_GAP = 0.012, PHOTO_SAME = 0.93;
+  // места (города, регионы) выглядят похоже на любой пейзаж — для них порог выше («Чукотка» на фото радуги)
+  const NAME_MIN = 0.265, NAME_MIN_PLACE = 0.3, NAME_GAP = 0.012, PHOTO_SAME = 0.93;
   /** Конкретные вещи: [{title, en, kind, section, by: "name" | "photo" | "both", score}] — не больше одной. */
   function known(v) {
     if (!topics) return [];
@@ -253,7 +254,8 @@
     for (let k = 0; k < n; k++) {
       if ((data.topics[k][4] & 2) && eligible(k) && photoScore[k] > photoBest) { photo = k; photoBest = photoScore[k]; }
     }
-    const byName = best >= 0 && nameScore[best] >= NAME_MIN && bestScore - secondScore >= NAME_GAP;
+    const minName = best >= 0 && data.kinds[data.topics[best][3]] === "place" ? NAME_MIN_PLACE : NAME_MIN;
+    const byName = best >= 0 && nameScore[best] >= minName && bestScore - secondScore >= NAME_GAP;
     if (photo >= 0 && photoBest >= PHOTO_SAME) {
       return [item(photo, byName && best === photo ? "both" : "photo", photoBest)];
     }
@@ -262,15 +264,20 @@
   }
 
   /** Что в разных частях картинки (4 четверти и центр) — для подробного разбора. */
-  async function regions(raw, main) {
-    const W = raw.width, H = raw.height, out = [];
+  async function regions(raw, labels) {
+    // часть картинки — только то, в чём модель уверена и что видно и на всей картинке (иначе в углу кота «находится» собака)
+    const W = raw.width, H = raw.height, out = [], seen = new Set(), whole = new Set(labels.map((l) => l.ru));
+    const main = labels[0] && labels[0].ru;
     const parts = [["слева вверху", 0, 0, 0.55, 0.55], ["справа вверху", 0.45, 0, 1, 0.55], ["слева внизу", 0, 0.45, 0.55, 1],
                    ["справа внизу", 0.45, 0.45, 1, 1], ["в центре", 0.25, 0.25, 0.75, 0.75]];
     for (const [where, x0, y0, x1, y1] of parts) {
       try {
         const crop = await raw.crop([Math.round(x0 * W), Math.round(y0 * H), Math.round(x1 * W) - 1, Math.round(y1 * H) - 1]);
         const top = concepts(await embed(crop), 1)[0];
-        if (top && top.p >= 0.3 && top.ru !== main) out.push({where: where, ru: top.ru, group: top.group, p: top.p});
+        if (top && top.p >= 0.5 && top.ru !== main && !seen.has(top.ru) && (whole.has(top.ru) || top.p >= 0.75)) {
+          seen.add(top.ru);
+          out.push({where: where, ru: top.ru, group: top.group, p: top.p});
+        }
       } catch (e) { /* часть не разобралась — пропускаем */ }
     }
     return out;
@@ -289,7 +296,7 @@
     const out = Object.assign({labels: labels, attrs: attributes(v), known: known(v)}, view);
     if (opts && opts.detail && raw.width >= 200 && raw.height >= 200) {
       onStep && onStep("Рассматриваю части картинки…");
-      out.regions = await regions(raw, labels[0] && labels[0].ru);
+      out.regions = await regions(raw, labels);
     }
     out.ms = Math.round(performance.now() - t0);
     return out;

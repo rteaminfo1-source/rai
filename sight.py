@@ -44,15 +44,35 @@ _KIND = {"фотография": "Фото", "рисунок": "Рисунок",
          "схема или график": "Схема или график"}
 
 
+def _kind(img):
+    """Фото или нет: не-фото («рисунок», «3D-графика») — только при уверенности, иначе это обычная фотография."""
+    for a in img.get("attrs") or []:
+        if isinstance(a, dict) and a.get("key") == "kind":
+            if a.get("value") == "фотография" or a.get("p", 0) >= 0.6:
+                return a.get("value")
+    return "фотография"
+
+
+def _people(img):
+    """Сколько людей — только если модель видит человека (иначе «один человек» на фото лисы) или уверена, что людей нет."""
+    value = _attr(img, "people", 0.5)
+    if not value:
+        return None
+    if value == "людей нет":
+        return value if _attr(img, "people", 0.6) else None
+    person = any(isinstance(x, dict) and x.get("group") == "Люди" and x.get("p", 0) >= 0.08 for x in (img.get("labels") or [])[:4])
+    return value if person else None
+
+
 def caption(img):
     """Одна фраза о картинке: «Фото на улице, на закате, ясно: **море**, ещё видно: пляж, небо. Людей нет.»"""
     labels = [x for x in img.get("labels") or [] if isinstance(x, dict) and x.get("ru")]
     if not labels:
         return None
-    kind = _attr(img, "kind", 0.45) or "фотография"
+    kind = _kind(img)
     photo = kind == "фотография"
     head = [_KIND.get(kind, "Картинка")]
-    where = _attr(img, "place", 0.65) if photo else None
+    where = _attr(img, "place", 0.75) if photo else None
     if where:
         head.append(where)
     when = []
@@ -61,7 +81,7 @@ def caption(img):
         if t:
             when.append(t)
         if where == "на улице":
-            for key, p in (("weather", 0.5), ("season", 0.55)):
+            for key, p in (("weather", 0.6), ("season", 0.6)):
                 v = _attr(img, key, p)
                 if v:
                     when.append(v)
@@ -69,7 +89,7 @@ def caption(img):
     main = labels[0]["ru"]
     rest = [x["ru"] for x in labels[1:5] if x.get("p", 0) >= 0.04 and x["ru"] != main]
     out = f"{text}: **{main}**" + (f", ещё видно: {', '.join(rest)}" if rest else "") + "."
-    people = _attr(img, "people", 0.55) if photo else None
+    people = _people(img) if photo else None
     if people:
         out += " " + people[:1].upper() + people[1:] + "."
     return out
@@ -98,7 +118,7 @@ def answer(img, question):
         return None
     labels = [x for x in img.get("labels") or [] if isinstance(x, dict) and x.get("ru")]
     if _Q_PEOPLE.search(q):
-        people = _attr(img, "people", 0.35)
+        people = _people(img) or _attr(img, "people", 0.35)
         if people:
             return _PEOPLE_ANSWER.get(people, people) + " Кто это — по лицу не определяю."
     if _Q_TIME.search(q):
@@ -114,7 +134,7 @@ def answer(img, question):
         if colors:
             return "Основные цвета: " + ", ".join(colors[:4]) + (f"; {img['tone']} тона" if img.get("tone") else "") + "."
     if _Q_KIND.search(q):
-        kind = _attr(img, "kind", 0.4)
+        kind = _kind(img)
         if kind:
             return f"Это {kind}" + (" — не фотография." if kind != "фотография" else ".")
     if _Q_WHAT.search(q):
@@ -164,7 +184,7 @@ def describe(data, question=""):
         if img.get("light"):
             look.append(img["light"] + " картинка")
         view = _attr(img, "view", 0.6)
-        if view and _attr(img, "kind", 0.45) in (None, "фотография"):
+        if view and _kind(img) == "фотография":
             look.append(view)
         if look:
             lines += ["", "🎨 " + " · ".join(look)]
