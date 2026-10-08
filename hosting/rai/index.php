@@ -5,6 +5,7 @@
 require __DIR__ . '/config.php';
 require __DIR__ . '/plans.php';
 require __DIR__ . '/app.php';
+require __DIR__ . '/festive.php';
 
 $user = current_user();
 $mine = $user ? user_plan($user) : ['key' => 'free', 'until' => 0];
@@ -19,6 +20,7 @@ foreach ($plans as $key => $p) {
                       'month_base' => $m1['base'], 'year_base' => $m12['base'], 'sale' => $m1['percent']];
 }
 $sale = sale_active();
+$fest = festive_current();
 ?><!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -94,6 +96,7 @@ img, svg { display: block; }
 .hero .wrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
 .badge { display: inline-flex; align-items: center; gap: 10px; padding: 7px 14px 7px 8px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 14px; color: var(--muted); }
 .badge b { padding: 3px 9px; border-radius: 999px; background: var(--grad); color: #fff; font-size: 12px; letter-spacing: .02em; }
+.festive-pill b { background: none; padding: 0; font-size: 15px; }
 h1 { font: 800 clamp(38px, 5.6vw, 68px)/1.04 var(--head); letter-spacing: -.035em; margin: 22px 0 20px; }
 h1 .line { display: block; overflow: hidden; }
 h1 .line span { display: inline-block; transform: translateY(105%); animation: rise .9s var(--ease) forwards; }
@@ -282,6 +285,7 @@ footer .sp { margin-left: auto; }
   .reveal, .fade, h1 .line span { opacity: 1; transform: none; }
 }
 </style>
+<style><?= festive_css($fest) ?></style>
 </head>
 <body>
 <div class="bg" aria-hidden="true"><div class="grid"></div><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div></div>
@@ -308,7 +312,8 @@ footer .sp { margin-left: auto; }
   <div class="hero">
     <div class="wrap">
       <div>
-        <span class="badge fade"><b>Новое</b> Своя нейросеть Rai Нейро — прямо в браузере</span>
+        <span class="badge fade festive-pill"><b><?= h($fest['emoji']) ?></b> <?= $fest['kind'] === 'holiday' ? 'Праздничное оформление' : 'Тема недели' ?>: <?= h($fest['name']) ?></span>
+        <span class="badge fade"><b>Новое</b> Rai думает сам, видит картинки и пишет код по запросу</span>
         <h1><span class="line"><span>Ваш умный</span></span><span class="line"><span>помощник —</span></span><span class="line"><span class="grad-text">Rai</span></span></h1>
         <p class="lead fade d1">Отвечает на вопросы, пишет и исправляет код на 17 языках, делает презентации, переводит, знает погоду
           в любом посёлке и разбирает TikTok, YouTube и Telegram по ссылке. Работает прямо в браузере — или в приложении для Windows, macOS и Linux.</p>

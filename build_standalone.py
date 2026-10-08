@@ -27,7 +27,7 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
         html = html.replace('<link rel="stylesheet" href="code.css">', "<style>\n" + f.read() + "</style>", 1)
     with open(os.path.join(BASE_DIR, "slides.css"), encoding="utf-8") as f:
         html = html.replace('<link rel="stylesheet" href="slides.css">', "<style>\n" + f.read() + "</style>", 1)
-    for name in ("code.js", "slides.js", "screen.js", "vision.js", "files.js", "neuro.js", "pptx.js"):
+    for name in ("festive.js", "code.js", "slides.js", "screen.js", "vision.js", "files.js", "neuro.js", "pptx.js"):
         with open(os.path.join(BASE_DIR, name), encoding="utf-8") as f:
             js = f.read()
         # «<!--» внутри <script> переводит HTML-парсер в особый режим, и тег может не закрыться

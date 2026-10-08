@@ -207,6 +207,12 @@
   .welcome h1 span { color: var(--red); }
   .welcome p { margin: 0; color: var(--muted); max-width: 60ch; }
   .welcome .hello { color: var(--fg); font-size: clamp(17px, 2.2vw, 20px); font-weight: 600; margin-bottom: -6px; }
+  .festive-badge { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; padding: 6px 10px 6px 12px;
+    border-radius: 999px; border: 1px solid var(--line-2); background: var(--glass); font-size: 13px; color: var(--fg); }
+  .festive-badge b { font-weight: 700; }
+  .festive-badge .em { font-size: 16px; }
+  .festive-badge .off { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; }
+  .festive-badge .off:hover { color: var(--fg); }
   .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
   .examples button {
     text-align: left; cursor: pointer; padding: 12px 14px; border-radius: 12px;
@@ -962,6 +968,7 @@
   </div>
 </dialog>
 
+<script src="festive.js"></script>
 <script src="code.js"></script>
 <script src="slides.js"></script>
 <script src="screen.js"></script>
@@ -1516,7 +1523,11 @@
     const hello = [part + to + "!", "Привет" + to + "!", "Рад тебя видеть" + to + "!", "Здравствуйте" + to + "!",
                    chats.some((c) => c.messages.length) ? "С возвращением" + to + "!" : "Добро пожаловать" + to + "!"];
     const ask = [["Чем займёмся", "?"], ["С чего начнём", "?"], ["Что сделаем сегодня", "?"], ["Чем помочь", "?"], ["О чём поговорим", "?"]];
-    const emoji = h < 5 ? "🌙" : h < 12 ? "☀️" : h < 18 ? "👋" : "🌆";
+    let emoji = h < 5 ? "🌙" : h < 12 ? "☀️" : h < 18 ? "👋" : "🌆";
+    // в праздник — праздничное приветствие и эмодзи
+    const fest = window.RaiFestive && !window.RaiFestive.off() ? window.RaiFestive.current() : null;
+    if (fest && fest.kind === "holiday") return {hello: fest.emoji + " " + fest.hello + to + (name ? "" : ""), ask: ask[Math.floor(seed / 7) % ask.length]};
+    if (fest) emoji = fest.emoji;
     return {hello: emoji + " " + hello[seed % hello.length], ask: ask[Math.floor(seed / 7) % ask.length]};
   }
   function renderWelcome() {
@@ -1529,6 +1540,25 @@
       `<div class="examples"></div>`;
     const ex = w.querySelector(".examples");
     showSandboxNote(w);
+    // праздничная или недельная тема — плашка вверху (её можно скрыть крестиком)
+    const fest = window.RaiFestive && !window.RaiFestive.off() ? window.RaiFestive.current() : null;
+    if (fest) {
+      const badge = document.createElement("div");
+      badge.className = "festive-badge";
+      const kind = fest.kind === "holiday" ? "Праздничное оформление" : "Тема недели";
+      badge.innerHTML = `<span class="em" aria-hidden="true">${fest.emoji}</span><span>${kind}: <b>${esc(fest.name)}</b></span>` +
+        `<button class="off" type="button" title="Убрать праздничное оформление" aria-label="Убрать оформление">✕</button>`;
+      badge.querySelector(".off").addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.RaiFestive.setOff(true);
+        toast("Праздничное оформление выключено");
+        w.remove();
+        renderWelcome();
+      });
+      w.insertBefore(badge, w.firstChild);
+    }
+    // тема недели добавляет один тематический пример в начало списка
+    const festExamples = (fest && fest.kind === "week" && fest.example) ? [[fest.example[0], fest.emoji + " тема недели: " + fest.example[1]]] : [];
     {
       // Подсказка: Rai думает сам — внизу выбирается, сколько думать (Low … Ultra)
       const tip = document.createElement("button");
@@ -1540,7 +1570,7 @@
       tip.addEventListener("click", (e) => { e.stopPropagation(); togglePicker("levelBtn", "levelMenu", renderLevelMenu); });
       w.insertBefore(tip, ex);
     }
-    for (const [q, note] of EXAMPLES) {
+    for (const [q, note] of festExamples.concat(EXAMPLES)) {
       const b = document.createElement("button");
       b.type = "button";
       b.innerHTML = `<b>${esc(q)}</b><small>${esc(note)}</small>`;

@@ -2915,5 +2915,44 @@ class DeepBuildTest(unittest.TestCase):
             sense._dim, sense._words, sense._index, sense._vecs, sense._related = saved
 
 
+class FestiveTest(unittest.TestCase):
+    """Праздничные и недельные темы: включаются по дате, сейчас — неделя космоса."""
+
+    def test_js_wired(self):
+        base = os.path.dirname(os.path.abspath(__file__))
+        self.assertTrue(os.path.exists(os.path.join(base, "festive.js")))
+        with open(os.path.join(base, "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn('<script src="festive.js"></script>', page)
+        self.assertIn("RaiFestive", page)
+        with open(os.path.join(base, "build_standalone.py"), encoding="utf-8") as f:
+            self.assertIn("festive.js", f.read())
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_js_runs_and_picks_space_week(self):
+        import subprocess
+        base = os.path.dirname(os.path.abspath(__file__))
+        self.assertEqual(subprocess.run(["node", "--check", os.path.join(base, "festive.js")]).returncode, 0)
+        script = ("global.window={};global.screen={width:1440,height:900};global.localStorage={getItem:()=>null,setItem:()=>{}};"
+                  "const el=()=>({style:{setProperty:()=>{},cssText:''},dataset:{},append:()=>{},setAttribute:()=>{},remove:()=>{}});"
+                  "global.document={documentElement:{style:{setProperty:()=>{},getPropertyValue:()=>''},dataset:{}},body:null,head:el(),"
+                  "querySelector:()=>null,getElementById:()=>null,createElement:el,addEventListener:()=>{}};"
+                  "global.matchMedia=()=>({matches:false});global.window.matchMedia=global.matchMedia;require(process.argv[1]);const F=window.RaiFestive;"
+                  "const w=F.current(new Date(2026,9,8)),h=F.current(new Date(2026,11,31));"
+                  "process.stdout.write(JSON.stringify([w.id,w.kind,h.id,h.kind]));")
+        out = subprocess.run(["node", "-e", script, os.path.join(base, "festive.js")], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(json.loads(out), ["space", "week", "ny", "holiday"])
+
+    @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
+    def test_php_matches(self):
+        import subprocess
+        base = os.path.dirname(os.path.abspath(__file__))
+        php = os.path.join(base, "hosting", "rai", "festive.php")
+        code = ('require $argv[1]; $w=festive_current(strtotime("2026-10-08")); $h=festive_current(strtotime("2026-12-31")); '
+                'echo json_encode([$w["id"],$w["kind"],$h["id"],$h["kind"],$w["accent"]]);')
+        out = subprocess.run(["php", "-r", code, php], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(json.loads(out), ["space", "week", "ny", "holiday", "#6a5cff"])
+
+
 if __name__ == "__main__":
     unittest.main()
