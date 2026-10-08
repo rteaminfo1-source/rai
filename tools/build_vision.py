@@ -408,6 +408,7 @@ def topics_self_test(data, text, image, topics, model):
     names = [t["title"] for t in topics]
     for en_title in ["Eiffel Tower", "Saint Basil's Cathedral", "Mona Lisa", "Giraffe", "Statue of Liberty", "Taj Mahal",
                      "Red fox", "Sunflower", "Saturn", "Golden Gate Bridge", "Pizza", "Violin", "Moscow Kremlin", "Domestic cat"]:
+        time.sleep(3)          # Википедия ограничивает частые запросы (429)
         try:
             api = "https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(en_title.replace(" ", "_"))
             src = json.load(urllib.request.urlopen(urllib.request.Request(api, headers={"User-Agent": UA}), timeout=30)).get("thumbnail", {}).get("source")

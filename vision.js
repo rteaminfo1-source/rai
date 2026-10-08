@@ -213,43 +213,52 @@
     return out;
   }
 
-  // Порог сходства с фотографией из статьи: чем «похожее» выглядят разные вещи этого вида, тем он выше
-  const PHOTO_MIN = {landmark: 0.8, art: 0.82, animal: 0.8, plant: 0.8, food: 0.82, place: 0.86, thing: 0.84, space: 0.9};
-  /** Конкретные вещи: по сходству с фото из статьи и по названию. [{title, en, kind, by, score}] */
+  // Как узнавать конкретные вещи (подобрано на проверке GitHub — фото из английской Википедии, которых нет в базе):
+  //  • по названию: у верной вещи сходство с картинкой ≈ 0,27–0,33, у неверной — ниже; нужен отрыв от следующей;
+  //  • по фото из статьи: надёжно только почти тот же снимок (≥ 0,93) — разные снимки разных мостов бывают похожи на 0,8;
+  //  • общие понятия («туризм», «газовые гиганты», «масляная живопись») не считаются — только конкретные вещи
+  //    (название с большой буквы) и виды животных, растений, еды.
+  const NAME_MIN = 0.265, NAME_GAP = 0.012, PHOTO_SAME = 0.93;
+  /** Конкретные вещи: [{title, en, kind, section, by: "name" | "photo" | "both", score}] — не больше одной. */
   function known(v) {
     if (!topics) return [];
     const {data, text, image} = topics, d = data.dim, n = data.topics.length;
-    let bestPhoto = -1, photo = -1, nameRank = [];
+    const eligible = (k) => /^[A-Z0-9]/.test(data.topics[k][1] || "") || ["animal", "plant", "food"].includes(data.kinds[data.topics[k][3]]);
+    const photoScore = new Float32Array(n), nameScore = new Float32Array(n);
     for (let k = 0; k < n; k++) {
       const has = data.topics[k][4], off = k * d;
       if (has & 2) {
         let s = 0;
         for (let i = 0; i < d; i++) s += image[off + i] * v[i];
-        s *= data.image_scale;
-        if (s > bestPhoto) { bestPhoto = s; photo = k; }
+        photoScore[k] = s * data.image_scale;
       }
       if (has & 1) {
         let s = 0;
         for (let i = 0; i < d; i++) s += text[off + i] * v[i];
-        nameRank.push([s * data.text_scale, k]);
+        nameScore[k] = s * data.text_scale;
       }
     }
-    const out = [];
-    const item = (k) => ({title: data.topics[k][0], en: data.topics[k][1], kind: data.kinds[data.topics[k][3]], section: data.sections[data.topics[k][2]]});
-    if (photo >= 0 && bestPhoto >= (PHOTO_MIN[data.kinds[data.topics[photo][3]]] || 0.85)) {
-      out.push(Object.assign(item(photo), {by: "photo", score: Math.round(bestPhoto * 1000) / 1000}));
+    const item = (k, by, score) => ({title: data.topics[k][0], en: data.topics[k][1], kind: data.kinds[data.topics[k][3]],
+                                     section: data.sections[data.topics[k][2]], by: by, score: Math.round(score * 1000) / 1000});
+    // по названию (+ небольшая прибавка, если и фото из статьи похоже): лучшая конкретная вещь с отрывом от следующей
+    let best = -1, second = -1, bestScore = -1, secondScore = -1;
+    for (let k = 0; k < n; k++) {
+      if (!(data.topics[k][4] & 1) || !eligible(k)) continue;
+      const s = nameScore[k] + 0.1 * Math.max(0, photoScore[k] - 0.6);
+      if (s > bestScore) { second = best; secondScore = bestScore; best = k; bestScore = s; }
+      else if (s > secondScore) { second = k; secondScore = s; }
     }
-    nameRank.sort((a, b) => b[0] - a[0]);
-    if (nameRank.length) {
-      // насколько лучший вариант по названию выделяется среди 20 следующих (как уверенность)
-      const top = nameRank.slice(0, 20), best = top[0][0];
-      const ex = top.map(([s]) => Math.exp((s - best) * 100)), sum = ex.reduce((x, y) => x + y, 0);
-      const p = ex[0] / sum, k = top[0][1];
-      if (best >= 0.27 && p >= 0.45 && !out.some((x) => x.title === data.topics[k][0])) {
-        out.push(Object.assign(item(k), {by: "name", score: Math.round(best * 1000) / 1000, p: Math.round(p * 1000) / 1000}));
-      }
+    // по фото: почти тот же снимок, что в статье (известные картины, фото достопримечательностей и планет)
+    let photo = -1, photoBest = -1;
+    for (let k = 0; k < n; k++) {
+      if ((data.topics[k][4] & 2) && eligible(k) && photoScore[k] > photoBest) { photo = k; photoBest = photoScore[k]; }
     }
-    return out;
+    const byName = best >= 0 && nameScore[best] >= NAME_MIN && bestScore - secondScore >= NAME_GAP;
+    if (photo >= 0 && photoBest >= PHOTO_SAME) {
+      return [item(photo, byName && best === photo ? "both" : "photo", photoBest)];
+    }
+    if (byName) return [item(best, photoScore[best] >= 0.7 ? "both" : "name", nameScore[best])];
+    return [];
   }
 
   /** Что в разных частях картинки (4 четверти и центр) — для подробного разбора. */
@@ -302,5 +311,5 @@
   }
 
   window.RaiVision = {load: load, look: look, lookAll: lookAll, palette: palette, library: library, loadTopics: loadTopics,
-                      MODEL: MODEL, TF_CDN: TF_CDN};
+                      known: known, MODEL: MODEL, TF_CDN: TF_CDN};
 })();

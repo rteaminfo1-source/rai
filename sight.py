@@ -121,7 +121,7 @@ def answer(img, question):
         known = [k for k in img.get("known") or [] if isinstance(k, dict) and k.get("title") and not _is_person(k["title"])]
         if known:
             k = known[0]
-            sure = "очень похоже" if k.get("by") == "photo" else "похоже"
+            sure = "очень похоже" if k.get("by") in ("photo", "both") else "похоже"
             return f"Это, {sure}, **{k['title']}**."
         if labels:
             return f"Похоже на **{labels[0]['ru']}**" + (f" (уверенность {_pct(labels[0].get('p', 0))})." if labels[0].get("p") else ".")
@@ -143,7 +143,7 @@ def describe(data, question=""):
         for k in [x for x in img.get("known") or [] if isinstance(x, dict) and x.get("title")][:2]:
             if _is_person(k["title"]):
                 continue
-            how = "очень похоже на фото из статьи" if k.get("by") == "photo" else "по виду"
+            how = {"photo": "очень похоже на фото из статьи", "both": "и по виду, и по фото из статьи"}.get(k.get("by"), "по виду")
             t = encyclopedia.lookup(k["title"])
             first = encyclopedia.tidy(encyclopedia._sentences(t["text"])[0]) if t and t.get("text") else ""
             lines += ["", f"🔎 **Узнал: {k['title']}** ({how})" + (f" — {first}" if first else "") +
