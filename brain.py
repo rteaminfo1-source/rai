@@ -1096,13 +1096,23 @@ class Brain:
                             "title": result.get("title") or "Код", "site": bool(result.get("site"))})
 
     def _site_facts(self, topic):
-        """Тексты о теме для сайта «про X»: словарь, база знаний, а если пусто — статья из интернета."""
+        """Тексты о теме для сайта «про X» — из своих знаний Rai (словарь, база знаний, энциклопедия, глубокие
+        знания), а не из интернета. Так сайт пишет сам движок. Интернет — только если своих знаний совсем нет."""
         texts = [a["answers"][0].replace("{name}", "") for a in self._glossary_for(topic, limit=3)]
         want = set(nlp.tokens(topic)) - nlp.GENERIC
         for key, score in self.search(_SITE_VERSION, topic, limit=3, correct=False):
             intent = self.intents[key]
             if score >= 0.3 and want & set(nlp.tokens(intent.get("title", "") + " " + " ".join(intent["patterns"]))):
                 texts.append(intent["answers"][0].replace("{name}", ""))
+        # статья целиком из глубоких знаний Rai (там есть и то, чего нет в энциклопедии), иначе — из энциклопедии
+        art = deep.find(topic) if deep.ready() else None
+        if art:
+            texts.append(art["lead"])
+            texts += [s["text"] for s in art["sections"][:2]]
+        else:
+            known = encyclopedia.lookup(topic)
+            if known and want & set(nlp.tokens(known["title"])):
+                texts.append(known["text"])
         if not texts:
             try:
                 art = online.web_article(topic, langs=("ru",))

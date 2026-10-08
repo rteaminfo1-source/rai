@@ -82,6 +82,33 @@ const SG_PALETTES = [  // [фон, текст, акцент, поверхнос�
     'dark'  => ['#0c0c0e', '#f2f0f0', '#ff2a2a', '#17171a'],
 ];
 
+// ---------------------------------------------------------------- запрещённые заказы
+// Сайт на запрещённую тему (наркотики, фишинг, вирусы, казино на деньги, оружие, 18+) AI Studio не делает.
+// То же, что moderation.forbidden_build в движке Rai — но на PHP, для серверной проверки.
+const SG_FORBIDDEN = [
+    'наркотики'    => '~(?:сдела\w*|создай|напиш\w*|собер\w*|нужен|нужна|хочу|сайт\w*|лендинг\w*|магазин\w*|шоп|витрин\w*|бот\w*|прилож\w*|каталог\w*|доск\w*)\W+(?:\S+\s+){0,5}?(?:наркот\w*|мефедрон\w*|амфетамин\w*|кокаин\w*|героин\w*|спайс\w*|закладк\w*|запрещённ\w*\s+веществ\w*|запрещенн\w*\s+веществ\w*)~iu',
+    'оружие'       => '~(?:сдела\w*|создай|напиш\w*|собер\w*|нужен|сайт\w*|магазин\w*|бот\w*|прилож\w*)\W+(?:\S+\s+){0,5}?(?:продаж\w+\s+оружи\w*|оружи\w+\s+без\s+лиценз\w*|нелегальн\w+\s+оружи\w*|взрывчатк\w*|самодельн\w+\s+бомб\w*)~iu',
+    'фишинг'       => '~фишингов\w+\s+(?:сайт\w*|страниц\w*|форм\w*|бот\w*)|(?:сдела\w*|создай|напиш\w*|собер\w*|сайт\w*|страниц\w*|форм\w*|копи\w*|клон\w*)\W+(?:\S+\s+){0,6}?(?:(?:крад\w*|украст\w*|воруе\w*|перехват\w*|выуд\w*)\W+(?:\S+\s+){0,3}?(?:парол\w*|логин\w*|данны\w*|реквизит\w*)|поддельн\w+\s+(?:страниц\w*|сайт\w*|форм\w*)\s+(?:вход\w*|авториз\w*|банк\w*))~iu',
+    'вирус'        => '~(?:сдела\w*|создай|напиш\w*|сгенер\w*|кодь?\b|собер\w*)\W+(?:\S+\s+){0,5}?(?:вирус\w*|троян\w*|шифровальщик\w*|вымогател\w*|ransomware|кейлоггер\w*|keylogger|стилер\w*|stealer|ботнет\w*|ddos|дудос\w*|эксплойт\w*|бэкдор\w*|(?:для|чтобы)\s+взлом\w*|взлом\w+\s+(?:wi-?fi|вайфай|чуж\w+\s+аккаунт\w*|парол\w*))~iu',
+    'мошенничество'=> '~(?:сдела\w*|создай|напиш\w*|сайт\w*|бот\w*|прилож\w*)\W+(?:\S+\s+){0,5}?(?:финансов\w+\s+пирамид\w*|ponzi|накрутк\w+\s+(?:подписчик\w*|лайк\w*|голос\w*|просмотр\w*)|поддельн\w+\s+(?:документ\w*|диплом\w*|паспорт\w*)|фейков\w+\s+(?:розыгрыш\w*|лотере\w*)|обман\w+\s+(?:людей|клиент\w*|пенсионер\w*)|кардинг\w*|carding)~iu',
+    'казино'       => '~онлайн-?казино\w*|казино\w*\W+(?:\S+\s+){0,3}?(?:на\s+деньги|с\s+выводом|реальн\w+\s+деньг\w*)|(?:ставк\w*|слот\w*|рулетк\w*)\W+(?:\S+\s+){0,2}?на\s+деньги~iu',
+    '18+'          => '~(?:сдела\w*|создай|напиш\w*|сайт\w*|бот\w*|прилож\w*|галере\w*|портал\w*)\W+(?:\S+\s+){0,4}?(?:порн\w*|porn\w*|\bxxx\b|эроти\w*|интим-?услуг\w*|эскорт\w*|проституц\w*)~iu',
+];
+
+/** Запрещённая тема сайта: подпись или null. */
+function sg_forbidden($prompt) {
+    $low = str_replace(['ё', 'Ё'], ['е', 'е'], mb_strtolower((string)$prompt));
+    foreach (SG_FORBIDDEN as $label => $rx) {
+        if (preg_match($rx, $low)) return $label;
+    }
+    return null;
+}
+
+function sg_forbidden_reply($label) {
+    return ['error' => 'Такой сайт я не сделаю: ' . $label . ' — это против правил Rai (rteam.info → Правила). ' .
+        'Опишите обычный сайт — магазин, кафе, портфолио, блог, услуги — и я соберу его за секунду.'];
+}
+
 // ---------------------------------------------------------------- разбор описания
 function sg_lower($s) { return mb_strtolower(str_replace(['Ё', 'ё'], ['Е', 'е'], (string)$s)); }
 
@@ -643,6 +670,7 @@ function sg_clean_html($html) {
 /** Сохранить сайт от нейросети (страница студии). */
 function studio_save_html($username, $html, $prompt, $title) {
     $html = trim((string)$html);
+    if ($bad = sg_forbidden((string)$prompt)) return sg_forbidden_reply($bad);
     if (strlen($html) < 200) return ['error' => 'Нейросеть вернула слишком мало кода — попробуйте ещё раз.'];
     if (strlen($html) > SG_HTML_MAX) return ['error' => 'Сайт получился слишком большим (больше 400 КБ).'];
     $clean = sg_clean_html($html);
@@ -783,6 +811,7 @@ function studio_save_spec($username, $json, $prompt, $fresh = true) {
     if (strlen(is_string($json) ? $json : '') > 200000) return ['error' => 'Слишком большой ответ нейросети.'];
     $old = sg_load($username);
     if ($prompt === '' && $old) $prompt = (string)($old['prompt'] ?? '');
+    if ($bad = sg_forbidden($prompt)) return sg_forbidden_reply($bad);
     $spec = sg_clean_spec($in, $username, $prompt, $fresh);
     if (!$spec) return ['error' => 'Нейросеть не написала ни одного раздела — попробуйте ещё раз.'];
     if (!$fresh && $old && empty($old['html']) && isset($old['seed']) && empty($in['seed'])) $spec['seed'] = $old['seed'];
@@ -796,6 +825,7 @@ function studio_save_spec($username, $json, $prompt, $fresh = true) {
 function studio_generate($username, $prompt, $publish = false) {
     $prompt = trim((string)$prompt);
     if (mb_strlen($prompt) < 3) return ['error' => 'Опишите сайт хотя бы парой слов.'];
+    if ($bad = sg_forbidden($prompt)) return sg_forbidden_reply($bad);
     $spec = sg_new_spec($prompt, $username);
     $old = sg_load($username);
     if ($old && !empty($old['published'])) $spec['published'] = $old['published'];

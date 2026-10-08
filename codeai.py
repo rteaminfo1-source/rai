@@ -12,6 +12,7 @@ import re
 from html.parser import HTMLParser
 
 import codelib
+import moderation
 import webgen
 
 LANG_NAMES = {
@@ -916,6 +917,11 @@ def site_result(spec, answer):
 
 def run_action(action, code, lang=None, prompt=""):
     """Выполнить действие над кодом. Возвращает {"answer", "code"?, "lang", "filename"?}."""
+    # Сайт, приложение или программу на запрещённую тему (наркотики, фишинг, вирусы…) Rai не делает
+    if action == "generate":
+        bad = moderation.forbidden_build(prompt)
+        if bad:
+            return {"answer": bad["answer"], "lang": "html", "forbidden": bad["category"]}
     if action == "edit" or (action == "generate" and code and webgen.spec_from_html(code) and webgen.is_edit(prompt)):
         spec = webgen.spec_from_html(code)
         if not spec:
@@ -973,6 +979,12 @@ def chat(text, version=None, state=None):
     state = state if state is not None else {}
     code, lang = extract_code(text)
     action = action_of(text)
+    # Запрещённый заказ (магазин наркотиков, фишинг, вирусы, казино на деньги…) — вежливый отказ, диалог продолжается.
+    # Правила требуют именно заказ («сделай/напиши сайт/программу…»), поэтому вопросы («что такое фишинг») не задевают.
+    if not code:
+        bad = moderation.forbidden_build(text)
+        if bad:
+            return {"answer": bad["answer"], "lang": "html", "forbidden": bad["category"]}
     if not code and state.get("site") and webgen.is_edit(text) and not wants_site(text):
         spec, done = webgen.edit_spec(state["site"], text)
         if done:
