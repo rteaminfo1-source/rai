@@ -32,6 +32,53 @@ def _pct(p):
     return f"{round(p * 100)}%" if p >= 0.01 else "<1%"
 
 
+def _attr(img, key, min_p=0.5):
+    for a in img.get("attrs") or []:
+        if isinstance(a, dict) and a.get("key") == key and a.get("p", 0) >= min_p:
+            return a.get("value")
+    return None
+
+
+_KIND = {"фотография": "Фото", "рисунок": "Рисунок", "картина": "Картина", "скриншот экрана": "Скриншот экрана",
+         "документ с текстом": "Документ с текстом", "мультяшная картинка": "Мультяшная картинка", "3D-графика": "3D-графика",
+         "схема или график": "Схема или график"}
+
+
+def caption(img):
+    """Одна фраза о картинке: «Фото на улице, на закате, ясно: **море**, ещё видно: пляж, небо. Людей нет.»"""
+    labels = [x for x in img.get("labels") or [] if isinstance(x, dict) and x.get("ru")]
+    if not labels:
+        return None
+    kind = _attr(img, "kind", 0.45) or "фотография"
+    photo = kind == "фотография"
+    head = [_KIND.get(kind, "Картинка")]
+    where = _attr(img, "place", 0.65) if photo else None
+    if where:
+        head.append(where)
+    when = []
+    if photo:
+        t = _attr(img, "time", 0.55)
+        if t:
+            when.append(t)
+        if where == "на улице":
+            for key, p in (("weather", 0.5), ("season", 0.55)):
+                v = _attr(img, key, p)
+                if v:
+                    when.append(v)
+    text = " ".join(head) + (", " + ", ".join(when) if when else "")
+    main = labels[0]["ru"]
+    rest = [x["ru"] for x in labels[1:5] if x.get("p", 0) >= 0.04 and x["ru"] != main]
+    out = f"{text}: **{main}**" + (f", ещё видно: {', '.join(rest)}" if rest else "") + "."
+    people = _attr(img, "people", 0.55) if photo else None
+    if people:
+        out += " " + people[:1].upper() + people[1:] + "."
+    return out
+
+
+def _is_person(title):
+    return bool(encyclopedia._PERSON_RE.match(title or "") or encyclopedia._MONARCH_RE.match(title or ""))
+
+
 def describe(data, question=""):
     """Markdown «что на картинке» или None, если модель ничего уверенно не увидела."""
     blocks = []
@@ -39,10 +86,23 @@ def describe(data, question=""):
         labels = [x for x in img.get("labels") or [] if isinstance(x, dict) and x.get("ru")]
         if not labels:
             continue
-        main = labels[0]
-        rest = [x["ru"] for x in labels[1:6] if x.get("p", 0) >= 0.03]
         head = f"## Что на картинке{f' {n}' if len(data) > 1 else ''}"
-        lines = [head, "", f"Похоже на: **{main['ru']}**" + (f" — ещё вижу: {', '.join(rest)}." if rest else ".")]
+        lines = [head, "", caption(img)]
+        # конкретная вещь из энциклопедии: по сходству с фото из статьи или по названию (людей не узнаём)
+        info_done = False
+        for k in [x for x in img.get("known") or [] if isinstance(x, dict) and x.get("title")][:2]:
+            if _is_person(k["title"]):
+                continue
+            how = "очень похоже на фото из статьи" if k.get("by") == "photo" else "по виду"
+            t = encyclopedia.lookup(k["title"])
+            first = encyclopedia.tidy(encyclopedia._sentences(t["text"])[0]) if t and t.get("text") else ""
+            lines += ["", f"🔎 **Узнал: {k['title']}** ({how})" + (f" — {first}" if first else "") +
+                      f" [Подробнее]({encyclopedia.page_url(k['title'])})"]
+            info_done = True
+            break
+        regions = [r for r in img.get("regions") or [] if isinstance(r, dict) and r.get("ru")]
+        if regions:
+            lines += ["", "🧩 **По частям:** " + "; ".join(f"{r['where']} — {r['ru']}" for r in regions[:5]) + "."]
         table = [f"| {x['ru']} | {x.get('group', '')} | {_pct(x.get('p', 0))} |" for x in labels[:6]]
         lines += ["", "| Что вижу | Раздел | Уверенность |", "|---|---|---|"] + table
         look = []
@@ -53,21 +113,26 @@ def describe(data, question=""):
             look.append(img["tone"] + " тона")
         if img.get("light"):
             look.append(img["light"] + " картинка")
+        view = _attr(img, "view", 0.6)
+        if view and _attr(img, "kind", 0.45) in (None, "фотография"):
+            look.append(view)
         if look:
             lines += ["", "🎨 " + " · ".join(look)]
         # справка: животное, растение, планета, здание…
         for x in labels[:3]:
+            if info_done:
+                break
             if x.get("group") in _ABOUT_GROUPS and x["ru"].lower() not in _GENERIC and x.get("p", 0) >= 0.12:
                 t = encyclopedia.lookup(re.sub(r"\s+(вблизи|из космоса|с кольцами)$", "", x["ru"]))
                 if t:
-                    first = re.split(r"(?<=[.!?])\s+", t["text"])[0]
+                    first = encyclopedia.tidy(encyclopedia._sentences(t["text"])[0])
                     lines += ["", f"💡 **{t['title']}**: {first} [Подробнее]({encyclopedia.page_url(t['title'])})"]
                     break
         blocks.append("\n".join(lines))
     if not blocks:
         return None
-    note = ("\n\n*Распознаёт модель CLIP прямо в вашем браузере — картинка никуда не отправляется. "
-            "Это догадка по сотням понятий: небо, солнце, люди, животные, еда, транспорт, здания, скриншоты и др.*")
+    note = ("\n\n*Распознаёт зрение Rai прямо в вашем браузере — картинка никуда не отправляется. Rai узнаёт сотни понятий "
+            "и тысячи конкретных вещей из своей энциклопедии; людей по лицу не узнаёт.*")
     return "\n\n".join(blocks) + note
 
 
@@ -78,6 +143,7 @@ def summary(data):
         labels = [f"{x['ru']} ({_pct(x.get('p', 0))})" for x in (img.get("labels") or [])[:6] if isinstance(x, dict) and x.get("ru")]
         colors = ", ".join(c["name"] for c in (img.get("colors") or [])[:3] if isinstance(c, dict) and c.get("name"))
         if labels:
-            parts.append(f"Картинка {n}: " + ", ".join(labels) + (f"; цвета: {colors}" if colors else "") +
-                         (f"; {img['light']}" if img.get("light") else ""))
+            known = [k["title"] for k in img.get("known") or [] if isinstance(k, dict) and k.get("title") and not _is_person(k["title"])]
+            parts.append(f"Картинка {n}: " + (caption(img) or "").replace("**", "") + " Понятия: " + ", ".join(labels) +
+                         (f"; узнал: {known[0]}" if known else "") + (f"; цвета: {colors}" if colors else ""))
     return "\n".join(parts)

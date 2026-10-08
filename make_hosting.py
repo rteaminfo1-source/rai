@@ -251,6 +251,11 @@ def build(out):
     write_kb(os.path.join(out, "rai.rteam.info", "meds.php"), "medicines.json",
              "Лекарства для Rai: тысячи препаратов из Wikidata и Википедии (собирает GitHub: tools/build_medicines.py)")
     write_deep(os.path.join(out, "rai.rteam.info", "deep"))
+    topics = os.path.join(BASE, "vision_topics.json.gz")
+    if os.path.exists(topics):
+        with open(topics, "rb") as f:
+            write_gz_php(os.path.join(out, "rai.rteam.info", "vision2.php"), f.read(),
+                         "Зрение Rai: тысячи конкретных вещей из энциклопедии (собирает GitHub: tools/build_vision.py)", cache=7 * 86400)
     write_js(os.path.join(out, "aistudio.rteam.info", "assets", "neuro.php"), "neuro.js",
              "Нейросеть Rai Нейро для AI Studio — копия neuro.js из репозитория (собирает make_hosting.py)")
 

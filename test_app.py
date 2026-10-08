@@ -1573,7 +1573,7 @@ class SightTest(unittest.TestCase):
         r = self.brain.answer(SUN, "что на картинке\n[[screen]]\n\n[[vision]]\n" + json.dumps(seen, ensure_ascii=False), session_id="s")
         a = r["answer"]
         self.assertEqual(r["intent"], "screen")
-        self.assertIn("Похоже на: **закат** — ещё вижу: солнце, море.", a)  # облака 2% — слишком неуверенно
+        self.assertIn("Фото: **закат**, ещё видно: солнце, море.", a)  # облака 2% — слишком неуверенно
         self.assertIn("| солнце | Небо и погода | 21% |", a)
         self.assertIn("цвета: оранжевый, синий · тёплые тона · светлая картинка", a)
         self.assertNotIn("не нашёл текста", a)
@@ -1587,13 +1587,36 @@ class SightTest(unittest.TestCase):
             a = self.brain.answer(SUN, "\n[[screen]]\nСколько будет 2+2 =\n[[vision]]\n" + json.dumps(seen, ensure_ascii=False), session_id="s")["answer"]
         finally:
             encyclopedia._data, encyclopedia._index = saved
-        self.assertIn("Похоже на: **жираф**", a)
+        self.assertIn("Фото: **жираф**", a)
         self.assertIn("💡 **Жираф**: Жираф — парнокопытное млекопитающее", a)  # справка из энциклопедии
         self.assertLess(a.index("Что на картинке"), a.index("Текст со скриншота"))
         self.assertIn("2+2 = 4", a.replace(" + ", "+"))
         # без зрения (модель не загрузилась) — как раньше, только текст
         old = self.brain.answer(SUN, "\n[[screen]]\n", session_id="s")["answer"]
         self.assertIn("не нашёл текста", old)
+
+    def test_attributes_known_things_and_parts(self):
+        import sight
+        seen = [{"labels": [{"ru": "башня", "p": 0.55, "group": "Город и здания"}, {"ru": "небо", "p": 0.2, "group": "Небо и погода"}],
+                 "attrs": [{"key": "kind", "value": "фотография", "p": 0.9}, {"key": "place", "value": "на улице", "p": 0.97},
+                           {"key": "time", "value": "ночью", "p": 0.8}, {"key": "weather", "value": "ясно", "p": 0.7},
+                           {"key": "people", "value": "людей нет", "p": 0.9}, {"key": "view", "value": "общий план", "p": 0.8}],
+                 "known": [{"title": "Эйфелева башня", "by": "photo", "score": 0.86}],
+                 "regions": [{"where": "в центре", "ru": "башня", "p": 0.5}, {"where": "слева вверху", "ru": "ночное небо", "p": 0.6}],
+                 "colors": [{"name": "чёрный", "share": 0.5}], "tone": "", "light": "тёмная"}]
+        a = sight.describe(seen)
+        self.assertIn("Фото на улице, ночью, ясно: **башня**, ещё видно: небо. Людей нет.", a)
+        self.assertIn("🔎 **Узнал: Эйфелева башня** (очень похоже на фото из статьи)", a)
+        self.assertIn("🧩 **По частям:** в центре — башня; слева вверху — ночное небо.", a)
+        self.assertIn("общий план", a)
+        # рисунок: про улицу, погоду и людей не говорим; людей по лицу не узнаём никогда
+        drawing = [{"labels": [{"ru": "кошка", "p": 0.7, "group": "Животные"}], "attrs": [{"key": "kind", "value": "рисунок", "p": 0.8},
+                    {"key": "place", "value": "на улице", "p": 0.9}, {"key": "people", "value": "один человек", "p": 0.9}],
+                    "known": [{"title": "Пушкин, Александр Сергеевич", "by": "photo", "score": 0.95}]}]
+        b = sight.describe(drawing)
+        self.assertIn("Рисунок: **кошка**.", b)
+        self.assertNotIn("Пушкин", b)
+        self.assertIn("узнал", sight.summary(seen))
 
     @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
     def test_vision_js_syntax_and_wiring(self):

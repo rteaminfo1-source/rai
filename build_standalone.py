@@ -49,6 +49,8 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
     vision_path = os.path.join(BASE_DIR, "vision_labels.json")
     if cdn:
         html = html.replace("window.RAI_PYODIDE_SOURCES = [", 'window.RAI_KB_URL = "kb.php";\n  window.RAI_VISION_URL = "vision.php";\n  window.RAI_PYODIDE_SOURCES = [', 1)
+        if os.path.exists(os.path.join(BASE_DIR, "vision_topics.json.gz")):   # зрение: тысячи конкретных вещей — vision2.php
+            html = html.replace("window.RAI_PYODIDE_SOURCES = [", 'window.RAI_VISION_TOPICS_URL = "vision2.php";\n  window.RAI_PYODIDE_SOURCES = [', 1)
         if os.path.exists(os.path.join(BASE_DIR, "deep", "manifest.json")):   # глубокие знания — папка deep/ (части до 30 МБ)
             html = html.replace("window.RAI_PYODIDE_SOURCES = [", 'window.RAI_DEEP_URL = "deep/";\n  window.RAI_PYODIDE_SOURCES = [', 1)
         if os.path.exists(os.path.join(BASE_DIR, "medicines.json")):   # большая база лекарств — отдельным файлом meds.php

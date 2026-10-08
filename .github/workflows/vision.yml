@@ -21,7 +21,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -34,8 +34,8 @@ jobs:
           pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
           pip install --quiet transformers pillow numpy
 
-      - name: Посчитать понятия и проверить на фото
-        run: python tools/build_vision.py -o vision_labels.json
+      - name: Посчитать понятия, признаки и тысячи вещей из энциклопедии; проверить на фото
+        run: python tools/build_vision.py -o vision_labels.json --topics vision_topics.json.gz
 
       - name: Какие файлы модели есть для браузера
         run: |
@@ -59,9 +59,9 @@ jobs:
 
       - name: Сохранить в репозиторий
         run: |
-          git add vision_labels.json
+          git add vision_labels.json vision_topics.json.gz
           if git diff --cached --quiet; then echo "Без изменений"; exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Зрение Rai: понятия для распознавания картинок"
+          git commit -m "Зрение Rai: понятия, признаки и тысячи вещей для распознавания картинок [skip ci]"
           for i in 1 2 3; do git pull --rebase origin "$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && break; sleep 5; done

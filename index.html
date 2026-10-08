@@ -2502,7 +2502,9 @@ def rai_code(action, code, lang, prompt):
         }
         // Зрение Rai: что на картинке — небо, солнце, люди, животные, еда, здания… (модель CLIP в браузере)
         try {
-          if (window.RaiVision) seen = await window.RaiVision.lookAll(pics, (step) => { bubble.textContent = step; });
+          // на компьютере и уровне High и выше Rai рассматривает ещё и части картинки (что слева, справа, в центре)
+          const detail = DEVICE !== "phone" && ["high", "extra", "code", "ultra"].includes(currentLevel());
+          if (window.RaiVision) seen = await window.RaiVision.lookAll(pics, (step) => { bubble.textContent = step; }, {detail: detail});
         } catch (e) {
           console.warn("Зрение Rai не сработало:", e);  // текст со скриншота всё равно разберём
         }

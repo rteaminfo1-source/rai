@@ -7,18 +7,37 @@ Rai узнаёт на картинке не только текст, но и в�
 
     python tools/build_vision.py -o vision_labels.json      # нужны torch, transformers, pillow
 
+Что собирается:
+  • vision_labels.json — ~500 общих понятий (небо, кошка, пицца…) и признаки картинки: что это (фото, рисунок,
+    скриншот, документ), где снято (улица или помещение), когда (день, ночь, закат), погода, время года,
+    сколько людей, ракурс. Небольшой файл — грузится сразу.
+  • vision_topics.json.gz — ~6000 конкретных вещей из энциклопедии Rai (достопримечательности, города, животные,
+    растения, картины, планеты, техника, еда…): «отпечаток» названия (английское название из Wikidata) и
+    «отпечаток» главной фотографии статьи. Rai узнаёт их и по смыслу, и по сходству с фотографией.
+    Людей Rai НЕ узнаёт по лицу: статьи о людях сюда не попадают.
+Каждый файл меньше 30 МБ.
+
 Запускается в workflow «Зрение Rai» (.github/workflows/vision.yml). После сборки сам проверяет себя на фото
 из Википедии и печатает, что увидел.
 """
 
 import argparse
 import base64
+import concurrent.futures
+import gzip
 import io
 import json
 import os
+import re
 import sys
+import time
 import urllib.parse
 import urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+UA = "RaiVisionBuilder/2.0 (https://github.com/rteaminfo1-source/rai)"
+MAX_FILE = 30 * 1024 * 1024
 
 MODEL = "openai/clip-vit-base-patch32"        # в браузере — та же модель: Xenova/clip-vit-base-patch32 (ONNX)
 BROWSER_MODEL = "Xenova/clip-vit-base-patch32"
@@ -124,6 +143,25 @@ VOCAB = {
         урок|a lesson in a classroom; экзамен|an exam; совещание|a business meeting; видеозвонок|a video call; спортивный матч|a sports match;
         соревнование|a competition; выставка|an exhibition; очередь|a queue of people; ремонт|home renovation; переезд|moving boxes""",
 }
+# Признаки картинки: для каждого — несколько вариантов, Rai выбирает самый похожий
+ATTRS = [
+    ("kind", "Что это", [("фотография", "a photo"), ("рисунок", "a hand drawing"), ("картина", "a painting on canvas"),
+                         ("скриншот экрана", "a screenshot of a computer screen"), ("документ с текстом", "a scanned page with printed text"),
+                         ("мультяшная картинка", "a cartoon illustration"), ("3D-графика", "a 3d render"),
+                         ("схема или график", "a chart or a diagram")]),
+    ("place", "Где", [("на улице", "a photo taken outdoors"), ("в помещении", "a photo taken indoors")]),
+    ("time", "Когда", [("днём", "a photo taken in daylight"), ("ночью", "a photo taken at night"),
+                       ("на закате или рассвете", "a photo taken at sunset")]),
+    ("weather", "Погода", [("ясно", "a photo on a clear sunny day"), ("облачно", "a photo on a cloudy overcast day"),
+                           ("дождь", "a photo in the rain"), ("снег", "a photo with snow"), ("туман", "a photo in the fog")]),
+    ("season", "Время года", [("лето", "a photo taken in summer"), ("осень", "a photo taken in autumn"),
+                              ("зима", "a photo taken in winter"), ("весна", "a photo taken in spring")]),
+    ("people", "Люди", [("людей нет", "a photo with no people"), ("один человек", "a photo of one person"),
+                        ("два человека", "a photo of two people"), ("несколько человек", "a photo of a small group of people"),
+                        ("толпа", "a photo of a large crowd of people")]),
+    ("view", "Ракурс", [("крупный план", "a close-up photo"), ("общий план", "a wide angle photo"),
+                        ("вид сверху", "an aerial photo from above"), ("селфи", "a selfie"), ("портрет", "a portrait photo of a person")]),
+]
 TEMPLATES = ["a photo of {}.", "a close-up photo of {}.", "an image of {}.", "a picture showing {}."]
 SCREEN_TEMPLATES = ["{}.", "an image of {}.", "a screenshot showing {}."]
 
@@ -169,13 +207,222 @@ def build():
     m = torch.stack(embs)                          # N × 512, длина каждого = 1
     scale = float(m.abs().max())
     q = torch.clamp((m / scale * 127).round(), -127, 127).to(torch.int8)
+    # признаки картинки — отдельные вопросы со своими вариантами
+    attrs, attr_embs = [], []
+    with torch.no_grad():
+        for key, ru, options in ATTRS:
+            attrs.append({"key": key, "ru": ru, "options": [o[0] for o in options]})
+            for _, en in options:
+                e = text_features(model, tok([en, en + "."], padding=True, return_tensors="pt"))
+                e = e / e.norm(dim=-1, keepdim=True)
+                e = e.mean(dim=0)
+                attr_embs.append(e / e.norm())
+    a = torch.stack(attr_embs)
+    a_scale = float(a.abs().max())
+    aq = torch.clamp((a / a_scale * 127).round(), -127, 127).to(torch.int8)
     data = {
+        "version": 2, "attrs": attrs, "attr_scale": a_scale / 127, "attr_emb": base64.b64encode(aq.numpy().tobytes()).decode(),
         "model": MODEL, "browser_model": BROWSER_MODEL, "dim": m.shape[1], "scale": scale / 127,
         "logit_scale": float(model.logit_scale.exp()),
         "groups": GROUPS, "labels": [[g, ru, en] for g, ru, en in labels],
         "emb": base64.b64encode(q.numpy().tobytes()).decode(),
     }
     return data, model
+
+
+# ------------------------------------------------------------------ конкретные вещи из энциклопедии
+
+VISUAL_SECTIONS = {"География", "Искусство", "Повседневная жизнь", "Биология и медицина", "Естественные науки", "Технологии",
+                   "Космос", "Россия и Беларусь"}
+# категории про людей и абстрактные понятия — не для зрения (людей Rai по лицу не узнаёт)
+SKIP_CATS = re.compile(r"Politicians|leaders|Religious figures|Writers|Actors|Musicians|Scientists|Artists|Philosophers|Explorers|"
+                       r"Businesspeople|Sports figures|People|Military|Morbidity|Drugs|Chemical substances|Mathemat|Units of measurement|"
+                       r"Language|Literature|Economics|Philosoph|Education|Media|Biochem|Physics|Genetics|Cell|Medicine|"
+                       r"Biological processes|Measurement|Computing|Software|Music genres|Performing arts|Celestial mechanics", re.I)
+PERSON = re.compile(r"^[^,()]+,\s*[^,()]+(?:\s*\([^)]*\))?$")
+MONARCH = re.compile(r"^[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)?\s+[IVX]+$")
+
+
+def topic_kind(section, cat):
+    """Вид вещи — от него зависят подписи для модели и порог уверенности в браузере."""
+    c = (cat or "").lower()
+    if section == "Космос" or "astronom" in c:
+        return "space"
+    if "animal" in c:
+        return "animal"
+    if "plant" in c:
+        return "plant"
+    if "food" in c or "cooking" in c:
+        return "food"
+    if "specific works" in c or "visual arts" in c:
+        return "art"
+    if "cities" in c or "города" in c or "countries" in c or "регион" in c or "regions" in c:
+        return "place"
+    if "specific structures" in c or "architecture" in c or "infrastructure" in c:
+        return "landmark"
+    if section in ("География", "Россия и Беларусь"):
+        return "place"
+    return "thing"
+
+
+PROMPTS = {"animal": ["a photo of a {}.", "a photo of a {}, a type of animal."],
+           "plant": ["a photo of a {}.", "a photo of {}, a type of plant."],
+           "food": ["a photo of {}.", "a photo of {}, a type of food."],
+           "art": ["{}.", "the famous artwork {}."],
+           "place": ["a photo of {}.", "a view of {}."],
+           "landmark": ["a photo of {}.", "a photo of the landmark {}."],
+           "space": ["a picture of {}.", "{} in space."],
+           "thing": ["a photo of a {}.", "a photo of {}."]}
+
+
+def pick_topics(enc, limit=0):
+    """Темы энциклопедии, которые можно узнать на картинке: с фото, не люди, не абстрактные понятия, известные."""
+    out = []
+    for it in enc["items"]:
+        sec_no, cat = enc["cats"][it[2]]
+        section = enc["sections"][sec_no]
+        if section not in VISUAL_SECTIONS or len(it) < 7 or not it[6] or PERSON.match(it[0]) or MONARCH.match(it[0]):
+            continue
+        if SKIP_CATS.search(cat or ""):
+            continue
+        pop = it[5] if len(it) > 5 else 0
+        if pop < (25 if section == "Космос" else 8):
+            continue
+        out.append({"title": it[0], "section": section, "cat": cat, "kind": topic_kind(section, cat), "image": it[6], "pop": pop})
+    out.sort(key=lambda t: -t["pop"])
+    return out[:limit] if limit else out
+
+
+def english_labels(titles):
+    """Английские названия тем (Wikidata) — модель CLIP понимает английский. {русское название: английское}."""
+    sys.path.insert(0, HERE)
+    import build_encyclopedia as be
+    qids = {}
+    for i in range(0, len(titles), 50):
+        chunk = titles[i:i + 50]
+        data = be.get(be.RU, {"action": "query", "prop": "pageprops", "ppprop": "wikibase_item", "titles": "|".join(chunk),
+                              "redirects": 1})
+        q = data.get("query") or {}
+        back = {r["to"]: r["from"] for r in q.get("redirects", [])}
+        for page in q.get("pages", []):
+            qid = (page.get("pageprops") or {}).get("wikibase_item")
+            if qid:
+                qids[qid] = back.get(page["title"], page["title"])
+    out = {}
+    ids = list(qids)
+    for i in range(0, len(ids), 50):
+        data = be.get(be.WD, {"action": "wbgetentities", "ids": "|".join(ids[i:i + 50]), "props": "labels", "languages": "en"})
+        for qid, ent in (data.get("entities") or {}).items():
+            label = ((ent.get("labels") or {}).get("en") or {}).get("value")
+            if label and qid in qids:
+                out[qids[qid]] = label
+    return out
+
+
+def fetch_thumb(filename, width=250):
+    """Главная фотография статьи (уменьшенная копия с Викисклада) → PIL.Image или None."""
+    from PIL import Image
+    url = ("https://commons.wikimedia.org/wiki/Special:FilePath/" + urllib.parse.quote(filename.replace(" ", "_")) +
+           f"?width={width}")
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=40) as r:
+                raw = r.read()
+            if raw[:4] == b"<svg" or b"<svg" in raw[:200]:
+                return None
+            return Image.open(io.BytesIO(raw)).convert("RGB")
+        except Exception:  # noqa: BLE001 — нет фото — тема узнаётся только по названию
+            time.sleep(2 * (attempt + 1))
+    return None
+
+
+def build_topics(model, limit=0):
+    """vision_topics.json.gz: названия и фотографии тем → «отпечатки» CLIP (int8)."""
+    import numpy as np
+    import torch
+    from transformers import CLIPProcessor, CLIPTokenizer
+    with open(os.path.join(ROOT, "encyclopedia.json"), encoding="utf-8") as f:
+        enc = json.load(f)
+    topics = pick_topics(enc, limit)
+    print(f"тем для зрения: {len(topics)}", file=sys.stderr)
+    en = english_labels([t["title"] for t in topics])
+    print(f"английских названий: {len(en)}", file=sys.stderr)
+    tok = CLIPTokenizer.from_pretrained(MODEL)
+    proc = CLIPProcessor.from_pretrained(MODEL)
+    dim = model.config.projection_dim
+    text = np.zeros((len(topics), dim), dtype="float32")
+    image = np.zeros((len(topics), dim), dtype="float32")
+    has = [0] * len(topics)
+    with torch.no_grad():
+        for k, t in enumerate(topics):
+            name = en.get(t["title"])
+            if not name:
+                continue
+            name = re.sub(r"\s*\([^)]*\)$", "", name)
+            e = text_features(model, tok([p.format(name) for p in PROMPTS[t["kind"]]], padding=True, return_tensors="pt"))
+            e = e / e.norm(dim=-1, keepdim=True)
+            e = e.mean(dim=0)
+            text[k] = (e / e.norm()).numpy()
+            has[k] |= 1
+    t0 = time.time()
+    with concurrent.futures.ThreadPoolExecutor(6) as ex:
+        images = list(ex.map(lambda t: fetch_thumb(t["image"]), topics))
+    print(f"фото скачано: {sum(1 for i in images if i is not None)} из {len(topics)} за {int(time.time() - t0)} с", file=sys.stderr)
+    batch = [(k, im) for k, im in enumerate(images) if im is not None]
+    with torch.no_grad():
+        for i in range(0, len(batch), 32):
+            part = batch[i:i + 32]
+            px = proc(images=[im for _, im in part], return_tensors="pt")["pixel_values"]
+            v = image_features(model, px)
+            v = v / v.norm(dim=-1, keepdim=True)
+            for (k, _), row in zip(part, v.numpy()):
+                image[k] = row
+                has[k] |= 2
+    keep = [k for k in range(len(topics)) if has[k]]
+    text, image = text[keep], image[keep]
+    topics = [topics[k] for k in keep]
+    has = [has[k] for k in keep]
+    sections = sorted({t["section"] for t in topics})
+    kinds = sorted({t["kind"] for t in topics})
+
+    def q8(m):
+        sc = float(np.abs(m).max()) or 1.0
+        return base64.b64encode(np.clip(np.round(m / sc * 127), -127, 127).astype(np.int8).tobytes()).decode(), sc / 127
+    t_b64, t_scale = q8(text)
+    i_b64, i_scale = q8(image)
+    data = {"version": 1, "model": MODEL, "dim": dim, "sections": sections, "kinds": kinds,
+            "topics": [[t["title"], en.get(t["title"], ""), sections.index(t["section"]), kinds.index(t["kind"]), h]
+                       for t, h in zip(topics, has)],
+            "text_scale": t_scale, "text": t_b64, "image_scale": i_scale, "image": i_b64}
+    return data, text, image, topics
+
+
+def topics_self_test(data, text, image, topics, model):
+    """Проверка: фото тех же вещей из английской Википедии (другие снимки) — узнаёт ли Rai."""
+    import numpy as np
+    import torch
+    from PIL import Image
+    from transformers import CLIPProcessor
+    proc = CLIPProcessor.from_pretrained(MODEL)
+    names = [t["title"] for t in topics]
+    for en_title in ["Eiffel Tower", "Saint Basil's Cathedral", "Mona Lisa", "Giraffe", "Statue of Liberty", "Taj Mahal",
+                     "Red fox", "Sunflower", "Saturn", "Golden Gate Bridge", "Pizza", "Violin", "Moscow Kremlin", "Domestic cat"]:
+        try:
+            api = "https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(en_title.replace(" ", "_"))
+            src = json.load(urllib.request.urlopen(urllib.request.Request(api, headers={"User-Agent": UA}), timeout=30)).get("thumbnail", {}).get("source")
+            img = Image.open(io.BytesIO(urllib.request.urlopen(urllib.request.Request(src, headers={"User-Agent": UA}), timeout=30).read())).convert("RGB")
+        except Exception as e:  # noqa: BLE001
+            print(en_title, "— нет картинки:", e)
+            continue
+        with torch.no_grad():
+            v = image_features(model, proc(images=img, return_tensors="pt")["pixel_values"])[0].numpy()
+        v = v / np.linalg.norm(v)
+        ts, im = text @ v, image @ v
+        tt = np.argsort(-ts)[:3]
+        ii = np.argsort(-im)[:3]
+        print(f"{en_title}: по названию — " + ", ".join(f"{names[k]} {ts[k]:.3f}" for k in tt) +
+              " | по фото — " + ", ".join(f"{names[k]} {im[k]:.3f}" for k in ii))
 
 
 def self_test(data, model):
@@ -208,15 +455,32 @@ def self_test(data, model):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("-o", "--output", default=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vision_labels.json"))
+    parser.add_argument("-o", "--output", default=os.path.join(ROOT, "vision_labels.json"))
+    parser.add_argument("--topics", default=os.path.join(ROOT, "vision_topics.json.gz"))
+    parser.add_argument("--limit", type=int, default=0, help="только N тем (для проверки)")
     parser.add_argument("--no-test", action="store_true")
+    parser.add_argument("--no-topics", action="store_true")
     args = parser.parse_args()
     data, model = build()
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
-    print("понятий:", len(data["labels"]), "→", args.output, os.path.getsize(args.output) // 1024, "КБ", file=sys.stderr)
+    print("понятий:", len(data["labels"]), "признаков:", len(data["attrs"]), "→", args.output,
+          os.path.getsize(args.output) // 1024, "КБ", file=sys.stderr)
     if not args.no_test:
         self_test(data, model)
+    if args.no_topics:
+        return
+    topics, text, image, picked = build_topics(model, args.limit)
+    raw = gzip.compress(json.dumps(topics, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 9, mtime=0)
+    if len(raw) * 4 / 3 + 4096 > MAX_FILE:
+        raise SystemExit(f"vision_topics слишком большой ({len(raw)} байт)")
+    if len(topics["topics"]) < (20 if args.limit else 2000):
+        raise SystemExit(f"слишком мало тем ({len(topics['topics'])}) — файл не перезаписан")
+    with open(args.topics, "wb") as f:
+        f.write(raw)
+    print(f"тем: {len(topics['topics'])} → {args.topics}, {round(len(raw) / 1048576, 1)} МБ", file=sys.stderr)
+    if not args.no_test:
+        topics_self_test(topics, text, image, picked, model)
 
 
 if __name__ == "__main__":
