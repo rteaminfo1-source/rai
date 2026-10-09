@@ -60,13 +60,15 @@ function festive_rgba($hex, $alpha) {
     return 'rgba(' . (($n >> 16) & 255) . ',' . (($n >> 8) & 255) . ',' . ($n & 255) . ',' . $alpha . ')';
 }
 
-/** Красивый фон под праздник: два-три мягких цветных свечения в цвет темы (как в чате). */
+/** Красивый фон под праздник: несколько мягких цветных свечений + лёгкая дымка (как в чате, festive.js bgFor). */
 function festive_bg($fest) {
     $a = $fest['accent'];
     $b = $fest['grad2'];
-    return 'radial-gradient(1200px 680px at 12% -12%, ' . festive_rgba($a, 0.22) . ', transparent 60%),'
-         . 'radial-gradient(1000px 560px at 100% 0%, ' . festive_rgba($b, 0.16) . ', transparent 58%),'
-         . 'radial-gradient(900px 700px at 50% 120%, ' . festive_rgba($a, 0.10) . ', transparent 60%)';
+    return 'radial-gradient(1300px 720px at 10% -14%, ' . festive_rgba($a, 0.26) . ', transparent 60%),'
+         . 'radial-gradient(1100px 600px at 100% -4%, ' . festive_rgba($b, 0.20) . ', transparent 58%),'
+         . 'radial-gradient(820px 820px at 86% 110%, ' . festive_rgba($b, 0.14) . ', transparent 62%),'
+         . 'radial-gradient(900px 760px at 20% 118%, ' . festive_rgba($a, 0.12) . ', transparent 62%),'
+         . 'linear-gradient(180deg, ' . festive_rgba($a, 0.05) . ', transparent 32%)';
 }
 
 /** CSS-переменные акцента + праздничный фон — вставляется в <style> главной страницы. */

@@ -207,10 +207,15 @@
   .welcome h1 span { color: var(--red); }
   .welcome p { margin: 0; color: var(--muted); max-width: 60ch; }
   .welcome .hello { color: var(--fg); font-size: clamp(17px, 2.2vw, 20px); font-weight: 600; margin-bottom: -6px; }
-  .festive-badge { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; padding: 6px 10px 6px 12px;
-    border-radius: 999px; border: 1px solid var(--line-2); background: var(--glass); font-size: 13px; color: var(--fg); }
+  .festive-badge { display: inline-flex; align-items: center; gap: 9px; align-self: flex-start; padding: 7px 12px 7px 10px;
+    border-radius: 999px; border: 1px solid transparent; font-size: 13px; color: var(--fg); position: relative;
+    background: linear-gradient(var(--panel), var(--panel)) padding-box, var(--grad) border-box;
+    box-shadow: 0 8px 26px -14px var(--red, #ff3d81); animation: festive-badge-in .5s var(--ease, ease) both; }
+  @keyframes festive-badge-in { from { opacity: 0; transform: translateY(-4px) scale(.96); } }
   .festive-badge b { font-weight: 700; }
-  .festive-badge .em { font-size: 16px; }
+  .festive-badge .em { font-size: 17px; filter: drop-shadow(0 1px 4px var(--red-soft, rgba(255,61,129,.4))); animation: festive-em 3s ease-in-out infinite; }
+  @keyframes festive-em { 0%,100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-2px) rotate(-6deg); } }
+  @media (prefers-reduced-motion: reduce) { .festive-badge, .festive-badge .em { animation: none; } }
   .festive-badge .off { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; }
   .festive-badge .off:hover { color: var(--fg); }
   .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
@@ -1543,6 +1548,11 @@
       btn.classList.toggle("over", frac >= 1);
       btn.title = "Токены за сегодня: " + num(d.total) + " из " + num(lim);
     }
+    function planName() {
+      const chat = current() || {};
+      const v = (VERSIONS || []).find((x) => x.id === chat.version);
+      return v ? v.name : "Rai";
+    }
     function renderMenu() {
       const d = load(), lim = limit(), left = Math.max(0, lim - d.total);
       const l = last;
@@ -1553,13 +1563,13 @@
         `<div class="um-row um-total"><span>Последний ответ</span><b>${num(l.total)}</b></div>`
       ) : `<div class="um-note">Задайте вопрос — покажу, сколько токенов он стоил.</div>`;
       $("usageMenu").className = "pick-menu usage-menu";
-      $("usageMenu").innerHTML = `<div class="pm-head">Токены сегодня</div>` +
+      $("usageMenu").innerHTML = `<div class="pm-head">Токены сегодня · ${esc(planName())}</div>` +
         `<div class="um-row"><span>Потрачено</span><b>${num(d.total)}</b></div>` +
         `<div class="um-row"><span>Осталось</span><b>${num(left)}</b></div>` +
-        `<div class="um-row um-total"><span>Лимит тарифа</span><b>${num(lim)}</b></div>` +
+        `<div class="um-row um-total"><span>Лимит тарифа «${esc(planName())}»</span><b>${num(lim)}</b></div>` +
         `<div class="pm-sep"></div>${breakdown}` +
-        `<div class="um-note">Токен — маленький кусочек текста. Чем выше уровень размышления, тем дороже ответ. ` +
-        `Счётчик общий для чата, слайдов и кода; сбрасывается каждый день.</div>` +
+        `<div class="um-note">Токен — маленький кусочек текста. У каждого тарифа свой дневной лимит токенов, ` +
+        `и чем выше уровень размышления, тем дороже ответ. Счётчик общий для чата, слайдов и кода; сбрасывается каждый день.</div>` +
         `<button type="button" class="pm-ext" data-reset="1">Сбросить счётчик за сегодня</button>`;
       const rb = $("usageMenu").querySelector("[data-reset]");
       if (rb) rb.addEventListener("click", () => { store({day: today(), total: 0, count: 0}); renderChip(); closePickers(); toast("Счётчик токенов сброшен"); });
@@ -2586,7 +2596,7 @@ def rai_code(action, code, lang, prompt):
     log.append(pending);
     log.scrollTop = log.scrollHeight;
     save(); renderSidebar();
-    let reply;
+    let reply, engineData = null;
     try {
       const engine = await enginePromise;
       // Правила Rai: мат, 18+, наркотики, насилие, взлом, экстремизм — до любого ответа (и до нейросети)
@@ -2652,13 +2662,14 @@ def rai_code(action, code, lang, prompt):
       // Погода, курсы, перевод, картинки, презентации, калькулятор — у движка Rai (точные данные);
       // разговор, вопросы, код, сайты и игры — у нейросети, если она включена.
       let data = shots.length && neuro ? null : await engine.ask(chat.version, message, chat.id, history);
+      engineData = data || engineData;   // запомним ответ движка — пригодится, если оформление вдруг сломается
       if (data && data.fixed) text = data.fixed;  // не та раскладка или опечатки — нейросеть получает исправленный вопрос
       // Лимит тарифа: нейросеть отвечает, пока есть сообщения на сегодня; дальше — движок Rai
       const neuroWanted = neuro && (wantsDeck(data) || !data || !isToolAnswer(data) || (data.offline &&
         [].concat(data.intent || []).some((i) => !i || i === "translate" || i === "web" || i === "unknown")));
       if (neuroWanted && !(await takeNeuro())) {
         neuro = false;
-        if (!data) data = await engine.ask(chat.version, message, chat.id, history);
+        if (!data) { data = await engine.ask(chat.version, message, chat.id, history); engineData = data || engineData; }
       }
       if (neuro && wantsDeck(data)) {
         const bubble = pending.querySelector(".bubble");
@@ -2718,16 +2729,28 @@ def rai_code(action, code, lang, prompt):
         if (linkReport) reply.text = linkReport + "\n\n---\n\n### Разбор Rai Нейро\n\n" + reply.text;  // точные цифры + разбор нейросети
       } else {
         const ms = Math.max(1, Math.round(performance.now() - t0));
-        const use = data.usage || (Usage.compute ? Usage.compute({prompt: text, answer: data.answer || ""}) : null);
+        // Счётчик токенов не должен мешать ответу: если что-то в нём сломается — просто покажем ответ без цифры
+        let use = null, usageMeta = "";
+        try {
+          use = data.usage || (typeof Usage !== "undefined" && Usage.compute ? Usage.compute({prompt: text, answer: data.answer || ""}) : null);
+          if (use && typeof Usage !== "undefined") usageMeta = " · " + Usage.num(use.total) + " ток.";
+        } catch (e) { use = data.usage || null; }
         reply = {role: "rai", text: data.answer || "Результат не получен.", attachments: data.attachments || [],
                  usage: use,
-                 meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс" + (use ? " · " + Usage.num(use.total) + " ток." : ""),
+                 meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс" + usageMeta,
                  q: text, tool: isToolAnswer(data) || [].concat(data.intent || []).some((i) => i === "file" || i === "screen" || i === "social")};
         if (data.violation) reply.violation = data.violation;
       }
     } catch (e) {
       if (e && e.violation) {
         reply = {role: "rai", text: e.violation.answer, meta: "Rai · правила", violation: e.violation};
+      } else if (engineData && typeof engineData.answer === "string" && engineData.answer) {
+        // Ответ движок дал — не теряем его из-за сбоя в оформлении (токены, вложения): показываем как есть
+        console.warn("Rai: ответ получен, но при оформлении была ошибка:", e);
+        const ms = Math.max(1, Math.round(performance.now() - t0));
+        reply = {role: "rai", text: engineData.answer, attachments: engineData.attachments || [], usage: engineData.usage || null,
+                 meta: (engineData.version_name || versionName(chat.version)) + " · " + ms + " мс", q: text};
+        if (engineData.violation) reply.violation = engineData.violation;
       } else {
       const ocrFail = e && String(e.message).startsWith("ocr:");
       reply = {role: "rai", text: ocrFail
@@ -3178,11 +3201,15 @@ def rai_code(action, code, lang, prompt):
     }
     if (trace.length) attachments.unshift({type: "trace", steps: trace});
     const finalText = text.trim() || "Нейросеть не ответила — попробуйте ещё раз.";
-    const thoughtTxt = trace.map((s) => s.text || s.query || s.code || "").join(" ");
-    const use = Usage.compute ? Usage.compute({prompt: opts.question || "", answer: finalText, extra: thoughtTxt,
-      level: thinking ? "high" : "medium"}) : null;
+    let use = null, usageMeta = "";
+    try {
+      const thoughtTxt = trace.map((s) => s.text || s.query || s.code || "").join(" ");
+      use = (typeof Usage !== "undefined" && Usage.compute) ? Usage.compute({prompt: opts.question || "", answer: finalText,
+        extra: thoughtTxt, level: thinking ? "high" : "medium"}) : null;
+      if (use) usageMeta = " · " + Usage.num(use.total) + " ток.";
+    } catch (e) { /* счётчик токенов не критичен */ }
     return {role: "rai", text: finalText, attachments: attachments, neuro: true, usage: use,
-            meta: (N.status().label || "Rai Нейро") + (thinking ? " · думала" : "") + " · " + secs + " с" + (use ? " · " + Usage.num(use.total) + " ток." : "")};
+            meta: (N.status().label || "Rai Нейро") + (thinking ? " · думала" : "") + " · " + secs + " с" + usageMeta};
   }
   // Как нейросеть пришла к ответу: ход мыслей, поиски, запуски кода, что запомнила
   function renderTrace(a) {

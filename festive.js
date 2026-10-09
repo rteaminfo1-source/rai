@@ -90,11 +90,13 @@
             decor: t.decor, hello: t.hello || "", examples: t.examples || [], bg: bgFor(t.accent, t.grad2)};
   }
 
-  // Красивый фон под праздник: два мягких цветных свечения в цвет темы поверх тёмного фона.
+  // Красивый фон под праздник: несколько мягких цветных свечений в цвет темы + лёгкая дымка поверх тёмного фона.
   function bgFor(a, b) {
-    return `radial-gradient(1200px 680px at 12% -12%, ${hexA(a, 0.22)}, transparent 60%), ` +
-           `radial-gradient(1000px 560px at 100% 0%, ${hexA(b, 0.16)}, transparent 58%), ` +
-           `radial-gradient(900px 700px at 50% 120%, ${hexA(a, 0.10)}, transparent 60%)`;
+    return `radial-gradient(1300px 720px at 10% -14%, ${hexA(a, 0.26)}, transparent 60%), ` +
+           `radial-gradient(1100px 600px at 100% -4%, ${hexA(b, 0.20)}, transparent 58%), ` +
+           `radial-gradient(820px 820px at 86% 110%, ${hexA(b, 0.14)}, transparent 62%), ` +
+           `radial-gradient(900px 760px at 20% 118%, ${hexA(a, 0.12)}, transparent 62%), ` +
+           `linear-gradient(180deg, ${hexA(a, 0.05)}, transparent 32%)`;
   }
 
   function off() {
@@ -161,12 +163,17 @@
     layer.className = "festive-decor";
     layer.setAttribute("aria-hidden", "true");
     const glyph = DECOR[theme.decor], star = theme.decor === "stars";
-    for (let i = 0; i < 14; i++) {
+    const n = star ? 20 : 16;
+    const glow = hexA(theme.accent, 0.8);
+    for (let i = 0; i < n; i++) {
       const s = document.createElement("span");
       s.textContent = glyph;
-      const dur = 7 + Math.random() * 8, delay = -Math.random() * dur, size = 10 + Math.random() * 14;
+      const dur = 7 + Math.random() * 9, delay = -Math.random() * dur, size = 10 + Math.random() * 16;
+      const sway = (Math.random() * 40 - 20).toFixed(0);
       s.style.cssText = `left:${Math.random() * 100}%;font-size:${size}px;animation-duration:${dur}s;animation-delay:${delay}s;` +
-        (star ? `opacity:.5;animation-name:festive-twinkle;top:${Math.random() * 100}%;` : "");
+        `--sway:${sway}px;` +
+        (star ? `opacity:.5;animation-name:festive-twinkle;top:${Math.random() * 100}%;color:${theme.accent};text-shadow:0 0 6px ${glow};`
+              : `filter:drop-shadow(0 2px 6px ${hexA(theme.accent, 0.35)});`);
       layer.append(s);
     }
     document.body.append(layer);
@@ -176,9 +183,10 @@
       css.textContent =
         ".festive-decor{position:fixed;inset:0;pointer-events:none;z-index:1;overflow:hidden}" +
         ".festive-decor span{position:absolute;top:-6%;will-change:transform,opacity;animation:festive-fall linear infinite}" +
-        "@keyframes festive-fall{0%{transform:translateY(-10vh) rotate(0);opacity:0}10%{opacity:.8}" +
-        "100%{transform:translateY(110vh) rotate(260deg);opacity:.2}}" +
-        "@keyframes festive-twinkle{0%,100%{opacity:.15}50%{opacity:.7}}";
+        "@keyframes festive-fall{0%{transform:translateY(-10vh) translateX(0) rotate(0);opacity:0}" +
+        "10%{opacity:.85}50%{transform:translateY(55vh) translateX(var(--sway,0)) rotate(140deg)}" +
+        "100%{transform:translateY(112vh) translateX(0) rotate(300deg);opacity:.15}}" +
+        "@keyframes festive-twinkle{0%,100%{opacity:.12;transform:scale(.85)}50%{opacity:.85;transform:scale(1.15)}}";
       document.head.append(css);
     }
   }

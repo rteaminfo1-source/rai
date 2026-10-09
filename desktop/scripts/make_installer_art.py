@@ -53,6 +53,36 @@ def _canvas(w, h, diag=True):
     return px
 
 
+def _glow(px, cx, cy, radius, strength=0.5):
+    """Мягкое светлое свечение (аддитивно) — придаёт фону объём."""
+    h, w = len(px), len(px[0])
+    r2 = radius * radius
+    for y in range(max(0, cy - radius), min(h, cy + radius)):
+        for x in range(max(0, cx - radius), min(w, cx + radius)):
+            d2 = (x - cx) ** 2 + (y - cy) ** 2
+            if d2 >= r2:
+                continue
+            k = strength * (1 - (d2 / r2)) ** 2
+            r, g, b = px[y][x]
+            px[y][x] = (min(255, round(r + 255 * k)), min(255, round(g + 255 * k)), min(255, round(b + 255 * k)))
+
+
+def _sparkles(px, n, seed=7):
+    """Несколько мягких белых искорок (как звёзды в теме «космос»)."""
+    import random
+    rnd = random.Random(seed)
+    h, w = len(px), len(px[0])
+    for _ in range(n):
+        x, y = rnd.randint(4, w - 5), rnd.randint(4, h - 5)
+        b = rnd.uniform(0.5, 1.0)
+        for dx, dy, kk in ((0, 0, 1.0), (1, 0, .5), (-1, 0, .5), (0, 1, .5), (0, -1, .5), (2, 0, .2), (-2, 0, .2), (0, 2, .2), (0, -2, .2)):
+            xx, yy = x + dx, y + dy
+            if 0 <= xx < w and 0 <= yy < h:
+                r, g, bl = px[yy][xx]
+                k = b * kk
+                px[yy][xx] = (min(255, round(r + 255 * k)), min(255, round(g + 255 * k)), min(255, round(bl + 255 * k)))
+
+
 def _text(px, text, x0, y0, scale, color=(255, 255, 255), spacing=1):
     """Нарисовать строку пиксельным шрифтом."""
     x = x0
@@ -101,13 +131,19 @@ def _write_bmp(path, px):
 
 def _logo_sidebar(w, h):
     px = _canvas(w, h, diag=True)
-    _text(px, "Rai", 28, 150, 7, (255, 255, 255))      # крупный логотип по центру
+    _glow(px, int(w * 0.18), int(h * 0.12), 120, 0.28)     # мягкие светлые пятна — объёмный фон
+    _glow(px, int(w * 0.95), int(h * 0.42), 110, 0.20)
+    _glow(px, int(w * 0.30), int(h * 0.92), 130, 0.16)
+    _sparkles(px, 16, seed=11)                             # искорки, как звёзды
+    _text(px, "Rai", 28, 150, 7, (255, 255, 255))          # крупный логотип по центру
     _dot_strip(px, 28, 215, 108, (255, 255, 255), gap=10, size=4)
     return px
 
 
 def _logo_header(w, h):
     px = _canvas(w, h, diag=True)
+    _glow(px, int(w * 0.85), int(h * 0.2), 46, 0.22)
+    _sparkles(px, 5, seed=3)
     _text(px, "Rai", 10, 16, 3, (255, 255, 255))
     return px
 

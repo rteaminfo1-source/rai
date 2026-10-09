@@ -36,7 +36,10 @@ import skills
 import social
 import syntax
 import talk
-import tokens
+try:
+    import tokens                      # счётчик токенов — необязательный: без него ответы всё равно работают
+except Exception:                      # noqa: BLE001 — любой сбой импорта не должен ронять движок
+    tokens = None
 import toolbox
 import facts  # noqa: F401 — регистрирует справочник в toolbox
 import games
@@ -260,13 +263,17 @@ class Brain:
         """Ответ Rai + сколько это стоило в токенах (usage — видно пользователю, см. tokens.py)."""
         result = self._answer_impl(version, message, session_id, history, level)
         try:
-            result.setdefault("usage", self._usage(version, message, result))
+            u = self._usage(version, message, result)
+            if u:
+                result.setdefault("usage", u)
         except Exception:
             pass
         return result
 
     def _usage(self, version: Version, message: str, result: dict) -> dict:
         """Стоимость ответа в токенах: запрос + ответ (с текстом вложений) + размышление по уровню."""
+        if tokens is None:
+            return {}
         lvl = getattr(_REQ, "level", None) or PROFILE.get("level")
         extra = _attachment_text(result.get("attachments") or [])
         return tokens.usage(prompt=message or "", answer=result.get("answer", ""),
