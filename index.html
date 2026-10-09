@@ -1562,7 +1562,11 @@
       if (rb) rb.addEventListener("click", () => { store({day: today(), total: 0, count: 0}); renderChip(); closePickers(); toast("Счётчик токенов сброшен"); });
     }
     function overLimit() { const lim = limit(); return lim > 0 && load().total >= lim; }
-    return {spend: spend, compute: compute, renderChip: renderChip, renderMenu: renderMenu, overLimit: overLimit, limit: limit, num: num};
+    function info() {   // краткая сводка для других вкладок (Code): {spent, limit, plan, short}
+      const d = load(), lim = limit();
+      return {spent: num(d.total), limit: lim ? num(lim) : "∞", plan: planName(), short: num(d.total)};
+    }
+    return {spend: spend, compute: compute, renderChip: renderChip, renderMenu: renderMenu, overLimit: overLimit, limit: limit, num: num, info: info};
   })();
   function renderUsageMenu() { Usage.renderMenu(); }
 
@@ -3619,6 +3623,7 @@ def rai_code(action, code, lang, prompt):
       zip: makeZip,
       copy: (text) => copyRich(text, "<pre>" + esc(text) + "</pre>", document.body),
       pyodideSources: pyodideSources,
+      usage: () => { try { return Usage.info(); } catch (e) { return null; } },   // токены по подписке — видно и в Code
       neuro: window.RaiNeuro,
       takeNeuro: takeNeuro  // лимит тарифа: каждое обращение к нейросети в Code тоже засчитывается
     });

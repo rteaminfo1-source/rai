@@ -158,6 +158,7 @@
   <span class="lang-pill" id="cLang"></span>
   <button class="tb diag" type="button" id="cDiag" hidden></button>
   <span class="spacer"></span>
+  <button class="tb tb-usage" type="button" id="cUsage" title="Токены по подписке — нажмите, чтобы обновить" hidden>⚡ <span id="cUsageVal">0</span></button>
   <button class="tb" type="button" id="cOpen" title="Открыть файлы с компьютера">${ICON("folder")}<span class="lbl">Открыть</span></button>
   <button class="tb" type="button" id="cDl" title="Скачать текущий файл">${ICON("down")}<span class="lbl">Файл</span></button>
   <button class="tb" type="button" id="cZip" title="Скачать весь проект ZIP-архивом">${ICON("zip")}<span class="lbl">Проект ZIP</span></button>
@@ -201,7 +202,7 @@
     </div>
   </div>
 </div>`;
-    for (const id of ["cRun", "cStop", "cLang", "cDiag", "cOpen", "cDl", "cZip", "cFile", "cFiles", "cGutter", "cHl", "cText",
+    for (const id of ["cRun", "cStop", "cLang", "cDiag", "cUsage", "cUsageVal", "cOpen", "cDl", "cZip", "cFile", "cFiles", "cGutter", "cHl", "cText",
                       "cStdin", "cConsole", "outPane", "previewPane", "cPrevEmpty", "aiPane", "cAiLog", "cAiForm", "cAiInput"]) {
       el[id] = root.querySelector("#" + id);
     }
@@ -1190,6 +1191,17 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
       pend.append(box, row);
     }
     el.cAiLog.scrollTop = el.cAiLog.scrollHeight;
+    refreshUsage();   // обновим счётчик токенов после ответа ИИ
+  }
+
+  // Токены по подписке — показываем в панели Code (та же система, что в чате и слайдах).
+  function refreshUsage() {
+    if (!el.cUsage) return;
+    const u = H.usage ? H.usage() : null;
+    if (!u) { el.cUsage.hidden = true; return; }
+    el.cUsage.hidden = false;
+    el.cUsageVal.textContent = u.short;
+    el.cUsage.title = "Токены сегодня: " + u.spent + " из " + u.limit + " · подписка «" + u.plan + "»";
   }
 
   // ================================================================ файлы с компьютера
@@ -1231,6 +1243,8 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     });
     el.cOpen.addEventListener("click", () => el.cFile.click());
     el.cFile.addEventListener("change", () => { openLocal(Array.from(el.cFile.files || [])); el.cFile.value = ""; });
+    el.cUsage.addEventListener("click", refreshUsage);
+    refreshUsage();
     for (const b of root.querySelectorAll(".side-tabs button")) b.addEventListener("click", () => showPane(b.dataset.pane));
     for (const b of root.querySelectorAll(".ai-quick button")) b.addEventListener("click", () => ai(b.dataset.act));
     const aiInput = el.cAiInput;
@@ -1243,9 +1257,11 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     el.cAiForm.addEventListener("submit", (e) => { e.preventDefault(); send(); });
     aiInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
     if (window.RaiCode && window.RaiCode.neuroChanged) setTimeout(window.RaiCode.neuroChanged, 0);
-    aiMsg("rai", H.md("Я — ИИ-помощник Rai для кода. **Проверю** и найду ошибки, **исправлю**, **объясню** по строкам, " +
-      "**добавлю комментарии** или **напишу программу** по описанию. Горячие клавиши: `Ctrl+Enter` — запуск, " +
-      "`Ctrl+/` — закомментировать, `Tab` / `Shift+Tab` — отступ."));
+    aiMsg("rai", H.md("Я — **Rai Code**: пишу код сам, без внешних нейросетей. Соберу по описанию **любой сайт, " +
+      "приложение, игру или программу** (HTML/JS, Python и другие), проверю запуском и сразу покажу в «Просмотре». " +
+      "Ещё: **проверю** и найду ошибки, **исправлю**, **объясню** по строкам, **добавлю комментарии**. " +
+      "Напишите что угодно — «сайт кофейни в тёмных тонах», «игра тетрис», «бот для Telegram», «добавь раздел цены». " +
+      "Горячие клавиши: `Ctrl+Enter` — запуск, `Ctrl+/` — комментарий, `Tab` / `Shift+Tab` — отступ."));
   }
 
   window.RaiCode = {
@@ -1254,11 +1270,9 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     engineReady: () => { if (el.ta) scheduleCheck(); },
     neuroChanged: () => {
       if (!el.cAiInput) return;
-      el.cAiInput.placeholder = H.neuro && H.neuro.ready()
-        ? "Нейросеть напишет что угодно: «игра гонки на canvas», «бот для Telegram на Python», «добавь в этот код счёт очков»…"
-        : "Что написать? Сайт кофейни в тёмных тонах, игра тетрис, погода, функция среднего… Для сайта: «добавь раздел цены»";
+      el.cAiInput.placeholder = "Соберу что угодно: «сайт кофейни в тёмных тонах», «игра тетрис», «бот для Telegram на Python», «калькулятор», «добавь раздел цены»…";
     },
-    focus: () => { if (el.ta) { refresh(); el.ta.focus(); } },
+    focus: () => { if (el.ta) { refresh(); refreshUsage(); el.ta.focus(); } },
     highlight: highlight,
     langOf: langOf,
     runSnippet: runSnippet

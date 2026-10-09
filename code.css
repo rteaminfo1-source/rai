@@ -14,6 +14,8 @@
 .tb:disabled { opacity: .5; cursor: default; }
 .tb svg.i { width: 15px; height: 15px; }
 .lang-pill { font: 500 12px/1 var(--font-mono); color: var(--muted); padding: 6px 9px; border: 1px dashed var(--line); border-radius: 8px; }
+.tb-usage { font: 600 12.5px/1 var(--font-mono); color: var(--red-hi, #ff3d81); border-color: var(--line); gap: 4px; }
+.tb-usage:hover { border-color: var(--red); }
 
 .code-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); min-height: 0; }
 .editor-col { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; border-right: 1px solid var(--line); }
