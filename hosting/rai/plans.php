@@ -8,36 +8,38 @@
  */
 
 // Тарифы по умолчанию. neuro_day — сообщений нейросети в день (0 — без ограничений).
+// tokens_day — дневной лимит токенов своего движка Rai (0 — бесконечно); видно в чате внизу (⚡).
 // models — какие модели внешней нейросети доступны (если её подключили): fast, normal, strong, max, coder.
 // levels — уровни размышления своего движка Rai (выбор внизу чата): low, medium, high, extra, code, ultra.
 const PLAN_DEFAULTS = [
     'free' => [
-        'name' => 'Старт', 'price' => 0, 'neuro_day' => 15, 'think' => false, 'models' => ['fast', 'normal'],
+        'name' => 'Старт', 'price' => 0, 'neuro_day' => 15, 'tokens_day' => 100000, 'think' => false, 'models' => ['fast', 'normal'],
         'levels' => ['low', 'medium', 'high'],
         'tagline' => 'Чтобы познакомиться',
-        'features' => ['Rai думает сам: уровни Low, Medium и High', 'Поиск и чтение сайтов, ответы со ссылками', 'Погода, курсы, перевод, код, презентации — без ограничений', 'Чаты в аккаунте на всех устройствах'],
+        'features' => ['Rai думает сам: уровни Low, Medium и High', '100 000 токенов в день', 'Поиск и чтение сайтов, ответы со ссылками', 'Погода, курсы, перевод, код, презентации — без ограничений', 'Чаты в аккаунте на всех устройствах'],
     ],
     'plus' => [
-        'name' => 'Плюс', 'price' => 249, 'neuro_day' => 150, 'think' => true, 'models' => ['fast', 'normal', 'strong'],
+        'name' => 'Плюс', 'price' => 249, 'neuro_day' => 150, 'tokens_day' => 1000000, 'think' => true, 'models' => ['fast', 'normal', 'strong'],
         'levels' => ['low', 'medium', 'high', 'extra', 'code'],
         'tagline' => 'Для учёбы и каждого дня',
-        'features' => ['Уровни Extra и Code: глубже ищет, сам пишет и проверяет программы', 'Разбор тем по разделам статей', 'Разбор соцсетей и сайтов', 'Внешняя нейросеть: 150 сообщений в день'],
+        'features' => ['Уровни Extra и Code: глубже ищет, сам пишет и проверяет программы', '1 000 000 токенов в день', 'Разбор тем по разделам статей', 'Разбор соцсетей и сайтов'],
     ],
     'premium' => [
-        'name' => 'Премиум', 'price' => 599, 'neuro_day' => 600, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
+        'name' => 'Премиум', 'price' => 599, 'neuro_day' => 600, 'tokens_day' => 3000000, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
         'levels' => ['low', 'medium', 'high', 'extra', 'code', 'ultra'],
         'tagline' => 'Для работы и кода', 'popular' => true,
-        'features' => ['Все уровни, включая Ultra: максимум источников и сверка', 'Rai Code: программы с проверкой запуском', 'Внешняя нейросеть: 600 сообщений в день', 'Приоритетная поддержка'],
+        'features' => ['Все уровни, включая Ultra: максимум источников и сверка', '3 000 000 токенов в день', 'Rai Code: программы с проверкой запуском', 'Приоритетная поддержка'],
     ],
     'ultra' => [
-        'name' => 'Ультра', 'price' => 1290, 'neuro_day' => 0, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
+        'name' => 'Ультра', 'price' => 1290, 'neuro_day' => 0, 'tokens_day' => 0, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
         'levels' => ['low', 'medium', 'high', 'extra', 'code', 'ultra'],
         'tagline' => 'Без ограничений',
-        'features' => ['Все уровни размышления без ограничений', 'Внешняя нейросеть без лимита', 'Ранний доступ к новым функциям', 'Личная поддержка команды Rteam'],
+        'features' => ['Все уровни размышления без ограничений', 'Токены без ограничений — бесконечно', 'Ранний доступ к новым функциям', 'Личная поддержка команды Rteam'],
     ],
 ];
 const PAID_PLANS = ['plus', 'premium', 'ultra'];
 const GUEST_NEURO_DAY = 5;                 // без входа — столько сообщений в день (по IP); меняется в админке
+const GUEST_TOKENS_DAY = 30000;            // без входа — столько токенов движка Rai в день
 const YEAR_DISCOUNT = 25;                  // скидка за год, %
 const PLAN_PERIODS = [1 => 'месяц', 12 => 'год'];
 const PLAN_FOREVER = 4102444800;           // 1 января 2100 — подписка «навсегда» (выдаётся в админ-панели)
@@ -70,12 +72,13 @@ function plans() {
     $over = load_json('plans.json', []);
     $out = PLAN_DEFAULTS;
     foreach ($out as $key => &$plan) {
-        foreach (['name', 'price', 'neuro_day', 'tagline'] as $f) {
+        foreach (['name', 'price', 'neuro_day', 'tokens_day', 'tagline'] as $f) {
             if (isset($over[$key][$f]) && $over[$key][$f] !== '') $plan[$f] = $over[$key][$f];
         }
         if (isset($over[$key]['features']) && is_array($over[$key]['features'])) $plan['features'] = $over[$key]['features'];
         $plan['price'] = max(0, (int)$plan['price']);
         $plan['neuro_day'] = max(0, (int)$plan['neuro_day']);
+        $plan['tokens_day'] = max(0, (int)($plan['tokens_day'] ?? 0));
     }
     unset($plan);
     return $cache = $out;
@@ -233,6 +236,7 @@ function limits_state($user) {
         'guest' => !$user,
         'plan' => $plan['key'], 'plan_name' => $p['name'], 'until' => $plan['until'] ?: null,
         'limit' => $limit, 'used' => $used, 'left' => $limit > 0 ? max(0, $limit - $used) : null,
+        'tokens_day' => $user ? (int)($p['tokens_day'] ?? 0) : GUEST_TOKENS_DAY,   // лимит токенов движка Rai по подписке (0 — ∞)
         'models' => $user ? $p['models'] : PLAN_DEFAULTS['free']['models'],
         'think' => $user ? (bool)$p['think'] : false,
         'unlock' => model_unlocks(),

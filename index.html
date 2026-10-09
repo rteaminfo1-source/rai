@@ -1504,9 +1504,10 @@
     }
     function store(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { /* не сохранится */ } }
     function limit() {
-      const chat = current() || {};
-      const v = (VERSIONS || []).find((x) => x.id === chat.version);
-      return (window.RaiTokens ? window.RaiTokens.limitFor(v ? v.id : "pro") : 150000);
+      // Лимит токенов — от ПЛАТНОЙ ПОДПИСКИ (limits.php: tokens_day; 0 — безлимит), а не от выбранной модели.
+      const L = planInfo();
+      if (L && typeof L.tokens_day === "number") return L.tokens_day;
+      return (window.RaiTokens ? window.RaiTokens.limitFor("pro") : 300000);   // пока подписка не загрузилась
     }
     function num(n) { return window.RaiTokens ? window.RaiTokens.human(n) : String(Math.round(n || 0)); }
     function spend(u) {
@@ -1534,9 +1535,10 @@
       btn.title = "Токены за сегодня: " + num(d.total) + " из " + limStr(lim);
     }
     function planName() {
-      const chat = current() || {};
-      const v = (VERSIONS || []).find((x) => x.id === chat.version);
-      return v ? v.name : "Rai";
+      // Название ПОДПИСКИ (тариф), а не модели: «Старт», «Плюс», «Премиум», «Ультра» или «Без входа».
+      const L = planInfo();
+      if (L) return L.guest ? "Без входа" : (L.plan_name || "Старт");
+      return "Rai";
     }
     function renderMenu() {
       const d = load(), lim = limit(), left = lim ? Math.max(0, lim - d.total) : 0;
