@@ -2954,5 +2954,115 @@ class FestiveTest(unittest.TestCase):
         self.assertEqual(json.loads(out), ["space", "week", "ny", "holiday", "#6a5cff"])
 
 
+class TokensTest(unittest.TestCase):
+    """Счётчик токенов и лимиты по тарифу — видно, сколько стоит ответ."""
+
+    def test_count_and_limits(self):
+        import tokens
+        self.assertEqual(tokens.count("Привет, как дела?"), 7)
+        self.assertEqual(tokens.count("Hello world 123"), 5)
+        self.assertGreater(tokens.count("а" * 30), 0)
+        self.assertEqual(tokens.limit_for("pro-plus"), tokens.PLAN_LIMIT["pro-plus"])
+        self.assertEqual(tokens.limit_for("неизвестно"), tokens.DEFAULT_LIMIT)
+
+    def test_usage_grows_with_level(self):
+        import tokens
+        low = tokens.usage(prompt="вопрос про космос", answer="ответ " * 20, level="low", version_id="pro")
+        ultra = tokens.usage(prompt="вопрос про космос", answer="ответ " * 20, level="ultra", version_id="pro")
+        for key in ("prompt", "answer", "reasoning", "total", "limit"):
+            self.assertIn(key, low)
+        self.assertEqual(low["answer"], ultra["answer"])
+        self.assertGreater(ultra["reasoning"], low["reasoning"])   # выше уровень — дороже размышление
+        self.assertGreater(ultra["total"], low["total"])
+
+    def test_js_mirror_wired(self):
+        base = os.path.dirname(os.path.abspath(__file__))
+        self.assertTrue(os.path.exists(os.path.join(base, "tokens.js")))
+        with open(os.path.join(base, "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn('<script src="tokens.js"></script>', page)
+        self.assertIn("RaiTokens", page)
+        self.assertIn("usageBtn", page)
+        with open(os.path.join(base, "build_standalone.py"), encoding="utf-8") as f:
+            build = f.read()
+        self.assertIn("tokens.js", build)
+        self.assertIn('"tokens.py"', build)
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_js_count_matches_python(self):
+        import subprocess
+        import tokens
+        base = os.path.dirname(os.path.abspath(__file__))
+        self.assertEqual(subprocess.run(["node", "--check", os.path.join(base, "tokens.js")]).returncode, 0)
+        samples = ["Привет, как дела?", "Hello world 123", "Расскажи про чёрные дыры", "сделай презентацию про космос"]
+        script = ("global.window={};require(process.argv[1]);const T=window.RaiTokens;"
+                  "process.stdout.write(JSON.stringify(" + json.dumps(samples) + ".map((s)=>T.count(s))));")
+        out = subprocess.run(["node", "-e", script, os.path.join(base, "tokens.js")], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(json.loads(out), [tokens.count(s) for s in samples])
+
+
+class UsageAndSlidesTest(unittest.TestCase):
+    """Стоимость ответа в токенах и ход мыслей в презентациях."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "learned.json"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_answer_has_usage(self):
+        r = self.brain.answer(PLUS, "что такое python")
+        self.assertIn("usage", r)
+        self.assertGreater(r["usage"]["total"], 0)
+        self.assertEqual(r["usage"]["limit"], __import__("tokens").limit_for(PLUS.id))
+
+    def test_slides_trace_and_deck_order(self):
+        r = self.brain.answer(SUN, "сделай презентацию про python", level="high")
+        atts = r["attachments"]
+        self.assertTrue(atts and atts[0].get("slides"))                 # презентация — первой
+        trace = next((a for a in atts if a.get("type") == "trace"), None)
+        self.assertIsNotNone(trace)                                      # и виден ход мыслей
+        self.assertEqual(trace["title"], "Как Rai думал над презентацией")
+        self.assertTrue(any(s["kind"] == "think" for s in trace["steps"]))
+        self.assertTrue(any(s["kind"] == "check" for s in trace["steps"]))
+        self.assertIn("usage", r)
+
+    def test_level_changes_slide_count(self):
+        low = self.brain.answer(SUN, "сделай презентацию про python", level="low")["attachments"][0]
+        ultra = self.brain.answer(SUN, "сделай презентацию про python", level="ultra")["attachments"][0]
+        self.assertLessEqual(len(low["slides"]), len(ultra["slides"]))
+
+
+class NewToolsTest(unittest.TestCase):
+    """Новые точные функции (не дублируют skills.py)."""
+
+    def one(self, text):
+        import toolbox
+        return toolbox.run(text)
+
+    def test_new_functions(self):
+        self.assertIn("30", self.one("сколько будет 15% от 200"))
+        self.assertIn("10", self.one("сочетания из 5 по 2"))
+        self.assertIn("20", self.one("размещения из 5 по 2"))
+        self.assertIn("x = 6", self.one("пропорция 2 к 4 как 3 к x"))
+        self.assertIn("15", self.one("сумма цифр 12345"))
+        self.assertIn("4", self.one("среднее геометрическое 2 и 8"))      # не 5 (это арифметическое)
+        self.assertIn("проходит", self.one("проверь номер карты 4561 2612 1234 5467"))
+        self.assertIn("150", self.one("кэшбэк 5% с 3000"))
+        self.assertIn("Cevirg", self.one("rot13: Privet"))
+        self.assertIn("01010010", self.one("в двоичный код: Rai"))
+        self.assertIn("52", self.one("в hex: Rai"))
+        self.assertIn("privet-mir", self.one("сделай слаг из: Привет, мир!"))
+        self.assertIn("2", self.one("сколько раз а в банан"))
+
+    def test_does_not_shadow_skills(self):
+        # эти запросы должен обрабатывать skills.py — toolbox обязан вернуть None
+        import toolbox
+        for q in ("подбрось монетку", "случайное число от 1 до 100", "выбери из: чай, кофе",
+                  "придумай пароль", "сколько слов в: привет как дела", "сколько дней до 8 марта"):
+            self.assertIsNone(toolbox.run(q), q)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -31,3 +31,14 @@ for (const dir of ["pyodide", "ocr"]) {
   else console.warn("нет папки " + dir + " — офлайн-копия будет брать её из интернета");
 }
 console.log("Офлайн-копия Rai готова:", OUT);
+
+// Картинки для красивого установщика (боковая панель и шапка мастера) — рисуем своим скриптом.
+try {
+  const artPy = path.join(__dirname, "make_installer_art.py");
+  for (const py of pythons) {
+    try {
+      execFileSync(py, [artPy], { stdio: "inherit", env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" } });
+      break;
+    } catch (e) { /* пробуем следующий python */ }
+  }
+} catch (e) { console.warn("Картинки установщика не нарисовались — соберётся со стандартными."); }

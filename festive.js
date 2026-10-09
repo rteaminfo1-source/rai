@@ -1,40 +1,68 @@
 /* Праздничные и недельные темы Rai — разный дизайн под дату, включается сам.
    Праздники (Новый год, 8 Марта, День космонавтики…) важнее недельных тем; недели крутятся по номеру недели года
-   (сейчас, например, «неделя космоса»). Тема меняет акцентный цвет, добавляет значок и лёгкое оформление, а в
-   новом чате — праздничное приветствие. Всё в браузере, без сервера — работает и в приложении.
-   Можно выключить: window.RaiFestive.setOff(true) (кнопка «✕» на плашке). Данные совпадают с festive.php на сайте. */
+   (сейчас, например, «неделя космоса»). Тема меняет акцентный цвет, красивый фон под праздник, лёгкое оформление,
+   тематические вопросы к Rai (в том числе «нарисуй…» — Rai рисует картинку) и праздничное приветствие.
+   Всё в браузере, без сервера — работает и в приложении. Выключить: крестик на плашке (window.RaiFestive.setOff).
+   Данные совпадают с festive.php на сайте. */
 (function () {
   "use strict";
 
-  // Праздники: [id, название, эмодзи, акцент, второй цвет градиента, украшение, приветствие, [месяц, день с], [месяц, день по]]
+  // Праздники: {id,name,emoji,accent,grad2,decor,hello,[мес,день с],[мес,день по],examples:[[вопрос,подпись],…]}
   const HOLIDAYS = [
-    ["ny", "С Новым годом!", "🎄", "#2aa7e8", "#f5b800", "snow", "С наступающим! ❄️", [12, 20], [1, 8]],
-    ["defender", "23 Февраля", "🎖", "#3a7d44", "#8bb174", "", "С Днём защитника Отечества!", [2, 20], [2, 23]],
-    ["march8", "8 Марта", "🌷", "#ff4f93", "#ffa6c9", "petals", "С праздником весны! 🌷", [3, 5], [3, 8]],
-    ["cosmo", "День космонавтики", "🚀", "#6a5cff", "#2aa7e8", "stars", "Поехали! 🚀", [4, 11], [4, 12]],
-    ["victory", "9 Мая", "🎗", "#c62828", "#f5b800", "", "С Днём Победы!", [5, 7], [5, 9]],
-    ["russia", "День России", "🇷🇺", "#1e5bff", "#e10600", "", "С Днём России!", [6, 11], [6, 12]],
-    ["knowledge", "1 Сентября", "📚", "#1e5bff", "#2aa7e8", "", "С Днём знаний! 📚", [9, 1], [9, 1]],
-    ["halloween", "Хэллоуин", "🎃", "#ff7a00", "#8b5cff", "bats", "Уютного Хэллоуина! 🎃", [10, 29], [10, 31]],
+    {id: "ny", name: "С Новым годом!", emoji: "🎄", accent: "#2aa7e8", grad2: "#f5b800", decor: "snow",
+     hello: "С наступающим! ❄️", from: [12, 20], to: [1, 8],
+     examples: [["Когда наступит Новый год?", "🎄 сколько осталось"], ["Нарисуй зимний лес со снегом", "🎨 картинка"], ["Расскажи про планету Земля", "интересное"]]},
+    {id: "defender", name: "23 Февраля", emoji: "🎖", accent: "#3a7d44", grad2: "#8bb174", decor: "",
+     hello: "С Днём защитника Отечества!", from: [2, 20], to: [2, 23],
+     examples: [["Почему 23 февраля — День защитника Отечества", "история"], ["Нарисуй горы на рассвете", "🎨 картинка"]]},
+    {id: "march8", name: "8 Марта", emoji: "🌷", accent: "#ff4f93", grad2: "#ffa6c9", decor: "petals",
+     hello: "С праздником весны! 🌷", from: [3, 5], to: [3, 8],
+     examples: [["Нарисуй цветы", "🌷 картинка"], ["Расскажи про тюльпаны", "цветы"]]},
+    {id: "cosmo", name: "День космонавтики", emoji: "🚀", accent: "#6a5cff", grad2: "#2aa7e8", decor: "stars",
+     hello: "Поехали! 🚀", from: [4, 11], to: [4, 12],
+     examples: [["Расскажи про историю космонавтики", "🚀 история"], ["Нарисуй космос", "🎨 картинка"], ["Расскажи про Юрия Гагарина", "биография"]]},
+    {id: "victory", name: "9 Мая", emoji: "🎗", accent: "#c62828", grad2: "#f5b800", decor: "",
+     hello: "С Днём Победы!", from: [5, 7], to: [5, 9],
+     examples: [["Когда закончилась Великая Отечественная война", "история"], ["Расскажи про День Победы", "история"]]},
+    {id: "russia", name: "День России", emoji: "🇷🇺", accent: "#1e5bff", grad2: "#e10600", decor: "",
+     hello: "С Днём России!", from: [6, 11], to: [6, 12],
+     examples: [["Расскажи про День России", "история"], ["Нарисуй закат над морем", "🎨 картинка"]]},
+    {id: "knowledge", name: "1 Сентября", emoji: "📚", accent: "#1e5bff", grad2: "#2aa7e8", decor: "",
+     hello: "С Днём знаний! 📚", from: [9, 1], to: [9, 1],
+     examples: [["Расскажи про День знаний", "история"], ["Нарисуй лес", "🎨 картинка"]]},
+    {id: "halloween", name: "Хэллоуин", emoji: "🎃", accent: "#ff7a00", grad2: "#8b5cff", decor: "bats",
+     hello: "Уютного Хэллоуина! 🎃", from: [10, 29], to: [10, 31],
+     examples: [["Расскажи историю Хэллоуина", "история"], ["Нарисуй ночь с луной", "🎨 картинка"]]},
   ];
 
-  // Недельные темы: [id, название, эмодзи, акцент, второй цвет, украшение, пример для чата]
+  // Недельные темы: {id,name,emoji,accent,grad2,decor,examples:[[вопрос,подпись],…]}
   const WEEKS = [
-    ["space", "Неделя космоса", "🚀", "#6a5cff", "#2aa7e8", "stars", ["Расскажи про чёрные дыры", "космос"]],
-    ["science", "Неделя науки", "🔬", "#1e9d8b", "#2aa7e8", "", ["Как работает фотосинтез", "наука"]],
-    ["nature", "Неделя природы", "🌿", "#1f9d55", "#8bc34a", "leaves", ["Какие бывают облака", "природа"]],
-    ["art", "Неделя искусства", "🎨", "#e84c88", "#f5b800", "", ["Расскажи о картине «Мона Лиза»", "искусство"]],
-    ["history", "Неделя истории", "🏛", "#b07a2e", "#c9a227", "", ["Почему произошла Первая мировая война", "история"]],
-    ["music", "Неделя музыки", "🎵", "#8b5cff", "#ff3d81", "notes", ["Кто такой Моцарт", "музыка"]],
-    ["tech", "Неделя технологий", "💻", "#1e5bff", "#14b8a6", "", ["Как работает компьютер", "технологии"]],
-    ["cinema", "Неделя кино", "🎬", "#d4356b", "#6a5cff", "", ["Что за фильм «Интерстеллар»", "кино"]],
-    ["books", "Неделя книг", "📚", "#b5553a", "#c9a227", "", ["Расскажи про роман «Война и мир»", "книги"]],
-    ["sport", "Неделя спорта", "⚽", "#1f9d55", "#f5b800", "", ["Расскажи об истории Олимпийских игр", "спорт"]],
-    ["travel", "Неделя путешествий", "✈️", "#0ea5b7", "#f5b800", "", ["Расскажи про Эйфелеву башню", "путешествия"]],
-    ["health", "Неделя здоровья", "💪", "#16a34a", "#2aa7e8", "", ["Как вода влияет на организм", "здоровье"]],
+    {id: "space", name: "Неделя космоса", emoji: "🚀", accent: "#6a5cff", grad2: "#2aa7e8", decor: "stars",
+     examples: [["Расскажи про чёрные дыры", "🚀 тема недели"], ["Нарисуй космос", "🎨 картинка"]]},
+    {id: "science", name: "Неделя науки", emoji: "🔬", accent: "#1e9d8b", grad2: "#2aa7e8", decor: "",
+     examples: [["Как работает фотосинтез", "🔬 тема недели"], ["Почему небо голубое", "наука"]]},
+    {id: "nature", name: "Неделя природы", emoji: "🌿", accent: "#1f9d55", grad2: "#8bc34a", decor: "leaves",
+     examples: [["Какие бывают облака", "🌿 тема недели"], ["Нарисуй лес", "🎨 картинка"]]},
+    {id: "art", name: "Неделя искусства", emoji: "🎨", accent: "#e84c88", grad2: "#f5b800", decor: "",
+     examples: [["Расскажи о картине «Мона Лиза»", "🎨 тема недели"], ["Нарисуй абстракцию", "картинка"]]},
+    {id: "history", name: "Неделя истории", emoji: "🏛", accent: "#b07a2e", grad2: "#c9a227", decor: "",
+     examples: [["Почему произошла Первая мировая война", "🏛 тема недели"], ["Расскажи про Древний Рим", "история"]]},
+    {id: "music", name: "Неделя музыки", emoji: "🎵", accent: "#8b5cff", grad2: "#ff3d81", decor: "notes",
+     examples: [["Кто такой Моцарт", "🎵 тема недели"], ["Расскажи про историю рок-музыки", "музыка"]]},
+    {id: "tech", name: "Неделя технологий", emoji: "💻", accent: "#1e5bff", grad2: "#14b8a6", decor: "",
+     examples: [["Как работает компьютер", "💻 тема недели"], ["Что такое искусственный интеллект", "технологии"]]},
+    {id: "cinema", name: "Неделя кино", emoji: "🎬", accent: "#d4356b", grad2: "#6a5cff", decor: "",
+     examples: [["Что за фильм «Интерстеллар»", "🎬 тема недели"], ["Расскажи про Кристофера Нолана", "кино"]]},
+    {id: "books", name: "Неделя книг", emoji: "📚", accent: "#b5553a", grad2: "#c9a227", decor: "",
+     examples: [["Расскажи про роман «Война и мир»", "📚 тема недели"], ["Кто написал «Гарри Поттера»", "книги"]]},
+    {id: "sport", name: "Неделя спорта", emoji: "⚽", accent: "#1f9d55", grad2: "#f5b800", decor: "",
+     examples: [["Расскажи об истории Олимпийских игр", "⚽ тема недели"], ["Когда появился футбол", "спорт"]]},
+    {id: "travel", name: "Неделя путешествий", emoji: "✈️", accent: "#0ea5b7", grad2: "#f5b800", decor: "",
+     examples: [["Расскажи про Эйфелеву башню", "✈️ тема недели"], ["Нарисуй горы", "🎨 картинка"]]},
+    {id: "health", name: "Неделя здоровья", emoji: "💪", accent: "#16a34a", grad2: "#2aa7e8", decor: "",
+     examples: [["Как вода влияет на организм", "💪 тема недели"], ["Сколько нужно спать человеку", "здоровье"]]},
   ];
-  // Сдвиг подобран так, чтобы сейчас (неделя 41) была неделя космоса.
-  const WEEK_OFFSET = 7;
+  const WEEK_OFFSET = 7;   // чтобы сейчас (неделя 41) была неделя космоса
   const OFF_KEY = "rai_festive_off";
 
   function isoWeek(d) {
@@ -50,16 +78,23 @@
     return a <= b ? md >= a && md <= b : md >= a || md <= b;   // Новый год переходит через декабрь—январь
   }
 
-  /** Тема на дату (по умолчанию сегодня): {id, kind, name, emoji, accent, grad, decor, hello, example} или null. */
+  /** Тема на дату (по умолчанию сегодня): {id, kind, name, emoji, accent, grad2, decor, hello?, examples, bg}. */
   function current(date) {
     const d = date || new Date();
+    let t = null, kind = "week";
     for (const h of HOLIDAYS) {
-      if (inRange(d, h[7], h[8])) {
-        return {id: h[0], kind: "holiday", name: h[1], emoji: h[2], accent: h[3], grad2: h[4], decor: h[5], hello: h[6]};
-      }
+      if (inRange(d, h.from, h.to)) { t = h; kind = "holiday"; break; }
     }
-    const w = WEEKS[(isoWeek(d) + WEEK_OFFSET) % WEEKS.length];
-    return {id: w[0], kind: "week", name: w[1], emoji: w[2], accent: w[3], grad2: w[4], decor: w[5], example: w[6]};
+    if (!t) t = WEEKS[(isoWeek(d) + WEEK_OFFSET) % WEEKS.length];
+    return {id: t.id, kind: kind, name: t.name, emoji: t.emoji, accent: t.accent, grad2: t.grad2,
+            decor: t.decor, hello: t.hello || "", examples: t.examples || [], bg: bgFor(t.accent, t.grad2)};
+  }
+
+  // Красивый фон под праздник: два мягких цветных свечения в цвет темы поверх тёмного фона.
+  function bgFor(a, b) {
+    return `radial-gradient(1200px 680px at 12% -12%, ${hexA(a, 0.22)}, transparent 60%), ` +
+           `radial-gradient(1000px 560px at 100% 0%, ${hexA(b, 0.16)}, transparent 58%), ` +
+           `radial-gradient(900px 700px at 50% 120%, ${hexA(a, 0.10)}, transparent 60%)`;
   }
 
   function off() {
@@ -67,7 +102,7 @@
   }
   function setOff(v) {
     try { localStorage.setItem(OFF_KEY, v ? "1" : "0"); } catch (e) { /* не сохранится — не страшно */ }
-    if (v) { clearDecor(); unapply(); } else { apply(); decorate(); }
+    if (v) { clearDecor(); clearBg(); unapply(); } else { apply(); background(); decorate(); }
   }
 
   const SAVED = {};
@@ -84,8 +119,6 @@
     st.setProperty("--red-soft", hexA(a, 0.12));
     st.setProperty("--glow", `0 10px 30px -10px ${hexA(a, 0.7)}`);
     root.dataset.festive = theme.id;
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta && !meta.dataset.festiveSaved) { meta.dataset.festiveSaved = meta.content; }
     return theme;
   }
   function unapply() {
@@ -98,6 +131,19 @@
     if (!m) return hex;
     const n = parseInt(m[1], 16);
     return `rgba(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255}, ${a})`;
+  }
+
+  // ---- красивый фон под праздник: мягкое цветное свечение прямо на фоне страницы (под всем содержимым)
+  let bgSaved = null;
+  function clearBg() {
+    if (bgSaved !== null && document.body) { document.body.style.backgroundImage = bgSaved; bgSaved = null; }
+  }
+  function background(theme) {
+    theme = theme || current();
+    if (off() || !document.body) return;
+    if (bgSaved === null) bgSaved = document.body.style.backgroundImage || "";
+    document.body.style.backgroundImage = theme.bg;
+    document.body.style.backgroundAttachment = "fixed";
   }
 
   // ---- лёгкое оформление: падающие эмодзи (снег, звёзды, листья…). Выключено на телефоне и при reduced-motion.
@@ -141,12 +187,13 @@
     if (off()) return null;
     const theme = current();
     apply(theme);
-    if (document.body) decorate(theme);
-    else document.addEventListener("DOMContentLoaded", () => decorate(theme), {once: true});
+    const paint = () => { background(theme); decorate(theme); };
+    if (document.body) paint();
+    else document.addEventListener("DOMContentLoaded", paint, {once: true});
     return theme;
   }
 
-  window.RaiFestive = {current: current, apply: apply, decorate: decorate, init: init, off: off, setOff: setOff,
-                       HOLIDAYS: HOLIDAYS, WEEKS: WEEKS};
+  window.RaiFestive = {current: current, apply: apply, decorate: decorate, background: background, init: init,
+                       off: off, setOff: setOff, HOLIDAYS: HOLIDAYS, WEEKS: WEEKS};
   init();   // применяем акцент сразу (до отрисовки страницы — без мигания)
 })();

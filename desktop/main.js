@@ -99,7 +99,17 @@ async function siteReachable() {
   }
 }
 
-async function openRai() {
+// Приложение Rai — обычное офлайн-приложение: весь код внутри (движок, Python, распознавание). Интернет не нужен.
+// Онлайн-версию сайта можно открыть по желанию (меню или переменная RAI_ONLINE=1).
+const OFFLINE_FIRST = process.env.RAI_ONLINE !== "1";
+
+async function openOffline() {
+  offline = true;
+  await win.loadURL("rai://app/index.html").catch(() => {});
+  buildMenu();
+}
+
+async function openOnline() {
   if (await siteReachable()) {
     offline = false;
     try {
@@ -108,11 +118,17 @@ async function openRai() {
       // сайт ответил, но страница не открылась — встроенный Rai (его включает did-fail-load)
     }
   } else {
-    offline = true;
-    await win.loadURL("rai://app/index.html").catch(() => {});
-    banner("Нет связи с rai.rteam.info — работает встроенный Rai без интернета. Когда связь появится, нажмите «Обновить».", "Обновить", "online", 20);
+    await openOffline();
+    banner("Нет связи с rai.rteam.info — работает встроенный Rai. Это обычный режим приложения: всё работает без интернета.", "Понятно", "dismiss", 12);
+    return;
   }
   buildMenu();
+}
+
+async function openRai() {
+  // По умолчанию — встроенная копия (чистый локальный код, без web). Онлайн — только если явно попросили.
+  if (OFFLINE_FIRST) return openOffline();
+  return openOnline();
 }
 
 /** Полоска сверху страницы с кнопкой (страница обновилась, вышла новая версия, нет интернета). */
@@ -140,10 +156,12 @@ function banner(text, button, action = "reload", hideAfter = 0) {
 // ---------------------------------------------------------------- обновления содержимого (сайт)
 async function checkSite() {
   if (!win) return;
+  // Офлайн-приложение: не навязываем онлайн-режим — работает на своём коде. Онлайн открывают из меню.
+  if (OFFLINE_FIRST && offline) return;
   const before = siteStamp;
   const ok = await siteReachable();
   if (offline && ok) {
-    banner("Связь с rai.rteam.info есть — можно открыть полную версию Rai.", "Открыть", "online");
+    banner("Связь с rai.rteam.info есть — можно открыть онлайн-версию Rai.", "Открыть", "online");
     return;
   }
   if (!offline && ok && before && siteStamp && before !== siteStamp) {
@@ -205,7 +223,9 @@ async function checkApp(manual = false) {
 
 ipcMain.on("rai-action", (_e, action) => {
   if (action === "reload") { win.webContents.reloadIgnoringCache(); }
-  else if (action === "online") { openRai(); }
+  else if (action === "dismiss") { /* баннер уже закрыт */ }
+  else if (action === "online") { openOnline(); }
+  else if (action === "offline") { openOffline(); }
   else if (action === "install" && updater) { quitting = true; updater.quitAndInstall(); }
   else if (action === "download") { shell.openExternal(DOWNLOAD_PAGE); }
   else if (action === "check-updates") { checkApp(true); }
@@ -219,7 +239,8 @@ function buildMenu() {
       label: "Rai",
       submenu: [
         { label: "Обновить страницу", accelerator: "CmdOrCtrl+R", click: () => win.webContents.reloadIgnoringCache() },
-        { label: "Открыть полную версию (сайт)", click: () => openRai() },
+        { label: offline ? "Открыть онлайн-версию (нужен интернет)" : "Встроенная версия (без интернета)",
+          click: () => (offline ? openOnline() : openOffline()) },
         { label: "Проверить обновления приложения…", click: () => checkApp(true) },
         { type: "separator" },
         { label: "Открыть rai.rteam.info в браузере", click: () => shell.openExternal(SITE) },

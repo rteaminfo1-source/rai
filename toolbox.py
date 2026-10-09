@@ -637,6 +637,8 @@ def _list_nums(low):
 
 @tool(CAT_MATH, "Среднее арифметическое", "среднее 3 5 7 10")
 def mean(text, low, s):
+    if re.search(r"геометрическ", low):      # среднее геометрическое — отдельная функция
+        return None
     if not re.search(r"средн\w*(?:\s+арифметическ\w*)?(?:\s+значени\w*)?(?:\s+чисел)?", low) or re.search(r"средн\w* (?:бал|зарплат|скорост)", low) and len(_list_nums(low)) < 2:
         return None
     if not re.search(r"\bсредн", low):
@@ -1500,3 +1502,197 @@ def lottery(text, low, s):
     if not 1 <= k <= n <= 100:
         return None
     return f"🍀 **{', '.join(map(str, sorted(random.sample(range(1, n + 1), k))))}**\n\n*Случайные числа — шансы у любых комбинаций одинаковые.*"
+
+
+# ================================================================ новые функции
+# (проверено, что не дублируют skills.py: даты, случайность, пароль и базовый разбор текста — там)
+
+# ---- Математика
+@tool(CAT_MATH, "Процент от числа", "сколько будет 15% от 200")
+def percent_of(text, low, s):
+    m = re.search(r"(" + NUM + r")\s*(?:%|процент\w*)\s+от\s+(" + NUM + r")", low)
+    if not m:
+        return None
+    p, whole = f(m.group(1)), f(m.group(2))
+    return f"**{p}% от {money(whole)} = {money(whole * p / 100)}**"
+
+
+@tool(CAT_MATH, "Сочетания, размещения и перестановки", "сочетания из 5 по 2")
+def combinatorics(text, low, s):
+    if not re.search(r"сочетани|размещени|перестановк|комбинац", low):
+        return None
+    nn = ints(low)
+    if re.search(r"перестановк", low):
+        if len(nn) < 1 or nn[0] > 170:
+            return None
+        return f"Перестановок из {nn[0]}: **{money(math.factorial(nn[0]))}** (это {nn[0]}!)"
+    if len(nn) < 2:
+        return None
+    n, k = nn[0], nn[1]
+    if k > n or n > 170:
+        return None
+    if re.search(r"размещени", low):
+        return f"Размещений из {n} по {k}: **{money(math.perm(n, k))}** (A: {n}!/({n}−{k})!)"
+    return f"Сочетаний из {n} по {k}: **{money(math.comb(n, k))}** (C: {n}!/({k}!·({n}−{k})!))"
+
+
+@tool(CAT_MATH, "Пропорция (найти x)", "пропорция 2 к 4 как 3 к x")
+def proportion(text, low, s):
+    if not re.search(r"пропорц", low):
+        return None
+    body = low.replace("как", " ").replace("относится", " ")
+    parts = [p for p in re.findall(r"(" + NUM + r"|x|х|\?)", body) if p]
+    if len(parts) != 4:
+        return None
+    idx = next((i for i, p in enumerate(parts) if p in ("x", "х", "?")), None)
+    if idx is None:
+        return None
+    try:
+        a, b, c, d = [None if p in ("x", "х", "?") else f(p) for p in parts]
+        x = (b * c / a) if idx == 3 else (a * d / b) if idx == 2 else (a * d / c) if idx == 1 else (b * c / d)
+    except (ValueError, ZeroDivisionError, TypeError):
+        return None
+    sol = round(x, 4)
+    sol = int(sol) if is_int(sol) else sol
+    return f"**x = {sol}**\n\nПропорция {parts[0]} : {parts[1]} = {parts[2]} : {parts[3]} — умножаем крест-накрест."
+
+
+@tool(CAT_MATH, "Сумма цифр числа", "сумма цифр 12345")
+def digit_sum(text, low, s):
+    if not re.search(r"сумм\w*\s+цифр|сложи\s+цифр", low):
+        return None
+    m = re.search(r"\d[\d\s]*", low)
+    if not m:
+        return None
+    digits = [int(c) for c in m.group(0) if c.isdigit()]
+    if not digits:
+        return None
+    return f"Сумма цифр числа {''.join(map(str, digits))}: **{sum(digits)}**."
+
+
+@tool(CAT_MATH, "Среднее геометрическое", "среднее геометрическое 2 и 8")
+def geo_mean(text, low, s):
+    if not re.search(r"средн\w*\s+геометрическ", low):
+        return None
+    vals = [x for x in nums(low) if x > 0]
+    if len(vals) < 2:
+        return None
+    prod = 1.0
+    for v in vals:
+        prod *= v
+    g = prod ** (1 / len(vals))
+    g = round(g, 4)
+    return f"Среднее геометрическое {', '.join(str(int(v) if is_int(v) else v) for v in vals)}: **{int(g) if is_int(g) else g}**."
+
+
+@tool(CAT_MATH, "Проверка номера карты (алгоритм Луна)", "проверь номер карты 4561 2612 1234 5467")
+def luhn_check(text, low, s):
+    if not re.search(r"карт\w*|luhn|лун\w*|контрольн\w*\s+цифр", low):
+        return None
+    digits = re.sub(r"\D", "", low)
+    if not 12 <= len(digits) <= 19:
+        return None
+    total, alt = 0, False
+    for ch in reversed(digits):
+        d = int(ch)
+        if alt:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+        alt = not alt
+    ok = total % 10 == 0
+    return f"Номер {digits[:4]}…{digits[-4:]}: **{'проходит' if ok else 'НЕ проходит'}** проверку Луна " + \
+        ("✅ (контрольная цифра верна)." if ok else "❌ (возможно, опечатка).")
+
+
+# ---- Деньги
+@tool(CAT_MONEY, "Кэшбэк с покупки", "кэшбэк 5% с 3000")
+def cashback(text, low, s):
+    if "кэшб" not in low and "кешб" not in low:
+        return None
+    nn = [f(x) for x in re.findall(r"(" + NUM + r")\s*(?:%|процент\w*)", low)]
+    m2 = re.search(r"(?:с|от|за)\s+(" + NUM + r")", low) or re.search(r"(" + NUM + r")\s*(?:руб|₽|р\b)", low)
+    if not nn or not m2:
+        return None
+    p, total = nn[0], f(m2.group(1))
+    back = total * p / 100
+    return f"Кэшбэк **{p}%** с {rub(total)} = **{rub(back)}**.\nКак будто заплатили {rub(total - back)}."
+
+
+# ---- Текст
+@tool(CAT_TEXT, "Шифр ROT13", "rot13: Privet")
+def rot13(text, low, s):
+    m = re.search(r"rot-?13[^:]*:\s*(.+)", text, re.S | re.I)
+    if not m:
+        return None
+    import codecs
+    body = m.group(1).strip()
+    return f"```\n{codecs.encode(body, 'rot_13')}\n```" if body else None
+
+
+@tool(CAT_TEXT, "Текст в двоичный код", "в двоичный код: Rai")
+def text_to_binary(text, low, s):
+    m = re.search(r"(?:в\s+двоичн\w+(?:\s+код\w*)?|в\s+бинарн\w+|в\s+биты)[^:]*:\s*(.+)", text, re.S)
+    if not m:
+        return None
+    body = m.group(1).strip()[:200]
+    if not body:
+        return None
+    return "```\n" + " ".join(format(b, "08b") for b in body.encode("utf-8")) + "\n```"
+
+
+@tool(CAT_TEXT, "Текст в HEX", "в hex: Rai")
+def text_to_hex(text, low, s):
+    m = re.search(r"(?:в\s+hex|hex-?код\w*|в\s+шестнадцатеричн\w*\s+код\w*)[^:]*:\s*(.+)", text, re.S | re.I)
+    if not m:
+        return None
+    body = m.group(1).strip()[:300]
+    if not body:
+        return None
+    return "```\n" + " ".join(format(b, "02X") for b in body.encode("utf-8")) + "\n```"
+
+
+@tool(CAT_TEXT, "URL-кодирование", "url-кодируй: привет мир")
+def url_encode(text, low, s):
+    m = re.search(r"(?:url-?код\w*|urlencode|процент-?кодир\w*|кодир\w*\s+для\s+ссылк\w*)[^:]*:\s*(.+)", text, re.S | re.I)
+    if not m:
+        return None
+    from urllib.parse import quote
+    body = m.group(1).strip()
+    return f"`{quote(body, safe='')}`" if body else None
+
+
+@tool(CAT_TEXT, "Сколько раз символ встречается", "сколько раз а в банан")
+def count_char(text, low, s):
+    m = re.search(r"сколько\s+раз\s+[«\"']?(.+?)[»\"']?\s+в\s+(?:слов\w*\s+|текст\w*\s+|строк\w*\s+)?[«\"']?(.+)", text, re.I | re.S)
+    if not m:
+        return None
+    needle, hay = m.group(1).strip().strip("«»\"'"), m.group(2).strip().strip("«»\"'")
+    if not needle or not hay or len(needle) > 20:
+        return None
+    n = hay.lower().count(needle.lower())
+    return f"«{needle}» встречается в «{hay[:60]}» **{n}** " + _plural_tb(n, "раз", "раза", "раз") + "."
+
+
+@tool(CAT_TEXT, "Слаг для ссылки (URL)", "сделай слаг из: Привет, мир!")
+def slugify(text, low, s):
+    m = re.search(r"(?:слаг|slug|чпу|адрес\s+страниц\w*)[^:]*:\s*(.+)", text, re.S | re.I)
+    if not m:
+        return None
+    body = m.group(1).strip().lower()
+    tr = {"а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh", "з": "z",
+          "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r",
+          "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch",
+          "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya"}
+    out = re.sub(r"[^a-z0-9]+", "-", "".join(tr.get(c, c) for c in body)).strip("-")
+    return f"`{out}`" if out else None
+
+
+def _plural_tb(n, one, few, many):
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many

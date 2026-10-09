@@ -14,7 +14,7 @@ import os
 import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FILES = ["meds.py", "mind.py", "deep.py", "sense.py", "codemind.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
+FILES = ["meds.py", "mind.py", "deep.py", "sense.py", "codemind.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "tokens.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
          "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"]
 
 
@@ -27,7 +27,7 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
         html = html.replace('<link rel="stylesheet" href="code.css">', "<style>\n" + f.read() + "</style>", 1)
     with open(os.path.join(BASE_DIR, "slides.css"), encoding="utf-8") as f:
         html = html.replace('<link rel="stylesheet" href="slides.css">', "<style>\n" + f.read() + "</style>", 1)
-    for name in ("festive.js", "code.js", "slides.js", "screen.js", "vision.js", "files.js", "neuro.js", "pptx.js"):
+    for name in ("tokens.js", "festive.js", "code.js", "slides.js", "screen.js", "vision.js", "files.js", "neuro.js", "pptx.js"):
         with open(os.path.join(BASE_DIR, name), encoding="utf-8") as f:
             js = f.read()
         # «<!--» внутри <script> переводит HTML-парсер в особый режим, и тег может не закрыться

@@ -77,6 +77,15 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Rai",
       "uninstallDisplayName": "Rai",
+      "menuCategory": "Rteam",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "installerHeader": "build/installerHeader.bmp",
+      "license": "build/license.txt",
+      "include": "build/installer.nsh",
+      "warningsAsErrors": false,
       "language": "1049"
     },
     "mac": {

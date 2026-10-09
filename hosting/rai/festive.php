@@ -53,9 +53,27 @@ function festive_current($t = null) {
     return ['id' => $w[0], 'kind' => 'week', 'name' => $w[1], 'emoji' => $w[2], 'accent' => $w[3], 'grad2' => $w[4]];
 }
 
-/** CSS-переменные акцента под тему — вставляется в <style> главной страницы. */
+/** #rrggbb -> rgba(...) с заданной прозрачностью (для мягкого свечения фона). */
+function festive_rgba($hex, $alpha) {
+    if (!preg_match('/^#([0-9a-fA-F]{6})$/', $hex, $m)) return $hex;
+    $n = hexdec($m[1]);
+    return 'rgba(' . (($n >> 16) & 255) . ',' . (($n >> 8) & 255) . ',' . ($n & 255) . ',' . $alpha . ')';
+}
+
+/** Красивый фон под праздник: два-три мягких цветных свечения в цвет темы (как в чате). */
+function festive_bg($fest) {
+    $a = $fest['accent'];
+    $b = $fest['grad2'];
+    return 'radial-gradient(1200px 680px at 12% -12%, ' . festive_rgba($a, 0.22) . ', transparent 60%),'
+         . 'radial-gradient(1000px 560px at 100% 0%, ' . festive_rgba($b, 0.16) . ', transparent 58%),'
+         . 'radial-gradient(900px 700px at 50% 120%, ' . festive_rgba($a, 0.10) . ', transparent 60%)';
+}
+
+/** CSS-переменные акцента + праздничный фон — вставляется в <style> главной страницы. */
 function festive_css($fest) {
     $a = $fest['accent'];
     $b = $fest['grad2'];
-    return ":root{--red:$a;--red2:$b;--pink:$b;--grad:linear-gradient(120deg,$a 0%,$b 100%);}";
+    $bg = festive_bg($fest);
+    return ":root{--red:$a;--red2:$b;--pink:$b;--grad:linear-gradient(120deg,$a 0%,$b 100%);}"
+         . "body{background-image:$bg;background-attachment:fixed;}";
 }

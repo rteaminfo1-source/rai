@@ -36,6 +36,7 @@ import skills
 import social
 import syntax
 import talk
+import tokens
 import toolbox
 import facts  # noqa: F401 — регистрирует справочник в toolbox
 import games
@@ -256,6 +257,22 @@ class Brain:
     # ------------------------------------------------------------ ответы
 
     def answer(self, version: Version, message: str, session_id=None, history=None, level=None) -> dict:
+        """Ответ Rai + сколько это стоило в токенах (usage — видно пользователю, см. tokens.py)."""
+        result = self._answer_impl(version, message, session_id, history, level)
+        try:
+            result.setdefault("usage", self._usage(version, message, result))
+        except Exception:
+            pass
+        return result
+
+    def _usage(self, version: Version, message: str, result: dict) -> dict:
+        """Стоимость ответа в токенах: запрос + ответ (с текстом вложений) + размышление по уровню."""
+        lvl = getattr(_REQ, "level", None) or PROFILE.get("level")
+        extra = _attachment_text(result.get("attachments") or [])
+        return tokens.usage(prompt=message or "", answer=result.get("answer", ""),
+                            extra_text=extra, level=lvl, version_id=version.id)
+
+    def _answer_impl(self, version: Version, message: str, session_id=None, history=None, level=None) -> dict:
         _REQ.level = level if level in mind.LEVELS else PROFILE.get("level")
         message = (message or "").strip()
         if not message:
@@ -595,6 +612,14 @@ class Brain:
         if reply:
             return reply, "skill"
 
+        # Высокие уровни (Extra/Ultra): пользователь выбрал «думать по максимуму» — Rai Разум идёт раньше
+        # коротких готовых ответов (но не для кода, задач с числами, погоды — у них свои точные инструменты).
+        if _level() in ("extra", "ultra") and not code_answer and not building \
+                and not mind._NOT_MIND.search(text) and mind.wants(text):
+            thought = self._think(version, text, attachments, min_conf=0.4)
+            if thought:
+                return thought
+
         # «Что такое X», где X точно есть в словаре, — отвечаем определением.
         # Языки программирования отвечает справочник proglangs, а не словарь.
         definition = None if code_answer else self.define(version, text, exact_only=True)
@@ -768,6 +793,7 @@ class Brain:
         found = found[:4] if big else found[:2]
         if len(found) < 2 and topic:
             found += self._glossary_for(topic, limit=(6 if big else 3) - len(found))
+        base_titles = [a.get("title", "") for a in found if a.get("title")]   # что нашлось в своей базе — для хода мыслей
         photo, photos, notes, page, offline = None, [], [], None, False
 
         def web(fn, *args):
@@ -892,7 +918,8 @@ class Brain:
             title = title.upper()  # html -> HTML, php -> PHP
         elif found and found[0].get("key_match") and len(title.split()) == 1:
             title = found[0]["title"]  # «котов» -> «Кошка»
-        limit = req["count"] or version.slide_limit
+        # Уровень размышления решает, сколько слайдов (в пределах тарифа): Low — короче, Ultra — максимум
+        limit = req["count"] or min(version.slide_limit, _LEVEL_SLIDES.get(level, version.slide_limit))
 
         def build(material, pics):
             return creative.make_slides(title, material, max_slides=limit, theme=theme,
@@ -948,7 +975,45 @@ class Brain:
                 hint = " Поискать в интернете не получилось: нет связи."
             return (f"Про «{topic or text}» я пока не нашёл материала, поэтому презентацию не сделал — "
                     f"не хочу показывать пустые слайды.{hint} Попробуйте другую тему, например «презентация про космос».")
-        attachments.append(deck)
+        # Ход мыслей: как Rai собрал презентацию — пользователь видит это над ответом («Как Rai думал»)
+        lv = mind.level_of(level)
+        plan_line = "своя база знаний" + (" → Википедия и интернет" if online_ok else "") + \
+            (" → исследую тему с разных сторон" if level in ("extra", "ultra") and online_ok else "") + \
+            " → отбираю факты → собираю слайды → проверяю качество"
+        steps = [{"kind": "think", "text": (
+            f"**Уровень:** {lv['label']} — {lv['about']}.\n\n"
+            f"**Задача:** презентация про «{topic or text}»"
+            + (f", разделы: {', '.join(req['sections'])}" if req["sections"] else "")
+            + (f", сравнить: {' и '.join(req['compare'])}" if req["compare"] else "")
+            + (f", до {req['count']} слайдов" if req["count"] else f", около {limit} слайдов")
+            + (", картинки не нужны" if req["pictures"] == "none" else ", с картинками") + ".\n\n"
+            f"**План:** {plan_line}.")}]
+        if base_titles:
+            steps.append({"kind": "search", "query": "своя база: энциклопедия и словарь Rai", "found": base_titles[:6]})
+        if page:
+            where = "знания Rai (статья Википедии целиком)" if from_deep else "Википедия"
+            secs = [s["title"] for s in page.get("sections", [])][:6]
+            steps.append({"kind": "open", "query": f"{where}: {page['title']}",
+                          "found": secs or [page["title"]]})
+        if researched:
+            steps.append({"kind": "search", "query": "исследовал тему с разных сторон", "found": researched})
+        if redone:
+            steps.append({"kind": "read", "text": "Первый вариант вышел слабым — переделал: " + ", ".join(redone) + "."})
+        nslides = len(deck["slides"])
+        kinds_now = {s["kind"] for s in deck["slides"]}
+        extra_names = {"timeline": "хронология", "stats": "цифры в графике", "table": "таблица",
+                       "quote": "цитата", "compare": "сравнение", "fact": "интересный факт", "summary": "итоги"}
+        has = [extra_names[k] for k in extra_names if k in kinds_now]
+        pics = sum(1 for s in deck["slides"] if s.get("pic"))
+        steps.append({"kind": "check", "text":
+                      f"✅ Слайдов: {nslides}\n"
+                      f"{'✅' if quality['score'] >= 75 else '⚠️'} Качество: {quality['score']}/100\n"
+                      + (f"✅ Картинок: {pics}\n" if pics else "• Картинок нет\n")
+                      + (f"✅ Разделы: {', '.join(has)}\n" if has else "")
+                      + (f"⚠️ {'; '.join(notes)}\n" if notes else "")
+                      + f"\nСобрал сам, уровень {lv['label']}."})
+        attachments.append(deck)   # презентация — главное вложение (идёт первой)
+        attachments.append({"type": "trace", "title": "Как Rai думал над презентацией", "steps": steps})
         n = len(deck["slides"])
         count = f"{n} " + ("слайд" if n % 10 == 1 and n % 100 != 11 else
                           "слайда" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "слайдов")
@@ -1234,10 +1299,38 @@ def _word_forms(word):
 # "level": "high"} — level: уровень размышления, выбранный внизу чата (mind.LEVELS)
 PROFILE = {}
 _REQ = threading.local()   # уровень размышления текущего запроса (на сервере запросы идут в разных потоках)
+# Сколько слайдов делать по уровню размышления (но не больше, чем позволяет тариф версии)
+_LEVEL_SLIDES = {"low": 6, "medium": 8, "high": 10, "code": 8, "extra": 13, "ultra": 16}
 
 
 def _level():
     return getattr(_REQ, "level", None) or None
+
+
+def _attachment_text(attachments):
+    """Текст из вложений (слайды, ход мыслей, разбор) — чтобы учесть его в стоимости ответа в токенах."""
+    out = []
+    for a in attachments or []:
+        t = a.get("type")
+        if t == "trace":
+            for s in a.get("steps") or []:
+                out.append(s.get("text") or s.get("query") or s.get("code") or "")
+                out += [str(x) for x in (s.get("found") or [])]
+        elif t == "slides":
+            out.append(a.get("title") or "")
+            out.append(a.get("subtitle") or "")
+            for sl in a.get("slides") or []:
+                out.append(sl.get("title") or "")
+                out.append(sl.get("text") or "")
+                out += [str(x) for x in (sl.get("bullets") or [])]
+                for side in (sl.get("left"), sl.get("right")):
+                    if isinstance(side, dict):
+                        out += [str(x) for x in (side.get("items") or [])]
+                for it in sl.get("items") or []:
+                    out.append(str(it if not isinstance(it, dict) else " ".join(map(str, it.values()))))
+        elif t == "code":
+            out.append(a.get("code") or "")
+    return " ".join(x for x in out if x)
 
 
 def _name_from_history(history):

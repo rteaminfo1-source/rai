@@ -529,9 +529,13 @@
   @keyframes rai-pop-in { from { opacity: 0; transform: translateY(8px); } }
   .msg.user .bubble { background: var(--grad); border: 0; color: #fff; border-radius: 20px 20px 6px 20px; padding: 11px 16px;
     box-shadow: 0 10px 30px -14px rgba(255, 45, 45, .8); }
-  .msg.rai .bubble { background: var(--glass); border: 1px solid var(--line); border-radius: 20px 20px 20px 6px; padding: 14px 18px; }
+  .msg.rai .bubble { background: var(--glass); border: 1px solid var(--line); border-radius: 20px 20px 20px 6px; padding: 14px 18px;
+    max-width: min(860px, 100%); box-shadow: 0 8px 28px -20px rgba(0, 0, 0, .9); transition: border-color .25s, box-shadow .25s; }
+  .msg.rai:hover .bubble { border-color: var(--line-2); box-shadow: 0 14px 36px -22px rgba(139, 92, 255, .55); }
   .msg.pending .bubble { display: inline-block; align-self: flex-start; }
-  .who { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; width: max-content; }
+  .who { display: inline-flex; align-items: center; gap: 8px; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; width: max-content; }
+  .who .who-ava { -webkit-text-fill-color: #fff; color: #fff; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+    font: 800 12px/1 var(--font-display); background: var(--grad); box-shadow: 0 4px 12px -4px rgba(255, 61, 129, .8); }
   .typing span { background: var(--pink); }
   .typing span:nth-child(2) { background: #c04cd0; } .typing span:nth-child(3) { background: var(--violet); }
   .md strong { color: #fff; }
@@ -643,6 +647,17 @@
   .pick-btn .chev { color: var(--muted); font-size: 10px; }
   .pick-btn[data-level="ultra"] { border-color: rgba(255, 209, 102, .55); }
   .pick-btn[data-level="code"] { border-color: rgba(120, 200, 255, .5); }
+  .pick-btn.usage { gap: 6px; }
+  .pick-btn.usage .pk-ic { color: var(--pink, #ff3d81); }
+  .usage-bar { width: 42px; height: 5px; border-radius: 999px; background: var(--line-2, rgba(255,255,255,.14)); overflow: hidden; }
+  .usage-bar i { display: block; height: 100%; width: 0%; border-radius: 999px; background: var(--grad, linear-gradient(90deg, #ff3d81, #ffd166)); transition: width .4s ease; }
+  .pick-btn.usage.warn .usage-bar i { background: #ffb020; }
+  .pick-btn.usage.over .usage-bar i { background: #ff4d4d; }
+  .usage-menu .um-row { display: flex; justify-content: space-between; gap: 16px; padding: 6px 10px; font-size: 13px; }
+  .usage-menu .um-row b { font-variant-numeric: tabular-nums; }
+  .usage-menu .um-total { border-top: 1px solid var(--line); margin-top: 2px; font-weight: 600; }
+  .usage-menu .um-note { padding: 8px 10px 2px; font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .usage-menu .pm-ext { color: var(--pink, #ff3d81); }
   .pick-menu { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40; width: 330px; max-height: min(70vh, 520px); overflow: auto;
     background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 16px; padding: 6px; box-shadow: 0 18px 50px rgba(0, 0, 0, .55); }
   .pick-menu .pm-head { padding: 8px 10px 6px; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
@@ -923,6 +938,12 @@
             <span class="pk-ic lv" aria-hidden="true">🧠</span><span class="pk-name" id="levelName">Medium</span><span class="chev" aria-hidden="true">▾</span></button>
           <div class="pick-menu" id="levelMenu" role="menu" aria-label="Сколько думать" hidden></div>
         </div>
+        <div class="pick">
+          <button type="button" class="pick-btn usage" id="usageBtn" aria-haspopup="menu" aria-expanded="false" title="Токены: сколько потрачено за сегодня">
+            <span class="pk-ic lv" aria-hidden="true">⚡</span><span class="pk-name" id="usageName">0</span>
+            <span class="usage-bar" aria-hidden="true"><i id="usageFill"></i></span></button>
+          <div class="pick-menu" id="usageMenu" role="menu" aria-label="Токены" hidden></div>
+        </div>
         <span class="pick-note" id="pickNote"></span>
       </div>
       <p class="hint">Enter — отправить, Shift+Enter — новая строка. Скрепка — любые файлы, картинки (или Ctrl+V), экран — снимок и запись.</p>
@@ -968,6 +989,7 @@
   </div>
 </dialog>
 
+<script src="tokens.js"></script>
 <script src="festive.js"></script>
 <script src="code.js"></script>
 <script src="slides.js"></script>
@@ -1383,7 +1405,7 @@
     try { return localStorage.getItem("rai_brain") === "qwen"; } catch (e) { return false; }
   }
   function closePickers(except) {
-    for (const [btn, menu] of [["modelBtn", "modelMenu"], ["levelBtn", "levelMenu"]]) {
+    for (const [btn, menu] of [["modelBtn", "modelMenu"], ["levelBtn", "levelMenu"], ["usageBtn", "usageMenu"]]) {
       if (menu === except) continue;
       $(menu).hidden = true;
       $(btn).setAttribute("aria-expanded", "false");
@@ -1408,6 +1430,7 @@
     $("levelBtn").title = "Сколько думать: " + lv.name + " — " + lv.about;
     const ext = externalBrain() && window.RaiNeuro && window.RaiNeuro.ready();
     $("pickNote").textContent = ext ? "подключена внешняя нейросеть" : lv.about;
+    try { Usage.renderChip(); } catch (e) { /* токены ещё не готовы */ }
   }
   function renderModelMenu() {
     const chat = current() || {};
@@ -1475,9 +1498,76 @@
   }
   $("modelBtn").addEventListener("click", () => togglePicker("modelBtn", "modelMenu", renderModelMenu));
   $("levelBtn").addEventListener("click", () => togglePicker("levelBtn", "levelMenu", renderLevelMenu));
+  $("usageBtn").addEventListener("click", () => togglePicker("usageBtn", "usageMenu", renderUsageMenu));
   document.addEventListener("click", (e) => { if (!e.target.closest(".pick")) closePickers(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePickers(); });
 
+  // ---------------------------------------------------------------- токены: сколько потрачено (видно везде)
+  // Считаем токены ответа (запрос + ответ + размышление) и ведём дневной счётчик по тарифу. Система одна и та же
+  // в чате, слайдах и коде: каждый ответ добавляет свой usage, лимит берётся из текущей версии (tokens.js).
+  const Usage = (function () {
+    const KEY = "rai_usage_day";
+    let last = null;   // разбивка последнего ответа — для всплывающего окна
+    function today() { return new Date().toISOString().slice(0, 10); }
+    function load() {
+      try { const d = JSON.parse(localStorage.getItem(KEY) || "null"); if (d && d.day === today()) return d; } catch (e) { /* заново */ }
+      return {day: today(), total: 0, count: 0};
+    }
+    function store(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { /* не сохранится */ } }
+    function limit() {
+      const chat = current() || {};
+      const v = (VERSIONS || []).find((x) => x.id === chat.version);
+      return (window.RaiTokens ? window.RaiTokens.limitFor(v ? v.id : "pro") : 150000);
+    }
+    function num(n) { return window.RaiTokens ? window.RaiTokens.human(n) : String(Math.round(n || 0)); }
+    function spend(u) {
+      if (!u || !u.total) return;
+      last = u;
+      const d = load();
+      d.total += u.total; d.count += 1; d.day = today();
+      store(d);
+      renderChip();
+    }
+    function compute(opts) {   // когда сервер не дал usage (нейросеть, слайды в браузере) — считаем сами
+      if (!window.RaiTokens) return null;
+      const chat = current() || {};
+      return window.RaiTokens.usage({prompt: opts.prompt || "", answer: opts.answer || "", extra: opts.extra || "",
+        level: opts.level || currentLevel(), version: chat.version, reasoning: opts.reasoning});
+    }
+    function renderChip() {
+      const btn = $("usageBtn"); if (!btn) return;
+      const d = load(), lim = limit(), frac = lim ? Math.min(1, d.total / lim) : 0;
+      $("usageName").textContent = num(d.total);
+      $("usageFill").style.width = (frac * 100).toFixed(1) + "%";
+      btn.classList.toggle("warn", frac >= 0.8 && frac < 1);
+      btn.classList.toggle("over", frac >= 1);
+      btn.title = "Токены за сегодня: " + num(d.total) + " из " + num(lim);
+    }
+    function renderMenu() {
+      const d = load(), lim = limit(), left = Math.max(0, lim - d.total);
+      const l = last;
+      const breakdown = l ? (
+        `<div class="um-row"><span>Запрос</span><b>${num(l.prompt)}</b></div>` +
+        `<div class="um-row"><span>Ответ</span><b>${num(l.answer)}</b></div>` +
+        `<div class="um-row"><span>Размышление${l.level ? " · " + esc(l.level) : ""}</span><b>${num(l.reasoning)}</b></div>` +
+        `<div class="um-row um-total"><span>Последний ответ</span><b>${num(l.total)}</b></div>`
+      ) : `<div class="um-note">Задайте вопрос — покажу, сколько токенов он стоил.</div>`;
+      $("usageMenu").className = "pick-menu usage-menu";
+      $("usageMenu").innerHTML = `<div class="pm-head">Токены сегодня</div>` +
+        `<div class="um-row"><span>Потрачено</span><b>${num(d.total)}</b></div>` +
+        `<div class="um-row"><span>Осталось</span><b>${num(left)}</b></div>` +
+        `<div class="um-row um-total"><span>Лимит тарифа</span><b>${num(lim)}</b></div>` +
+        `<div class="pm-sep"></div>${breakdown}` +
+        `<div class="um-note">Токен — маленький кусочек текста. Чем выше уровень размышления, тем дороже ответ. ` +
+        `Счётчик общий для чата, слайдов и кода; сбрасывается каждый день.</div>` +
+        `<button type="button" class="pm-ext" data-reset="1">Сбросить счётчик за сегодня</button>`;
+      const rb = $("usageMenu").querySelector("[data-reset]");
+      if (rb) rb.addEventListener("click", () => { store({day: today(), total: 0, count: 0}); renderChip(); closePickers(); toast("Счётчик токенов сброшен"); });
+    }
+    function overLimit() { const d = load(); return d.total >= limit(); }
+    return {spend: spend, compute: compute, renderChip: renderChip, renderMenu: renderMenu, overLimit: overLimit, limit: limit, num: num};
+  })();
+  function renderUsageMenu() { Usage.renderMenu(); }
 
   // ---------------------------------------------------------------- сообщения
   /** Страна посетителя (для лекарств и советов): по часовому поясу, иначе по языку браузера. ru, by, kz, ua, us, uk, de, tr, intl. */
@@ -1557,8 +1647,8 @@
       });
       w.insertBefore(badge, w.firstChild);
     }
-    // тема недели добавляет один тематический пример в начало списка
-    const festExamples = (fest && fest.kind === "week" && fest.example) ? [[fest.example[0], fest.emoji + " тема недели: " + fest.example[1]]] : [];
+    // тематические вопросы к Rai по празднику/неделе — в начало списка примеров (в том числе «нарисуй …»)
+    const festExamples = (fest && fest.examples) ? fest.examples : [];
     {
       // Подсказка: Rai думает сам — внизу выбирается, сколько думать (Low … Ultra)
       const tip = document.createElement("button");
@@ -1622,7 +1712,7 @@
       log.append(wrap);
       return wrap;
     }
-    wrap.innerHTML = `<div class="who">Rai</div><div class="bubble md"></div>`;
+    wrap.innerHTML = `<div class="who"><span class="who-ava" aria-hidden="true">R</span>Rai</div><div class="bubble md"></div>`;
     const bubble = wrap.querySelector(".bubble");
     bubble.innerHTML = renderMarkdown(m.text);
     for (const a of m.attachments || []) {
@@ -2628,8 +2718,10 @@ def rai_code(action, code, lang, prompt):
         if (linkReport) reply.text = linkReport + "\n\n---\n\n### Разбор Rai Нейро\n\n" + reply.text;  // точные цифры + разбор нейросети
       } else {
         const ms = Math.max(1, Math.round(performance.now() - t0));
+        const use = data.usage || (Usage.compute ? Usage.compute({prompt: text, answer: data.answer || ""}) : null);
         reply = {role: "rai", text: data.answer || "Результат не получен.", attachments: data.attachments || [],
-                 meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс",
+                 usage: use,
+                 meta: (data.version_name || versionName(chat.version)) + " · " + ms + " мс" + (use ? " · " + Usage.num(use.total) + " ток." : ""),
                  q: text, tool: isToolAnswer(data) || [].concat(data.intent || []).some((i) => i === "file" || i === "screen" || i === "social")};
         if (data.violation) reply.violation = data.violation;
       }
@@ -2644,6 +2736,7 @@ def rai_code(action, code, lang, prompt):
       }
     }
     if (reply.violation) stopDialog(chat, reply.violation, text);
+    try { if (reply.usage) Usage.spend(reply.usage); } catch (e) { /* счётчик токенов не критичен */ }
     pending.remove();
     chat.messages.push(reply);
     chat.updated = Date.now();
@@ -3084,8 +3177,12 @@ def rai_code(action, code, lang, prompt):
       text = text.trim() + "\n\n**Источники:** " + used.slice(0, 5).map((x) => `[${x.title.replace(/[\[\]]/g, "")}](${x.url})`).join(" · ");
     }
     if (trace.length) attachments.unshift({type: "trace", steps: trace});
-    return {role: "rai", text: text.trim() || "Нейросеть не ответила — попробуйте ещё раз.", attachments: attachments, neuro: true,
-            meta: (N.status().label || "Rai Нейро") + (thinking ? " · думала" : "") + " · " + secs + " с"};
+    const finalText = text.trim() || "Нейросеть не ответила — попробуйте ещё раз.";
+    const thoughtTxt = trace.map((s) => s.text || s.query || s.code || "").join(" ");
+    const use = Usage.compute ? Usage.compute({prompt: opts.question || "", answer: finalText, extra: thoughtTxt,
+      level: thinking ? "high" : "medium"}) : null;
+    return {role: "rai", text: finalText, attachments: attachments, neuro: true, usage: use,
+            meta: (N.status().label || "Rai Нейро") + (thinking ? " · думала" : "") + " · " + secs + " с" + (use ? " · " + Usage.num(use.total) + " ток." : "")};
   }
   // Как нейросеть пришла к ответу: ход мыслей, поиски, запуски кода, что запомнила
   function renderTrace(a) {
@@ -3496,7 +3593,11 @@ def rai_code(action, code, lang, prompt):
     if (codeStarted || !window.RaiCode) return !!window.RaiCode;
     codeStarted = true;
     window.RaiCode.init({
-      api: async (action, code, lang, prompt) => (await enginePromise).code(action, code, lang, prompt),
+      api: async (action, code, lang, prompt) => {
+        const r = await (await enginePromise).code(action, code, lang, prompt);
+        try { Usage.spend((r && r.usage) || Usage.compute({prompt: prompt || code || "", answer: (r && (r.answer || "")) + " " + (r && r.code || ""), level: "code"})); } catch (e) { /* счётчик */ }
+        return r;
+      },
       ready: () => engineReady,
       md: renderMarkdown,
       toast: toast,
@@ -3515,7 +3616,11 @@ def rai_code(action, code, lang, prompt):
     slidesStarted = true;
     window.RaiSlides.init({
       deck: {slideHTML: slideHTML, deckFile: deckFile, deckFiles: deckFiles},
-      ask: async (text, onStatus) => withNeuroDeck(await (await enginePromise).ask(TOP_VERSION, text, "slides-tab", []), text, onStatus),
+      ask: async (text, onStatus) => {
+        const data = await withNeuroDeck(await (await enginePromise).ask(TOP_VERSION, text, "slides-tab", []), text, onStatus);
+        try { Usage.spend(data && data.usage ? data.usage : Usage.compute({prompt: text, answer: (data && data.answer) || "", level: currentLevel()})); } catch (e) { /* счётчик */ }
+        return data;
+      },
       slides: async (action, args) => (await enginePromise).slides(action, args),
       md: renderMarkdown, toast: toast, download: download, zip: makeZip, pptx: savePptx
     });
