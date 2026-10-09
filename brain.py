@@ -619,9 +619,10 @@ class Brain:
         if reply:
             return reply, "skill"
 
-        # Высокие уровни (Extra/Ultra): пользователь выбрал «думать по максимуму» — Rai Разум идёт раньше
-        # коротких готовых ответов (но не для кода, задач с числами, погоды — у них свои точные инструменты).
-        if _level() in ("extra", "ultra") and not code_answer and not building \
+        # Rai думает сам: на любом уровне, кроме Low, содержательный вопрос идёт через Rai Разум (рассуждение
+        # по своим знаниям) раньше коротких готовых ответов — чтобы ответ был продуман, а не «из заготовок».
+        # Исключения — код, задачи с числами, погода, перевод: у них свои точные инструменты.
+        if _level() in ("medium", "high", "extra", "ultra") and not code_answer and not building \
                 and not mind._NOT_MIND.search(text) and mind.wants(text):
             thought = self._think(version, text, attachments, min_conf=0.4)
             if thought:

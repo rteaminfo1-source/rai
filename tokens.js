@@ -20,8 +20,9 @@
   }
 
   const LEVEL_COST = {low: 1.0, medium: 2.0, high: 3.5, code: 4.0, extra: 6.0, ultra: 10.0};
-  const PLAN_LIMIT = {"pro-fast": 50000, "pro": 150000, "pro-plus": 500000, "pro-sun": 1500000, "pro-quasar": 5000000};
-  const DEFAULT_LIMIT = 150000;
+  // 0 = без ограничений (бесконечно). Плюс больше, Премиум (Sun) ещё больше, Ультра (Quasar) — безлимит.
+  const PLAN_LIMIT = {"pro-fast": 100000, "pro": 300000, "pro-plus": 1000000, "pro-sun": 3000000, "pro-quasar": 0};
+  const DEFAULT_LIMIT = 300000;
 
   function limitFor(id) { return PLAN_LIMIT[id] || DEFAULT_LIMIT; }
 

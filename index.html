@@ -1407,7 +1407,7 @@
     return v;
   }
   function externalBrain() {
-    try { return localStorage.getItem("rai_brain") === "qwen"; } catch (e) { return false; }
+    return false;   // Qwen убран полностью: отвечает только свой движок Rai (он думает сам)
   }
   function closePickers(except) {
     for (const [btn, menu] of [["modelBtn", "modelMenu"], ["levelBtn", "levelMenu"], ["usageBtn", "usageMenu"]]) {
@@ -1444,12 +1444,10 @@
       `<span class="pm-name">${esc(v.name)}${v.id === TOP_VERSION ? " ✦" : ""}</span><span class="pm-mark">${v.id === chat.version ? "✓" : ""}</span>` +
       `<span class="pm-desc">${esc(v.description || (v.features || []).slice(0, 4).join(" · "))}</span></button>`).join("");
     const zoom = (window.RaiScale && window.RaiScale.current()) || 1;
-    const ext = externalBrain();
-    menu.innerHTML = `<div class="pm-head">Модель — свой движок Rai</div>${items}<div class="pm-sep"></div>` +
-      (DEVICE === "pc" ? `<button type="button" class="pm-ext" data-zoom="1">🔍 Масштаб: ${Math.round(zoom * 100)}% · ` +
-        `<u data-z="-">меньше</u> · <u data-z="auto">авто</u> · <u data-z="+">больше</u></button>` : "") +
-      `<button type="button" class="pm-ext" data-ext="1">${ext ? "⏻ Отключить внешнюю нейросеть Qwen (Rai ответит сам)" :
-        "Внешняя нейросеть Qwen — не нужна: Rai думает сам. Подключить вручную (скачивает 0,5–5 ГБ)…"}</button>`;
+    // Qwen убран: внешних нейросетей нет, Rai всё думает и делает сам. В меню — только выбор версии и масштаб.
+    menu.innerHTML = `<div class="pm-head">Модель — свой движок Rai (думает сам)</div>${items}` +
+      (DEVICE === "pc" ? `<div class="pm-sep"></div><button type="button" class="pm-ext" data-zoom="1">🔍 Масштаб: ${Math.round(zoom * 100)}% · ` +
+        `<u data-z="-">меньше</u> · <u data-z="auto">авто</u> · <u data-z="+">больше</u></button>` : "");
     menu.querySelectorAll(".pm-item").forEach((b) => b.addEventListener("click", () => {
       chat.version = lastVersion = b.dataset.id;
       save(); renderVersions(); renderSidebar(); closePickers();
@@ -1464,20 +1462,6 @@
       try { localStorage.setItem("rai_zoom", next); } catch (err) { /* не сохранится */ }
       window.RaiScale.apply();
       renderModelMenu();
-    });
-    menu.querySelector("[data-ext]").addEventListener("click", () => {
-      closePickers();
-      if (ext) {
-        try { localStorage.setItem("rai_brain", "rai"); } catch (e) { /* ок */ }
-        if (window.RaiNeuro) window.RaiNeuro.disable();
-        $("neuroBtn").hidden = true;
-        toast("Внешняя нейросеть отключена — отвечает Rai");
-      } else {
-        try { localStorage.setItem("rai_brain", "qwen"); } catch (e) { /* ок */ }
-        $("neuroBtn").hidden = false;
-        $("neuroBtn").click();
-      }
-      renderPickers();
     });
   }
   function renderLevelMenu() {
@@ -1539,14 +1523,15 @@
       return window.RaiTokens.usage({prompt: opts.prompt || "", answer: opts.answer || "", extra: opts.extra || "",
         level: opts.level || currentLevel(), version: chat.version, reasoning: opts.reasoning});
     }
+    function limStr(lim) { return lim ? num(lim) : "∞"; }   // 0 = безлимит
     function renderChip() {
       const btn = $("usageBtn"); if (!btn) return;
       const d = load(), lim = limit(), frac = lim ? Math.min(1, d.total / lim) : 0;
       $("usageName").textContent = num(d.total);
       $("usageFill").style.width = (frac * 100).toFixed(1) + "%";
-      btn.classList.toggle("warn", frac >= 0.8 && frac < 1);
-      btn.classList.toggle("over", frac >= 1);
-      btn.title = "Токены за сегодня: " + num(d.total) + " из " + num(lim);
+      btn.classList.toggle("warn", lim > 0 && frac >= 0.8 && frac < 1);
+      btn.classList.toggle("over", lim > 0 && frac >= 1);
+      btn.title = "Токены за сегодня: " + num(d.total) + " из " + limStr(lim);
     }
     function planName() {
       const chat = current() || {};
@@ -1554,7 +1539,7 @@
       return v ? v.name : "Rai";
     }
     function renderMenu() {
-      const d = load(), lim = limit(), left = Math.max(0, lim - d.total);
+      const d = load(), lim = limit(), left = lim ? Math.max(0, lim - d.total) : 0;
       const l = last;
       const breakdown = l ? (
         `<div class="um-row"><span>Запрос</span><b>${num(l.prompt)}</b></div>` +
@@ -1565,16 +1550,16 @@
       $("usageMenu").className = "pick-menu usage-menu";
       $("usageMenu").innerHTML = `<div class="pm-head">Токены сегодня · ${esc(planName())}</div>` +
         `<div class="um-row"><span>Потрачено</span><b>${num(d.total)}</b></div>` +
-        `<div class="um-row"><span>Осталось</span><b>${num(left)}</b></div>` +
-        `<div class="um-row um-total"><span>Лимит тарифа «${esc(planName())}»</span><b>${num(lim)}</b></div>` +
+        `<div class="um-row"><span>Осталось</span><b>${lim ? num(left) : "∞"}</b></div>` +
+        `<div class="um-row um-total"><span>Лимит тарифа «${esc(planName())}»</span><b>${lim ? num(lim) : "∞ без ограничений"}</b></div>` +
         `<div class="pm-sep"></div>${breakdown}` +
-        `<div class="um-note">Токен — маленький кусочек текста. У каждого тарифа свой дневной лимит токенов, ` +
-        `и чем выше уровень размышления, тем дороже ответ. Счётчик общий для чата, слайдов и кода; сбрасывается каждый день.</div>` +
+        `<div class="um-note">Токен — маленький кусочек текста. У каждого тарифа свой дневной лимит токенов ` +
+        `(у топового — безлимит ∞), и чем выше уровень размышления, тем дороже ответ. Счётчик общий для чата, слайдов и кода; сбрасывается каждый день.</div>` +
         `<button type="button" class="pm-ext" data-reset="1">Сбросить счётчик за сегодня</button>`;
       const rb = $("usageMenu").querySelector("[data-reset]");
       if (rb) rb.addEventListener("click", () => { store({day: today(), total: 0, count: 0}); renderChip(); closePickers(); toast("Счётчик токенов сброшен"); });
     }
-    function overLimit() { const d = load(); return d.total >= limit(); }
+    function overLimit() { const lim = limit(); return lim > 0 && load().total >= lim; }
     return {spend: spend, compute: compute, renderChip: renderChip, renderMenu: renderMenu, overLimit: overLimit, limit: limit, num: num};
   })();
   function renderUsageMenu() { Usage.renderMenu(); }

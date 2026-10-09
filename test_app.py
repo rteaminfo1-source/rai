@@ -2964,6 +2964,10 @@ class TokensTest(unittest.TestCase):
         self.assertGreater(tokens.count("а" * 30), 0)
         self.assertEqual(tokens.limit_for("pro-plus"), tokens.PLAN_LIMIT["pro-plus"])
         self.assertEqual(tokens.limit_for("неизвестно"), tokens.DEFAULT_LIMIT)
+        # лимиты растут по тарифам, а у топового (Quasar / «Ультра») — безлимит (0)
+        self.assertLess(tokens.limit_for("pro-fast"), tokens.limit_for("pro-plus"))
+        self.assertLess(tokens.limit_for("pro-plus"), tokens.limit_for("pro-sun"))
+        self.assertEqual(tokens.limit_for("pro-quasar"), 0)
 
     def test_usage_grows_with_level(self):
         import tokens
