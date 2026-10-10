@@ -12,6 +12,7 @@ import re
 from html.parser import HTMLParser
 
 import codelib
+import codemind
 import moderation
 import webgen
 
@@ -915,6 +916,206 @@ def site_result(spec, answer):
             "title": "Сайт «" + spec["title"] + "»", "site": True}
 
 
+_SCAFFOLD_EXT = {"python": "main.py", "javascript": "main.js", "typescript": "main.ts", "html": "index.html",
+                 "php": "index.php", "cpp": "main.cpp", "c": "main.c", "java": "Main.java", "csharp": "Program.cs",
+                 "go": "main.go", "rust": "main.rs", "bash": "script.sh", "sql": "query.sql", "css": "style.css"}
+
+
+# Готовые каркасы частых приложений на Python (§T§ — заменяется на описание задачи). Всё запускается.
+_PY_CRUD = '''"""§T§."""
+import json
+import os
+
+FILE = "data.json"
+
+
+def load():
+    """Загрузить записи из файла."""
+    if os.path.exists(FILE):
+        try:
+            with open(FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return []
+    return []
+
+
+def save(items):
+    """Сохранить записи в файл."""
+    with open(FILE, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+
+def main():
+    items = load()
+    print("§T§")
+    while True:
+        print("\\n1 — добавить   2 — показать   3 — удалить   0 — выход")
+        cmd = input("Выбор: ").strip()
+        if cmd == "1":
+            text = input("Что добавить: ").strip()
+            if text:
+                items.append(text)
+                save(items)
+                print("Добавлено.")
+        elif cmd == "2":
+            if not items:
+                print("Пока пусто.")
+            for i, it in enumerate(items, 1):
+                print(f"{i}. {it}")
+        elif cmd == "3":
+            n = input("Номер для удаления: ").strip()
+            if n.isdigit() and 1 <= int(n) <= len(items):
+                removed = items.pop(int(n) - 1)
+                save(items)
+                print(f"Удалено: {removed}")
+        elif cmd == "0":
+            print("Готово. Данные сохранены в data.json.")
+            break
+        else:
+            print("Не понял. Введите 0, 1, 2 или 3.")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+_PY_SERVER = '''"""§T§."""
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+PAGE = """<!doctype html><html lang="ru"><meta charset="utf-8">
+<title>§T§</title>
+<body style="font-family:system-ui;background:#0e0e16;color:#f5f5f7;display:grid;place-items:center;height:100vh;margin:0">
+<h1>Привет! Веб-сервер Rai работает 🚀</h1></body></html>"""
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(PAGE.encode("utf-8"))
+
+    def log_message(self, *args):
+        pass  # тихий режим
+
+
+def main(port=8000):
+    print(f"Сервер запущен: http://localhost:{port}  (Ctrl+C — остановить)")
+    try:
+        HTTPServer(("", port), Handler).serve_forever()
+    except KeyboardInterrupt:
+        print("\\nОстановлен.")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+_PY_FILE = '''"""§T§."""
+
+
+def main():
+    name = input("Имя файла (например, text.txt): ").strip() or "text.txt"
+    while True:
+        print("\\n1 — записать строку   2 — прочитать файл   0 — выход")
+        cmd = input("Выбор: ").strip()
+        if cmd == "1":
+            line = input("Текст: ")
+            with open(name, "a", encoding="utf-8") as f:
+                f.write(line + "\\n")
+            print("Записано.")
+        elif cmd == "2":
+            try:
+                with open(name, encoding="utf-8") as f:
+                    print(f.read() or "(файл пуст)")
+            except FileNotFoundError:
+                print("Файла ещё нет — сначала запишите что-нибудь.")
+        elif cmd == "0":
+            break
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+_PY_INPUT = '''"""§T§."""
+
+
+def solve(text):
+    """TODO: здесь логика задачи «§T§»."""
+    return text
+
+
+def main():
+    print("§T§")
+    data = input("Введите данные: ").strip()
+    print("Результат:", solve(data))
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+_PY_PATTERNS = [
+    (("замет", "список", "todo", "задач", "учёт", "учет", "расход", "доход", "бюджет", "менеджер",
+      "контакт", "инвентар", "база данн", "записн", "дневник", "трекер", "покупк", "продукт"), _PY_CRUD),
+    (("сервер", "server", "веб-сервер", "http", "api", "бэкенд", "backend"), _PY_SERVER),
+    (("файл", "csv", "txt", "запиш", "прочита", "сохран", "лог "), _PY_FILE),
+]
+
+
+def _py_template(prompt):
+    """Готовый каркас частого приложения на Python по ключевым словам, иначе — простой каркас с вводом."""
+    low = prompt.lower()
+    for words, tpl in _PY_PATTERNS:
+        if any(w in low for w in words):
+            return tpl
+    return _PY_INPUT
+
+
+def scaffold(prompt, lang=None):
+    """Рабочий каркас под любую задачу — чтобы Rai Code всегда что-то собрал, а не говорил «не знаю»."""
+    lang = codelib.lang_from_text(prompt) or (lang if lang in LANG_NAMES else None) or "python"   # «… на Java» важнее языка редактора
+    task = " ".join((prompt or "программа").split())[:120].replace('"""', "'''")
+    name = _SCAFFOLD_EXT.get(lang, "main.txt")
+    if lang == "python":
+        code = _py_template(prompt).replace("§T§", task)
+        try:
+            ast.parse(code)          # проверяем всё: каркас обязан запускаться
+        except SyntaxError:
+            code = (f'"""{task}."""\n\n\ndef main():\n    # TODO: здесь логика задачи\n'
+                    f'    print("Заготовка Rai Code: {task}")\n\n\nif __name__ == "__main__":\n    main()\n')
+    elif lang in ("javascript", "typescript"):
+        code = (f"// {task}\n\nfunction main() {{\n  // TODO: здесь логика задачи\n"
+                f'  console.log("Заготовка Rai Code под задачу: {task}");\n}}\n\nmain();\n')
+    elif lang == "html":
+        code = (f"<!DOCTYPE html>\n<html lang=\"ru\">\n<head>\n<meta charset=\"utf-8\">\n"
+                f"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>{task}</title>\n"
+                f"<style>body{{font-family:system-ui,Arial,sans-serif;margin:0;min-height:100vh;display:grid;"
+                f"place-items:center;background:#0e0e16;color:#f5f5f7}}h1{{font-size:clamp(22px,5vw,40px)}}"
+                f".card{{padding:32px;border-radius:18px;background:#16161f;box-shadow:0 20px 60px -20px #000;text-align:center}}"
+                f"button{{margin-top:16px;padding:10px 18px;border:0;border-radius:999px;color:#fff;cursor:pointer;"
+                f"background:linear-gradient(120deg,#ff2d2d,#ff3d81 55%,#8b5cff)}}</style>\n</head>\n<body>\n"
+                f"<div class=\"card\">\n<h1>{task}</h1>\n<p>Рабочая заготовка — дополните под себя.</p>\n"
+                f"<button onclick=\"go()\">Поехали</button>\n</div>\n<script>\nfunction go() {{\n"
+                f"  // TODO: логика задачи\n  alert('Заготовка Rai Code: {task}');\n}}\n</script>\n</body>\n</html>\n")
+    elif lang == "java":
+        code = (f"// {task}\npublic class Main {{\n    public static void main(String[] args) {{\n"
+                f"        // TODO: здесь логика задачи\n"
+                f"        System.out.println(\"Заготовка Rai Code под задачу: {task}\");\n    }}\n}}\n")
+    elif lang in ("cpp", "c"):
+        inc = "#include <iostream>\nusing namespace std;\n" if lang == "cpp" else "#include <stdio.h>\n"
+        body = ('    cout << "Заготовка Rai Code" << endl;\n' if lang == "cpp" else '    printf("Заготовка Rai Code\\n");\n')
+        code = f"// {task}\n{inc}\nint main() {{\n    // TODO: здесь логика задачи\n{body}    return 0;\n}}\n"
+    else:
+        code = f"# {task}\n# TODO: здесь логика задачи «{task}»\n"
+    about = (f"Собрал рабочий **каркас** под «{task}» на {LANG_NAMES.get(lang, lang)} — он уже запускается. "
+             f"Напишите, что добавить (например, «добавь ввод числа и подсчёт»), и я допишу шаг за шагом. "
+             f"Можно и на другом языке: «… на JavaScript», «… на C++».")
+    return {"answer": about, "code": code, "lang": lang, "filename": name, "title": task[:60], "scaffold": True}
+
+
 def run_action(action, code, lang=None, prompt=""):
     """Выполнить действие над кодом. Возвращает {"answer", "code"?, "lang", "filename"?}."""
     # Сайт, приложение или программу на запрещённую тему (наркотики, фишинг, вирусы…) Rai не делает
@@ -963,10 +1164,14 @@ def run_action(action, code, lang=None, prompt=""):
         return {"answer": "Добавил комментарии к строкам кода.", "code": commented, "lang": "python", "changed": True}
     if action == "generate":
         found = codelib.generate(prompt, lang)
-        if not found:
-            return {"answer": codelib.help_text(), "lang": lang}
-        return {"answer": found["about"], "code": found["code"], "lang": found["lang"], "filename": found["filename"],
-                "title": found["title"]}
+        if found:
+            return {"answer": found["about"], "code": found["code"], "lang": found["lang"], "filename": found["filename"],
+                    "title": found["title"]}
+        built = codemind.generate(prompt, lang)   # нет в каталоге — Rai собирает сам по смыслу задачи
+        if built:
+            return {"answer": built["about"], "code": built["code"], "lang": built["lang"],
+                    "filename": built["filename"], "title": built.get("title", "")}
+        return scaffold(prompt, lang)             # всегда даём рабочий каркас, а не «не знаю»
     return {"answer": "Не понял, что сделать с кодом. Могу: проверить, исправить, объяснить, прокомментировать, написать.",
             "lang": lang}
 

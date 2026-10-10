@@ -1114,7 +1114,7 @@ class EncyclopediaTest(unittest.TestCase):
             r = enc.answer(q, explicit_only=True)
             self.assertIsNotNone(r, q)
             self.assertIn(title, r, q)
-            self.assertIn("Википедии", r)  # источник в каждом ответе
+            self.assertNotIn("CC BY-SA", r)  # источники в ответе больше не показываем (по просьбе)
         self.assertIn("Жираф", enc.answer("Жираф"))                 # просто название
         self.assertIsNone(enc.answer("Жираф", explicit_only=True))
         for q in ("кто такой лучший друг", "что такое любовь к жирафам и пушкину", "как дела", "погода в москве"):
@@ -1126,8 +1126,8 @@ class EncyclopediaTest(unittest.TestCase):
         cat = enc.answer("какие разделы ты знаешь")
         self.assertIn("7 тем", cat)
         self.assertIn("География", cat)
-        self.assertIn("Источник", enc._render(enc._item(0)).replace("по материалам", "Источник"))
-        self.assertIn("Википедии", enc.answer("случайная тема"))
+        self.assertIn("###", enc._render(enc._item(0)))          # заголовок темы есть, источник убран
+        self.assertIn("###", enc.answer("случайная тема"))
         self.assertIn("Джомолунгма", enc.answer("темы раздела география"))
         ctx = enc.context("когда была великая французская революция и при чём тут Москва")
         self.assertEqual([c["title"] for c in ctx], ["Великая французская революция", "Москва"])
@@ -2704,7 +2704,7 @@ class MindTest(unittest.TestCase):
         r = mind.think("почему небо голубое", web=False, level="low")
         self.assertIsNotNone(r)
         self.assertIn("**Коротко:** Днём небо голубое из-за рассеяния", r["text"])
-        self.assertIn("ru.wikipedia.org", r["text"])
+        self.assertNotIn("Источник", r["text"])                  # источники убраны из ответа (остаются в трейсе)
         self.assertIn("Rai Разум · Low", r["text"])
         kinds = [s["kind"] for s in r["trace"]]
         self.assertEqual(kinds[0], "think")
@@ -2749,7 +2749,8 @@ class MindTest(unittest.TestCase):
             net.PROXY = ""
         self.assertIsNotNone(r)
         self.assertIn("хлорофилл", r["text"].lower())
-        self.assertIn("(https://example.ru/grass)", r["text"])
+        self.assertNotIn("http", r["text"])                      # ссылок-источников в ответе нет (по просьбе)
+        self.assertTrue(any("example.ru/grass" in s.get("query", "") for s in r["trace"]))  # но источник виден в «Как Rai думал»
         self.assertNotIn("скидк", r["text"])                     # мусор со страницы отброшен
         self.assertIn("open", [s["kind"] for s in r["trace"]])
         self.assertTrue(any("net.php?read=" in c for c in fake_net.calls))
@@ -3066,6 +3067,51 @@ class NewToolsTest(unittest.TestCase):
         for q in ("подбрось монетку", "случайное число от 1 до 100", "выбери из: чай, кофе",
                   "придумай пароль", "сколько слов в: привет как дела", "сколько дней до 8 марта"):
             self.assertIsNone(toolbox.run(q), q)
+
+
+class BuildQualityTest(unittest.TestCase):
+    """Сайты, код и слайды делаются ПО ЗАПРОСУ: кастомно, без «не знаю», без чужой темы."""
+
+    def test_site_title_matches_request(self):
+        import webgen
+        self.assertEqual(webgen.new_spec("сделай сайт для тренера по теннису")["title"], "Тренер по теннису")
+        self.assertEqual(webgen.new_spec("сайт для фотографа")["title"], "Фотограф")
+        self.assertEqual(webgen.new_spec("сайт кофейни «Зерно» в тёмных тонах")["title"], "Зерно")
+
+    def test_code_never_says_i_dont_know(self):
+        import codeai
+        for p in ("приложение для заметок", "парсер данных", "что-то необычное на java"):
+            r = codeai.run_action("generate", "", None, p)
+            self.assertTrue(r.get("code"), p)
+            self.assertNotIn("не знаю", r.get("answer") or "")
+        # язык из запроса важнее языка редактора
+        self.assertEqual(codeai.run_action("generate", "", "python", "утилита на java")["lang"], "java")
+
+    def test_slides_kind_guard(self):
+        import brain
+        self.assertTrue(brain._kind_mismatch("Слон (фильм)", "презентация про слона"))
+        self.assertFalse(brain._kind_mismatch("Слон (фильм)", "презентация про фильм слон"))
+        self.assertFalse(brain._kind_mismatch("Слон", "презентация про слона"))
+        self.assertFalse(brain._kind_mismatch("Игра престолов (телесериал)", "презентация про игру престолов"))
+
+    def test_remembers_previous_messages(self):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        b = Brain(learned_path=os.path.join(tmp.name, "mem.json"))
+        sid = "memtest"
+        b.answer(PLUS, "Расскажи про Юрия Гагарина", session_id=sid, level="medium")
+        r = b.answer(PLUS, "а когда он родился", session_id=sid, level="medium")
+        self.assertIn("1934", r["answer"])        # «он» = Гагарин из прошлого сообщения
+        tmp.cleanup()
+
+    def test_no_sources_in_answer(self):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        b = Brain(learned_path=os.path.join(tmp.name, "s.json"))
+        a = b.answer(PLUS, "что такое фотосинтез", session_id="src", level="low")["answer"]
+        self.assertNotIn("Источник", a)
+        self.assertNotIn("CC BY-SA", a)
+        tmp.cleanup()
 
 
 if __name__ == "__main__":

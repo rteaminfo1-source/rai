@@ -4,7 +4,7 @@
 Понимает: «что такое фотосинтез», «кто такой Пушкин», «расскажи о Великой французской революции»,
 «где находится Эверест», «Эйнштейн это кто», просто «Жираф», «какие разделы знаешь», «случайная тема»,
 «темы раздела космос», «что было в этот день», «что было 12 апреля», «что сейчас популярно», «статья дня».
-К теме — её картинка из Википедии. Тексты — из Википедии (CC BY-SA), источник указывается в каждом ответе.
+К теме — её картинка из Википедии. Тексты — из Википедии (CC BY-SA); ссылку-источник в ответе не показываем (по просьбе).
 GitHub обновляет энциклопедию каждый день: события, популярные темы.
 """
 
@@ -223,8 +223,7 @@ def _render(t):
     head = f"### {t['title']}"
     if t["desc"]:
         head += f"\n*{t['desc'][:1].upper() + t['desc'][1:]}*"
-    where = t["section"] if t["cat"] in ("", t["section"]) else f"{t['section']} → {t['cat']}"
-    return f"{head}\n\n{t['text']}\n\n📚 {where} · по материалам [Википедии]({url}) (CC BY-SA)"
+    return f"{head}\n\n{t['text']}"   # ссылку-источник не показываем (по просьбе)
 
 
 def catalog():
@@ -305,7 +304,7 @@ def reply(text, explicit_only=False):
     if not t:
         return None
     photo = {"url": t["image"], "title": t["title"], "source": page_url(t["title"])} if t["image"] else None
-    return {"text": _render(t), "photo": photo}
+    return {"text": _render(t), "photo": photo, "title": t["title"]}
 
 
 def find(text, explicit_only=False):
@@ -371,8 +370,7 @@ def day_events(text, today=None):
     if not events:
         return None
     lines = [f"- **{y}** — {e}" for y, e in events[:10]]
-    return (f"## {day} {_MONTHS[month - 1]} в истории\n\n" + "\n".join(lines) +
-            "\n\n📚 По материалам [Википедии](https://ru.wikipedia.org/wiki/" + urllib.parse.quote(f"{day}_{_MONTHS[month - 1]}") + ") (CC BY-SA)")
+    return f"## {day} {_MONTHS[month - 1]} в истории\n\n" + "\n".join(lines)
 
 
 def popular(text):
@@ -380,7 +378,7 @@ def popular(text):
     news = (_data or {}).get("news") or {}
     if _FEATURED_RE.search(text) and news.get("featured"):
         title, extract = news["featured"]
-        return f"## Статья дня: {title}\n\n{extract}\n\n📚 [Читать в Википедии]({page_url(title)}) (CC BY-SA)"
+        return f"## Статья дня: {title}\n\n{extract}"
     if not _POPULAR_RE.search(text) or not news.get("popular"):
         return None
     date = news.get("date") or ""
@@ -729,8 +727,7 @@ def question(text):
                 answer = f"**{name}:** {answer}"
     url = page_url(t["title"])
     photo = {"url": t["image"], "title": t["title"], "source": url} if t["image"] else None
-    body = f"{answer}\n\n📚 Из статьи «{t['title']}» · [Википедия]({url}) (CC BY-SA)"
-    return {"text": body, "photo": photo, "title": t["title"], "life": bool(life_answer)}
+    return {"text": answer, "photo": photo, "title": t["title"], "life": bool(life_answer)}
 
 
 # ------------------------------------------------------------------ подразделы по-русски

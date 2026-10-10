@@ -860,7 +860,7 @@ def web_search(query: str):
         answer = f"**{art['title']}**\n\n{_first_sentences(art['text'])}"
         if art["lang"] == "en":
             answer += "\n\n*(нашёл только в английской Википедии)*"
-        answer += f"\n\nИсточник: [Википедия]({art['link']})" if art["link"] else ""
+        # ссылку-источник в ответ не добавляем (по просьбе)
         if art["image"]:
             attachments.append({"type": "photo", "url": art["image"], "title": art["title"], "source": art["link"]})
         more = [r for r in results if "wikipedia.org" not in r["url"]][:3]

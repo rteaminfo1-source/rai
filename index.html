@@ -117,6 +117,9 @@
   .chat-item .m { display: block; font: 400 11px/1.4 var(--font-mono); color: var(--muted); }
   .chat-item .acts { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); display: flex; gap: 2px; opacity: 0; }
   .chat-item:hover .acts, .chat-item.active .acts, .chat-item .acts:focus-within { opacity: 1; }
+  /* на телефоне и планшете (нет наведения) кнопки «переименовать»/«удалить» видны всегда */
+  @media (hover: none) { .chat-item .acts { opacity: .85; } }
+  html[data-device="phone"] .chat-item .acts { opacity: .85; }
   .icon-btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     border: 0; background: transparent; color: var(--muted); cursor: pointer;

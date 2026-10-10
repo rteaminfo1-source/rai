@@ -356,7 +356,15 @@ class Brain:
         sid = _clean_session_id(session_id)
         play = self.sessions.get("play:" + sid) if sid else {}
         for part in parts[:5]:
+            # Память о прошлых сообщениях: короткое продолжение («а когда он родился», «а где это»)
+            # понимаем по теме прошлого ответа в этом чате.
+            if version.context and session.get("topic"):
+                part = _carry_topic(part, session["topic"])
             text, intent = self._answer_one(version, part, session, attachments, play)
+            if version.context and intent in _TOPIC_INTENTS:   # запомним тему для следующего вопроса
+                subj = mind.understand(part).get("subject")
+                if subj and len(subj) >= 3:
+                    session["topic"] = subj
             answers.append(text)
             intents.append(intent)
 
@@ -635,6 +643,8 @@ class Brain:
             return self._enrich(version, text, definition, attachments), "glossary"
         # Энциклопедия: ~10 000 тем из Википедии — «кто такой Пушкин», «расскажи о Французской революции»
         known = None if code_answer else encyclopedia.reply(text, explicit_only=True)
+        if known and _kind_mismatch(known.get("title", ""), text):
+            known = None            # «про слона» не должно стать «Слон (фильм)» — тема не та
         if known:
             return self._known(known, attachments), "encyclopedia"
 
@@ -643,6 +653,8 @@ class Brain:
         # Вопрос о теме энциклопедии: «когда родился Гагарин», «какой высоты Эверест», «как работает интернет».
         # Готовая тема из базы знаний важнее, только если она про то же самое (а не «как работает» → отладка кода).
         asked = None if code_answer else encyclopedia.question(text)
+        if asked and _kind_mismatch(asked.get("title", ""), text):
+            asked = None            # статья про фильм/игру/альбом, а в запросе такого слова нет
         if asked and not (best >= version.threshold and self._about(results[0][0], asked["title"])):
             # «почему…», «как работает…» — в глубоких знаниях есть статья целиком: Rai Разум ответит полнее
             if not asked.get("life") and mind.richer(text, asked["title"]):
@@ -673,6 +685,8 @@ class Brain:
             if definition:
                 return self._enrich(version, text, definition, attachments), "glossary"
             known = encyclopedia.reply(text)  # просто название темы: «Жираф», «теория относительности»
+            if known and _kind_mismatch(known.get("title", ""), text):
+                known = None
             if known:
                 return self._known(known, attachments), "encyclopedia"
 
@@ -750,7 +764,7 @@ class Brain:
             return answer
         if art["image"]:
             attachments.append({"type": "photo", "url": art["image"], "title": art["title"], "source": art["link"]})
-        return answer + "\n\n**Из интернета:** " + " ".join(extra) + (f"\n\nИсточник: [Википедия]({art['link']})" if art["link"] else "")
+        return answer + "\n\n**Из интернета:** " + " ".join(extra)   # ссылку-источник не добавляем (по просьбе)
 
     def _about(self, intent_id, title):
         """Тема базы знаний говорит о том же, что статья энциклопедии (есть общее значимое слово)?"""
@@ -817,12 +831,15 @@ class Brain:
         if topic and online_ok:
             # Главный материал — статья из интернета целиком, по разделам (а своя база — в дополнение)
             page = web(online.wiki_page, topic)
-            if page and not online._relevant(topic, page["title"] + " " + page["lead"][:800]):
+            if page and (not online._relevant(topic, page["title"] + " " + page["lead"][:800])
+                         or _kind_mismatch(page["title"], text)):   # «про слона» не должно стать «Слон (фильм)»
                 page = None
         from_deep, researched = False, []
         if not page and topic and deep.ready():
             # нет интернета (или Low) — статья целиком из глубоких знаний Rai (собирает GitHub)
             art = deep.find(topic)
+            if art and _kind_mismatch(art["title"], text):
+                art = None                                          # статья про фильм/игру, а запрос не про это
             if art:
                 known = encyclopedia.lookup(art["title"]) or {}
                 page = {"title": art["title"], "lead": art["lead"], "sections": art["sections"], "link": art["url"],
@@ -872,6 +889,8 @@ class Brain:
             found = overview + chosen + mixed
         elif topic and online_ok and len(found) < 2:
             art = web(online.web_article, topic)
+            if art and _kind_mismatch(art["title"], text):
+                art = None                     # статья про фильм/игру, а запрос не про это — не берём
             if art:
                 photo = art["image"]
                 found.append({"title": art["title"], "answers": [art["text"]], "web": True})
@@ -1313,6 +1332,53 @@ _LEVEL_SLIDES = {"low": 6, "medium": 8, "high": 10, "code": 8, "extra": 13, "ult
 
 def _level():
     return getattr(_REQ, "level", None) or None
+
+
+# Тема в скобках: «Слон (фильм)», «Матрица (игра)». Если в запросе такого слова нет — тема не та (делаем по запросу).
+_QUALIFIER_RE = re.compile(r"\((?:[^)]*\b)?(фильм|кинофильм|сериал|телесериал|мультфильм|мультсериал|аниме|"
+                           r"игр[аы]|видеоигр\w*|альбом|песн\w*|сингл|рок-?групп\w*|групп\w*|роман|повест\w*|"
+                           r"книг\w*|комикс|пьеса|опера|балет)\w*[^)]*\)", re.I)
+_WORK_WORDS = ("фильм", "кино", "сериал", "мультфильм", "мультсериал", "аниме", "игр", "видеоигр", "альбом",
+               "песн", "сингл", "групп", "роман", "повест", "книг", "комикс", "пьес", "опер", "балет")
+
+
+# Ответы, после которых есть смысл запомнить тему для продолжения разговора.
+_TOPIC_INTENTS = {"mind", "mind_draft", "encyclopedia", "glossary"}
+# Местоимение, отсылающее к прошлой теме («он», «это», «там»…), и начало вопроса-продолжения.
+_PRONOUN_RE = re.compile(r"(?<![а-яё])(он|она|оно|они|его|е[её]|их|им|ему|ей|нему|ней|ним|них|этого|этом|этому|"
+                         r"этот|эту|эта|это|эти|тот|та|те|там|туда|оттуда)(?![а-яё])", re.I)
+_FOLLOWUP_START_RE = re.compile(r"^(?:а|и|ну|ещ[её])\s+(?:когда|где|почему|зачем|как|сколько|каком|какой|какая|"
+                                r"какое|какие|кто|что|чем|кем|куда|откуда)\b", re.I)
+
+
+def _carry_topic(text, topic):
+    """Короткий вопрос-продолжение без своей темы → подставляем тему прошлого ответа (память о диалоге)."""
+    low = " ".join((text or "").split())
+    if len(low) > 80 or not topic:
+        return text
+    has_pron = bool(_PRONOUN_RE.search(low))
+    if not has_pron and not _FOLLOWUP_START_RE.match(low):
+        return text
+    try:
+        p = mind.understand(text)
+    except Exception:
+        return text
+    own = [w for w in p.get("focus", []) if w not in nlp.GENERIC]
+    if p.get("topic") or len(" ".join(own)) >= 5:
+        return text                      # у вопроса есть своя тема — не трогаем
+    if has_pron:
+        new = _PRONOUN_RE.sub(topic, text, count=1)
+        if new != text:
+            return new
+    return text.rstrip(" ?.!") + " — " + topic
+
+
+def _kind_mismatch(title, text):
+    """Статья про фильм/сериал/игру/альбом…, а в запросе такого слова нет — брать её не нужно."""
+    if not _QUALIFIER_RE.search(title or ""):
+        return False
+    low = (text or "").lower()
+    return not any(w in low for w in _WORK_WORDS)
 
 
 def _attachment_text(attachments):

@@ -797,10 +797,8 @@ def think(text, web=True, depth=None, local=None, budget=None, min_conf=0.3, lev
         parts = _by_sections(plan, docs, chosen, limit=6 if lv is LEVELS["ultra"] else 4)
         if parts:
             body += "\n\n**Подробнее по разделам:**\n\n" + "\n\n".join(parts)
-    src = _sources(docs, chosen)
-    if src:
-        body += "\n\n**Источники:** " + " · ".join(src)
-    sure = "высокая" if conf >= 0.75 else "средняя" if conf >= 0.55 else "низкая — проверьте по ссылкам"
+    # Ссылки на источники в ответе не показываем (по просьбе) — они остаются в «Как Rai думал».
+    sure = "высокая" if conf >= 0.75 else "средняя" if conf >= 0.55 else "низкая"
     body += f"\n\n*🧠 Rai Разум · {lv['label']}: продумал сам — уверенность {sure}.*"
     return {"text": body, "confidence": conf, "trace": trace, "photo": extra["photo"], "kind": plan["kind"],
             "offline": extra["offline"], "level": lv["label"]}
