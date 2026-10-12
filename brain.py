@@ -352,6 +352,12 @@ class Brain:
 
         net.PROBLEMS.clear()
         answers, intents, attachments = [], [], []
+        # Видит прошлые сообщения: если тему ещё не запоминали в этой сессии, берём её из переданной истории чата
+        # (страница присылает последние сообщения) — тогда «а когда он родился» понятно и после перезагрузки.
+        if version.context and not session.get("topic"):
+            seeded = _topic_from_history(history)
+            if seeded:
+                session["topic"] = seeded
         # игры (загадки, викторина, города…) помнят ход в любой версии — отдельное хранилище по чату
         sid = _clean_session_id(session_id)
         play = self.sessions.get("play:" + sid) if sid else {}
@@ -1405,6 +1411,23 @@ def _attachment_text(attachments):
         elif t == "code":
             out.append(a.get("code") or "")
     return " ".join(x for x in out if x)
+
+
+def _topic_from_history(history):
+    """Тема последнего содержательного сообщения в истории чата — чтобы «он/это» после перезагрузки были понятны."""
+    if not isinstance(history, list):
+        return None
+    for item in reversed(history[-10:]):
+        if isinstance(item, dict) and item.get("role") == "user":
+            txt = item.get("content", item.get("text"))
+            if isinstance(txt, str) and len(txt) <= 200:
+                try:
+                    subj = mind.understand(txt).get("subject")
+                except Exception:
+                    subj = None
+                if subj and len(subj) >= 3:
+                    return subj
+    return None
 
 
 def _name_from_history(history):

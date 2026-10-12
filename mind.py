@@ -665,60 +665,73 @@ def _lead_definition(plan, docs):
     return None
 
 
+def _dedup(items):
+    seen, out = set(), []
+    for c in items:
+        t = c["text"].strip()
+        if t and t not in seen:
+            seen.add(t)
+            out.append(c)
+    return out
+
+
+def _flow(items, lead=None):
+    """Живой ответ: прямой ответ первым предложением, затем пояснение обычным абзацем (как в чате)."""
+    items = _dedup(([lead] if lead else []) + list(items))
+    if not items:
+        return ""
+    head = items[0]["text"]
+    body = " ".join(c["text"] for c in items[1:])
+    return head + ("\n\n" + body if body else "")
+
+
 def compose(plan, chosen, docs):
-    """Текст ответа из выбранных предложений — по типу вопроса."""
+    """Ответ из выбранных предложений — живым текстом, как в обычном чате (без шаблонных ярлыков)."""
     kind = plan["kind"]
     first, rest = chosen[0], chosen[1:]
-    lines = []
+    if kind in ("howto", "advice"):
+        steps = _dedup([c for c in chosen if not _WARN_RE.search(c["text"])])
+        warn = _dedup([c for c in chosen if _WARN_RE.search(c["text"])])
+        out = []
+        if len(steps) >= 2:                 # инструкция — нумерованные шаги (так удобнее читать)
+            out.append("\n".join(f"{k}. {re.sub(_STEP_RE, '', c['text']).strip()}" for k, c in enumerate(steps, 1)))
+        elif steps:
+            out.append(_flow(steps))
+        if warn:
+            out.append("⚠️ Важно: " + " ".join(c["text"] for c in warn))
+        return "\n\n".join(out)
+    if kind == "list":                      # список — маркированные пункты
+        pts = _dedup(rest)
+        bullets = "\n".join(f"- {c['text']}" for c in pts)
+        return first["text"] + ("\n\n" + bullets if bullets else "")
     if kind == "why":
         words = plan.get("aspect_words") or {}
         cause = next((c for c in chosen[:4] if _causal(c["text"], words) and (not words or _hit(c["stems"], words) >= 0.55)),
                      next((c for c in chosen[:3] if _causal(c["text"], words)), first))
-        rest = [c for c in chosen if c is not cause]
-        lines.append(f"**Коротко:** {cause['text']}")
-        if rest:
-            lines.append("**Почему так:**\n" + "\n".join(f"- {c['text']}" for c in _in_order(rest, docs)))
-    elif kind == "how":
+        return _flow(_in_order([c for c in chosen if c is not cause], docs), lead=cause)
+    if kind == "how":
         lead = _lead_definition(plan, docs)
-        if lead and all(lead["text"] != c["text"] for c in chosen):
-            chosen = [lead] + chosen
-            first, rest = chosen[0], chosen[1:]
-        define = next((c for c in chosen if docs[c["doc"]]["lead"] and c["pos"] == 0 and _DEF_RE.search(c["text"][:120])),
-                      next((c for c in chosen[:4] if _DEF_RE.search(c["text"][:120]) and c["pos"] == 0), first))
-        rest = [c for c in chosen if c is not define]
-        lines.append(f"**Суть:** {define['text']}")
-        if rest:
-            lines.append("**Как это работает:**\n" + "\n".join(f"{k}. {c['text']}" for k, c in enumerate(_in_order(rest, docs), 1)))
-    elif kind in ("howto", "advice"):
-        steps = [c for c in chosen if not _WARN_RE.search(c["text"])]
-        warn = [c for c in chosen if _WARN_RE.search(c["text"])]
-        title = "Что делать" if kind == "howto" else "Что советуют"
-        if steps:
-            lines.append(f"**{title}:**\n" + "\n".join(f"{k}. {re.sub(_STEP_RE, '', c['text']).strip()}"
-                                                       for k, c in enumerate(steps, 1)))
-        if warn:
-            lines.append("**Важно:**\n" + "\n".join(f"- ⚠️ {c['text']}" for c in warn))
-    elif kind in ("when", "where", "num"):
-        lines.append(f"**Ответ:** {first['text']}")
+        pool = ([lead] if lead and all(lead["text"] != c["text"] for c in chosen) else []) + chosen
+        define = next((c for c in pool if docs[c["doc"]]["lead"] and c["pos"] == 0 and _DEF_RE.search(c["text"][:120])),
+                      next((c for c in pool[:4] if _DEF_RE.search(c["text"][:120]) and c["pos"] == 0), pool[0]))
+        return _flow(_in_order([c for c in pool if c is not define], docs), lead=define)
+    if kind in ("when", "where", "num"):
+        out = [first["text"]]
+        extra = list(rest)
         agree = _agree(chosen, docs)
         if agree and agree[0] == "diff":
             other = next((c for c in rest if any(v == agree[1][0] for v, _ in _numbers(c["text"]))), None)
             if other:
-                lines.append(f"**В другом источнике иначе:** {other['text']}")
-                rest = [c for c in rest if c is not other]
-        if rest:
-            lines.append("**Ещё по теме:**\n" + "\n".join(f"- {c['text']}" for c in _in_order(rest[:4], docs)))
-    elif kind == "list":
-        lines.append(first["text"])
-        if rest:
-            lines.append("**Главное:**\n" + "\n".join(f"- {c['text']}" for c in rest))
-    else:  # what, who, which, explain
-        lead = [first] + [c for c in rest[:1] if c["doc"] == first["doc"] and abs(c["pos"] - first["pos"]) == 1]
-        rest = [c for c in rest if c not in lead]
-        lines.append(" ".join(c["text"] for c in sorted(lead, key=lambda c: c["pos"])))
-        if rest:
-            lines.append("**Главное:**\n" + "\n".join(f"- {c['text']}" for c in _in_order(rest, docs)))
-    return "\n\n".join(lines)
+                out.append("По другим данным: " + other["text"])
+                extra = [c for c in rest if c is not other]
+        tail = " ".join(c["text"] for c in _dedup(_in_order(extra[:4], docs)))
+        return "\n\n".join(out) + ("\n\n" + tail if tail else "")
+    # what, who, which, explain — живой абзац
+    lead_items = [first] + [c for c in rest[:1] if c["doc"] == first["doc"] and abs(c["pos"] - first["pos"]) == 1]
+    tail_items = _dedup(_in_order([c for c in rest if c not in lead_items], docs))
+    head = " ".join(c["text"] for c in sorted(lead_items, key=lambda c: c["pos"]))
+    body = " ".join(c["text"] for c in tail_items)
+    return head + ("\n\n" + body if body else "")
 
 
 def _by_sections(plan, docs, used, limit=4):
@@ -796,10 +809,9 @@ def think(text, web=True, depth=None, local=None, budget=None, min_conf=0.3, lev
     if plan["depth"] > 1 and plan["kind"] in ("explain", "what", "who", "how", "which", "list"):
         parts = _by_sections(plan, docs, chosen, limit=6 if lv is LEVELS["ultra"] else 4)
         if parts:
-            body += "\n\n**Подробнее по разделам:**\n\n" + "\n\n".join(parts)
-    # Ссылки на источники в ответе не показываем (по просьбе) — они остаются в «Как Rai думал».
-    sure = "высокая" if conf >= 0.75 else "средняя" if conf >= 0.55 else "низкая"
-    body += f"\n\n*🧠 Rai Разум · {lv['label']}: продумал сам — уверенность {sure}.*"
+            body += "\n\n" + "\n\n".join(parts)
+    # Отвечаем как в обычном чате: без ярлыков-источников и без приписки про «уверенность»
+    # (как Rai думал и насколько уверен — видно в «Как Rai думал»).
     return {"text": body, "confidence": conf, "trace": trace, "photo": extra["photo"], "kind": plan["kind"],
             "offline": extra["offline"], "level": lv["label"]}
 

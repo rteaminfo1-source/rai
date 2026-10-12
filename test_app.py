@@ -2703,9 +2703,9 @@ class MindTest(unittest.TestCase):
         import mind
         r = mind.think("почему небо голубое", web=False, level="low")
         self.assertIsNotNone(r)
-        self.assertIn("**Коротко:** Днём небо голубое из-за рассеяния", r["text"])
+        self.assertIn("Днём небо голубое из-за рассеяния", r["text"])   # живой ответ, без ярлыка «Коротко:»
         self.assertNotIn("Источник", r["text"])                  # источники убраны из ответа (остаются в трейсе)
-        self.assertIn("Rai Разум · Low", r["text"])
+        self.assertNotIn("Rai Разум ·", r["text"])               # приписка про уверенность убрана (как в обычном чате)
         kinds = [s["kind"] for s in r["trace"]]
         self.assertEqual(kinds[0], "think")
         self.assertIn("check", kinds)
