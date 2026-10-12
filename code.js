@@ -1168,27 +1168,34 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
         row.append(b);
         return b;
       };
+      const note = document.createElement("div");   // строка статуса, как у агента: что сделал
+      note.className = "ai-step";
+      pend.append(box, note, row);
       if (sitePane) {
         // Правка сайта применяется сразу и видна в «Просмотре»; Ctrl+Z в редакторе вернёт как было
         if (applyCode(target, r.code)) { run(); showPane("ai"); }
+        note.textContent = "✅ Применил правку и открыл в «Просмотре».";
         btn("Показать сайт", () => run(), true);
       } else if (action === "generate") {
-        btn("Создать файл " + (r.filename || "main." + (r.lang || "txt")), (e) => {
-          const name = addFile(r.filename || "main.py", r.code);
-          e.currentTarget.textContent = "Создан: " + name;
-          e.currentTarget.disabled = true;
-          if (langOf(name) === "html") run();  // сайт или игру сразу видно в «Просмотре»
-          else if (["python", "javascript"].includes(langOf(name))) H.toast("Готово — нажмите «Запустить»");
-        }, true);
+        // Агентом, как Claude Code: сам создаёт файл и сразу запускает/открывает — без лишних кликов.
+        const name = addFile(r.filename || "main.py", r.code);
+        const l2 = langOf(name);
+        if (l2 === "html") {
+          run(); showPane("ai");
+          note.textContent = `📄 Создал ${name} · ▶ открыл в «Просмотре».`;
+          btn("Показать сайт", () => run(), true);
+        } else if (l2 === "python" || l2 === "javascript") {
+          note.textContent = `📄 Создал ${name} · ▶ запускаю — результат появится во вкладке «Вывод».`;
+          run();
+          btn("Запустить снова", () => { showPane("out"); run(); }, true);
+        } else {
+          note.textContent = `📄 Создал файл ${name}.`;
+        }
       } else if (r.changed !== false) {
-        btn("Применить к " + target, (e) => {
-          if (!applyCode(target, r.code)) return;
-          e.currentTarget.textContent = "Применено";
-          e.currentTarget.disabled = true;
-        }, true);
+        if (applyCode(target, r.code)) note.textContent = `✅ Применил к ${target}.`;
+        btn("Применить снова", (e) => { if (applyCode(target, r.code)) { e.currentTarget.textContent = "Применено"; e.currentTarget.disabled = true; } }, true);
       }
       btn("Копировать", () => H.copy(r.code));
-      pend.append(box, row);
     }
     el.cAiLog.scrollTop = el.cAiLog.scrollHeight;
     refreshUsage();   // обновим счётчик токенов после ответа ИИ
@@ -1257,10 +1264,11 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     el.cAiForm.addEventListener("submit", (e) => { e.preventDefault(); send(); });
     aiInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
     if (window.RaiCode && window.RaiCode.neuroChanged) setTimeout(window.RaiCode.neuroChanged, 0);
-    aiMsg("rai", H.md("Я — **Rai Code**: пишу код сам, без внешних нейросетей. Соберу по описанию **любой сайт, " +
-      "приложение, игру или программу** (HTML/JS, Python и другие), проверю запуском и сразу покажу в «Просмотре». " +
-      "Ещё: **проверю** и найду ошибки, **исправлю**, **объясню** по строкам, **добавлю комментарии**. " +
-      "Напишите что угодно — «сайт кофейни в тёмных тонах», «игра тетрис», «бот для Telegram», «добавь раздел цены». " +
+    aiMsg("rai", H.md("Я — **Rai Code**, помощник-агент для кода (как Claude Code): опишите задачу — я сам **напишу код, " +
+      "создам файл и сразу запущу** (а сайт покажу в «Просмотре»), по шагам. Соберу **любой сайт, приложение, игру " +
+      "или программу** (HTML/JS, Python и другие). Дальше можно править словами: «добавь счёт очков», «сделай тёмным». " +
+      "Ещё умею: **проверить** и найти ошибки, **исправить**, **объяснить** по строкам, **добавить комментарии**. " +
+      "Напишите что угодно — «сайт кофейни в тёмных тонах», «игра тетрис», «бот для Telegram». " +
       "Горячие клавиши: `Ctrl+Enter` — запуск, `Ctrl+/` — комментарий, `Tab` / `Shift+Tab` — отступ."));
   }
 
