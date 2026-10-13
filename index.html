@@ -241,6 +241,15 @@
   .typing span { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: var(--red); animation: blink 1.2s infinite; }
   .typing span:nth-child(2) { animation-delay: .2s; } .typing span:nth-child(3) { animation-delay: .4s; }
   @keyframes blink { 0%, 80%, 100% { opacity: .2 } 40% { opacity: 1 } }
+  /* «пишущее перо» — анимация вместо точек */
+  .penwrite { position: relative; display: inline-block; width: 72px; height: 20px; vertical-align: middle; }
+  .penwrite::before { content: ""; position: absolute; left: 1px; bottom: 5px; width: 50px; height: 2px; border-radius: 2px;
+    background: linear-gradient(90deg, var(--red), var(--pink) 48%, transparent 48%); background-size: 210% 100%;
+    background-position: 100% 0; animation: pen-ink 1.5s ease-in-out infinite; }
+  .penwrite::after { content: "✍️"; position: absolute; bottom: 0; left: -2px; font-size: 16px; line-height: 1;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); animation: pen-glide 1.5s ease-in-out infinite; }
+  @keyframes pen-ink { 0% { background-position: 100% 0; opacity: .25 } 12% { opacity: 1 } 68% { background-position: 0 0; opacity: 1 } 100% { background-position: 0 0; opacity: 0 } }
+  @keyframes pen-glide { 0% { transform: translateX(0) rotate(-8deg) } 68% { transform: translateX(44px) rotate(-8deg) } 80% { transform: translateX(44px) rotate(-8deg); opacity: 1 } 88% { opacity: 0 } 100% { transform: translateX(0) rotate(-8deg); opacity: 0 } }
   .who { font: 600 12px/1 var(--font-mono); color: var(--red-hi); letter-spacing: .04em; }
   .actions { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
   .actions .icon-btn { font-size: 12.5px; padding: 5px 8px; }
@@ -450,7 +459,8 @@
     form { gap: 4px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    #sidebar { transition: none; } #mic.on, .typing span { animation: none; }
+    #sidebar { transition: none; } #mic.on, .typing span, .penwrite::before, .penwrite::after { animation: none; }
+    .penwrite::after { opacity: 1; } .penwrite::before { opacity: 1; background-position: 0 0; }
   }
 
   /* ================= Оформление как на главной rai.rteam.info: глубокий тёмный фон со свечением,
@@ -1311,8 +1321,44 @@
   }
   function renameChat(id, title) {
     const c = chats.find((x) => x.id === id);
-    if (c && title.trim()) { c.title = title.trim().slice(0, 80); save(); }
+    if (c && title.trim()) { c.title = title.trim().slice(0, 80); c.autoTitle = false; save(); }
     renderAll();
+  }
+  // Короткая тема чата — Rai подбирает её сам по вопросу (и ответу), как это делает ChatGPT.
+  function smartTitle(question, answer) {
+    let q = String(question || "").replace(/\[\[[^\]]*\]\][\s\S]*$/, "").replace(/\s+/g, " ").trim();
+    if (!q && answer) {   // вопроса нет (например, только скриншот) — берём первую осмысленную фразу ответа
+      q = String(answer).replace(/[#*_`>]+/g, " ").replace(/\s+/g, " ").trim();
+      const dot = q.search(/[.!?…]/);
+      if (dot > 12) q = q.slice(0, dot);
+    }
+    if (!q) return "";
+    let t = q;
+    const leads = [
+      /^(пожалуйста|плиз|слушай|привет|эй|хай|здравствуй(те)?|добрый\s+день|доброе\s+утро)[,\s]+/i,
+      /^(расскажи|поведай|опиши|объясни|разъясни|поясни|напомни)(\s+(мне|нам|пожалуйста|подробно|кратко|коротко|вкратце))*\s+(про|о|об|обо|что\s+такое|как)?\s*/i,
+      /^(что|кто)\s+(такое|такой|такая|такие|это|значит|означает)\s+/i,
+      /^(что|кто|как|почему|зачем|когда|где|куда|откуда|сколько|какой|какая|какое|какие|чем|чему)\b[\s,]+/i,
+      /^(напиши|составь|сделай|создай|сгенерируй|сгенери|построй|собери|разработай|придумай|нарисуй|сочини|подготовь|оформи|запили)(\s+(мне|нам|пожалуйста))*\s+/i,
+      /^(помоги|подскажи|посоветуй|дай|покажи|найди|посчитай|переведи|реши)(\s+(мне|нам|пожалуйста|с|по|в|о|об))*\s+/i,
+    ];
+    let changed = true, guard = 0;
+    while (changed && guard++ < 4) {
+      changed = false;
+      for (const re of leads) { const n = t.replace(re, ""); if (n !== t && n.trim().length >= 2) { t = n.trim(); changed = true; } }
+    }
+    t = t.replace(/^[«»"'()\[\]\s.,:;!?…-]+/, "").replace(/[«»"'()\[\]\s.,:;!?…-]+$/g, "").trim();
+    if (t.length < 2) t = q.replace(/[?!.…]+$/g, "").trim();
+    if (!t) return "";
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+    const MAX = 44;
+    if (t.length > MAX) {
+      let cut = t.slice(0, MAX);
+      const sp = cut.lastIndexOf(" ");
+      if (sp > 20) cut = cut.slice(0, sp);
+      t = cut.replace(/[\s.,:;!?…-]+$/g, "") + "…";
+    }
+    return t;
   }
 
   function when(ts) {
@@ -2558,7 +2604,8 @@ def rai_code(action, code, lang, prompt):
     const chat = current();
     if (!chat.messages.length) {
       log.textContent = "";
-      chat.title = text.length > 48 ? text.slice(0, 47) + "…" : text;
+      chat.title = smartTitle(text) || (text.length > 48 ? text.slice(0, 47) + "…" : text);
+      chat.autoTitle = true;   // Rai сам подберёт тему чата после ответа; ручное переименование её закрепит
       $("chatTitle").textContent = chat.title;
     }
     const history = opts.regen ? historyOf({messages: chat.messages.slice(0, -1)}) : historyOf(chat);
@@ -2586,7 +2633,7 @@ def rai_code(action, code, lang, prompt):
     const pending = document.createElement("div");
     pending.className = "inner msg rai pending";
     pending.innerHTML = `<div class="who">Rai</div><div class="bubble">` +
-      (engineReady ? `<span class="typing" aria-label="Rai печатает"><span></span><span></span><span></span></span>` : "Rai ещё загружается, отвечу сразу после загрузки…") + `</div>`;
+      (engineReady ? `<span class="penwrite" role="status" aria-label="Rai пишет ответ…"></span>` : "Rai ещё загружается, отвечу сразу после загрузки…") + `</div>`;
     log.append(pending);
     log.scrollTop = log.scrollHeight;
     save(); renderSidebar();
@@ -2613,7 +2660,7 @@ def rai_code(action, code, lang, prompt):
           fileInfos.push(info);
           if ((info.text || "").length >= 80 && !/^(binary|font|archive)$/.test(info.kind)) learnDoc(info.name, info.text);  // Rai запоминает документ
         }
-        bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
+        bubble.innerHTML = `<span class="penwrite" role="status" aria-label="Rai пишет ответ…"></span>`;
         message = text + "\n[[file]]\n" + JSON.stringify(fileInfos.map((f) => ({name: f.name, size: f.size, ext: f.ext, kind: f.kind, label: f.label,
           lang: f.lang, meta: f.meta, text: (f.text || "").slice(0, 24000), tables: (f.tables || []).slice(0, 3)})));
       }
@@ -2632,7 +2679,7 @@ def rai_code(action, code, lang, prompt):
         } catch (e) {
           console.warn("Зрение Rai не сработало:", e);  // текст со скриншота всё равно разберём
         }
-        bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
+        bubble.innerHTML = `<span class="penwrite" role="status" aria-label="Rai пишет ответ…"></span>`;
         message = message + "\n[[screen]]\n" + ocr + (seen.length ? "\n[[vision]]\n" + JSON.stringify(seen) : "");
       }
       // Ссылка на TikTok, YouTube, Telegram, Instagram, VK, X или сайт: данные собирает свой сервер (net.php),
@@ -2649,7 +2696,7 @@ def rai_code(action, code, lang, prompt):
         } catch (e) {
           linkData = {error: "нет связи с сервером сайта или он не успел ответить"};
         }
-        bubble.innerHTML = `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`;
+        bubble.innerHTML = `<span class="penwrite" role="status" aria-label="Rai пишет ответ…"></span>`;
         message = text + "\n[[link-data]]\n" + JSON.stringify(linkData);
       }
       let neuro = window.RaiNeuro && window.RaiNeuro.ready();
@@ -2758,6 +2805,15 @@ def rai_code(action, code, lang, prompt):
     chat.messages.push(reply);
     chat.updated = Date.now();
     if (currentId === chat.id) renderMessage(reply);
+    // Rai сам даёт чату короткую тему — по вопросу и ответу, как это делает ChatGPT
+    if (chat.autoTitle && !reply.violation) {
+      const t = smartTitle(reply.q || text, reply.text || "");
+      if (t && t.length >= 2) {
+        chat.title = t;
+        if (currentId === chat.id) $("chatTitle").textContent = chat.title;
+      }
+      chat.autoTitle = false;
+    }
     save(); renderSidebar();
     notifyDone(reply, chat);
     if (currentId === chat.id && !reply.violation) maybeAskNotify(chat);

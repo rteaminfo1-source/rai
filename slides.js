@@ -75,8 +75,8 @@
   function build(root) {
     root.innerHTML = `
 <div class="sl-top">
-  <input id="slTopic" placeholder="Про что презентация? Например: космос, Python, история Рима" aria-label="Тема презентации">
-  <input id="slColors" placeholder="Цвета: синие тона, чёрно-золотая, #7c3aed" aria-label="Цвета">
+  <input id="slTopic" placeholder="Опишите презентацию: «космос, 10 слайдов, тёмная тема, с фото» — понимаю свободный текст" aria-label="Что за презентация">
+  <input id="slColors" placeholder="Цвета (необязательно): синие тона, чёрно-золотая, #7c3aed" aria-label="Цвета">
   <button class="tb run" id="slMake" type="button">${ICON("play")}<span class="lbl">Создать</span></button>
   <select id="slDecks" aria-label="Мои презентации"></select>
   <span class="spacer"></span>
@@ -430,18 +430,29 @@
   }
   async function make() {
     const topic = el.slTopic.value.trim();
-    if (!topic) { el.slTopic.focus(); H.toast("Напишите тему презентации"); return; }
+    if (!topic) { el.slTopic.focus(); H.toast("Опишите презентацию"); return; }
     if (busy) return;
     busy = true;
     el.slMake.disabled = true;
-    el.slMake.querySelector(".lbl").textContent = "Собираю…";
+    const setStep = (t) => { el.slMake.querySelector(".lbl").textContent = t; };
+    setStep("Собираю…");
     try {
       const colors = el.slColors.value.trim();
-      const data = await H.ask(`сделай презентацию про ${topic}${colors ? " " + (/^(в|во)\s|тон|цвет|#/.test(colors) ? colors : "в цветах " + colors) : ""}`,
-                               (step) => { el.slMake.querySelector(".lbl").textContent = step.replace(/….*$/, "…"); });
+      // Понимаем свободный запрос: «про космос на 10 слайдов в тёмных тонах с фото» — отправляем как есть;
+      // просто тему — оборачиваем. Цвета из отдельного поля добавляем, если их не указали в тексте.
+      const asksDeck = /презентац|слайд|доклад|деку|presentation/i.test(topic);
+      let text = asksDeck ? topic : "сделай презентацию про " + topic;
+      if (colors && !/тон|цвет|#|чёрно|черно|светл|тёмн|темн/i.test(topic)) {
+        text += " " + (/^(в|во)\s|тон|цвет|#/.test(colors) ? colors : "в цветах " + colors);
+      }
+      const data = await H.ask(text, (step) => setStep(step.replace(/….*$/, "…")));
       const att = (data.attachments || []).find((a) => a.type === "slides");
-      if (att) { addDeck(att); H.toast(`Готово: ${att.slides.length} слайдов`); }
-      else {
+      if (att) {
+        addDeck(att);
+        H.toast(`Готово: ${att.slides.length} слайдов`);
+        setStep("Ищу фото…");
+        await enrichPhotos(deck());        // топ-картинки: реальные фото вместо самодельных рисунков
+      } else {
         el.slStageBox.className = "";
         el.slStageBox.innerHTML = `<div class="sl-empty">${H.md(data.answer || "Не получилось собрать презентацию.")}</div>`;
       }
@@ -450,7 +461,40 @@
     }
     busy = false;
     el.slMake.disabled = false;
-    el.slMake.querySelector(".lbl").textContent = "Создать";
+    setStep("Создать");
+  }
+
+  // Топ-картинки: подставляем реальные фото из интернета на слайды, где их ещё нет (а рисунок Rai остаётся запасным).
+  // Заголовки-«шаблоны» (Введение, Итоги, Выводы…) не ищем буквально — для них берём тему презентации.
+  const GENERIC_HEAD = /^(введение|вступление|обзор|итоги?|итого|вывод[ыао]*|заключение|содержание|оглавление|план|повестка|история|факты|пример|статистика|сравнение|преимуществ|недостатк|будущее|применение|интересн|главное|основн|о\s|что\s|почему|как\s|зачем)/i;
+  async function enrichPhotos(d) {
+    if (!d) return;
+    const KIND_OK = (k) => !["quote", "stats", "table", "timeline", "compare", "code", "agenda"].includes(k);
+    const targets = d.slides.filter((s) => KIND_OK(s.kind) && !(s.pic && /^https:\/\//.test(s.pic)));
+    if (!targets.length) return;
+    const used = new Set(d.slides.map((s) => s.pic).filter(Boolean));
+    const topic = (d.title || "").replace(/^презентация[:\s—-]*/i, "").replace(/[«»"]/g, "").trim();
+    const fetchFor = async (q) => {
+      q = (q || "").trim();
+      if (!q) return [];
+      if (!photoCache[q]) { try { photoCache[q] = (await H.slides("photos", {query: q})).photos || []; } catch (e) { photoCache[q] = []; } }
+      return photoCache[q];
+    };
+    for (const s of targets) {
+      const base = (s.title && s.kind !== "title" && s.kind !== "end") ? s.title.replace(/[«»"]/g, "").trim() : "";
+      const special = base && !GENERIC_HEAD.test(base) && base.length >= 4;
+      // по порядку: «тема + подзаголовок» (точнее), затем подзаголовок, затем тема презентации
+      const queries = special ? [topic ? base + " " + topic : base, base, topic] : [topic, base];
+      let next = null;
+      for (const q of queries) {
+        if (!q) continue;
+        const list = await fetchFor(q);
+        next = list.find((u) => !used.has(u));
+        if (next) break;
+      }
+      if (next) { s.pic = next; used.add(next); }
+    }
+    renderThumbs(); showStage(1); renderSide(); save();
   }
 
   // ---------------------------------------------------------------- показ и экспорт

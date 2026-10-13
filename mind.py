@@ -685,6 +685,25 @@ def _flow(items, lead=None):
     return head + ("\n\n" + body if body else "")
 
 
+def _polish(text):
+    """Косметика ответа: ровные пробелы, завершённые предложения — читается как в хорошем чате."""
+    if not text:
+        return text
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" +([,.;:!?…])", r"\1", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    out = []
+    for para in text.split("\n\n"):
+        lines = para.split("\n")
+        tail = lines[-1].rstrip()
+        core = tail.strip()
+        # обычному абзацу (не заголовку/списку/предупреждению) добавляем точку, если оборвался на букве или цифре
+        if core and not re.match(r"^(#|[-*]|\d+\.|\||⚠️|>)", core) and re.search(r"[A-Za-zА-Яа-яЁё0-9%)»\"]$", core):
+            lines[-1] = tail + "."
+        out.append("\n".join(lines))
+    return "\n\n".join(out)
+
+
 def compose(plan, chosen, docs):
     """Ответ из выбранных предложений — живым текстом, как в обычном чате (без шаблонных ярлыков)."""
     kind = plan["kind"]
@@ -810,6 +829,7 @@ def think(text, web=True, depth=None, local=None, budget=None, min_conf=0.3, lev
         parts = _by_sections(plan, docs, chosen, limit=6 if lv is LEVELS["ultra"] else 4)
         if parts:
             body += "\n\n" + "\n\n".join(parts)
+    body = _polish(body)
     # Отвечаем как в обычном чате: без ярлыков-источников и без приписки про «уверенность»
     # (как Rai думал и насколько уверен — видно в «Как Rai думал»).
     return {"text": body, "confidence": conf, "trace": trace, "photo": extra["photo"], "kind": plan["kind"],

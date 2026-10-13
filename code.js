@@ -1043,7 +1043,7 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     showPane("ai");
     const me = aiMsg("me");
     me.textContent = prompt || ACT_LABEL[action] + " · " + f.name;
-    const pend = aiMsg("rai", `<span class="typing" aria-label="Нейросеть думает"><span></span><span></span><span></span></span>`);
+    const pend = aiMsg("rai", `<span class="penwrite" role="status" aria-label="Rai пишет…"></span>`);
     const stopBtn = document.createElement("button");
     stopBtn.type = "button"; stopBtn.className = "tb"; stopBtn.textContent = "Остановить";
     stopBtn.addEventListener("click", () => H.neuro.stop());
@@ -1131,7 +1131,7 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     const me = aiMsg("me");
     me.textContent = prompt || ACT_LABEL[action] + " · " + f.name;
     const sitePane = action === "edit";
-    const pend = aiMsg("rai", `<span class="typing" aria-label="Rai думает"><span></span><span></span><span></span></span>`);
+    const pend = aiMsg("rai", `<span class="penwrite" role="status" aria-label="Rai пишет…"></span>`);
     const target = f.name, source = f.text;
     let r;
     try {
