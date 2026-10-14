@@ -1159,7 +1159,7 @@ class Brain:
             title = (t.get("label") or t["q"]).replace("*", "×")  # «*» ломает жирный заголовок в markdown
             reply, intent = self._answer_one(version, q, dict(session), [])
             reply_text = re.sub(r"\s+", " ", re.sub(r"\*\*|`+|^#+\s*|^>\s*", "", reply, flags=re.M)).strip()
-            unknown = intent in (None, "unknown") or reply_text.startswith("Я пока не знаю")
+            unknown = intent in (None, "unknown") or bool(re.search(r"уверенного ответа|пока не (?:знаю|нашёл)", reply_text[:80]))
             if t["options"]:
                 words = set(nlp.tokens(reply_text))
                 scored = sorted(((len(words & set(nlp.tokens(o))), i) for i, o in enumerate(t["options"])), reverse=True)
@@ -1303,16 +1303,18 @@ class Brain:
     def _fallback(self, version, results, text=""):
         m = _DEFINE_RE.match(text)
         subject = ((m.group(1) or m.group(2)) if m else "").strip()
-        base = f"Про «{subject}» я пока не знаю." if subject else "Я пока не знаю ответа на это."
+        base = (f"Честно скажу: уверенного ответа про «{subject}» я пока не нашёл — не хочу выдумывать."
+                if subject else "Пока не нашёл уверенного ответа — не хочу выдумывать.")
         lines = [base]
         if version.suggestions:
             titles = [self.intents[k].get("title", k) for k, s in results[:3] if s >= 0.1]
             if titles:
                 lines.append("Возможно, вы имели в виду:\n" + "\n".join(f"- {t}" for t in titles))
         if version.memory and subject:
-            lines.append(f"Научите меня: напишите «запомни, что {subject} — это …», и я запомню.")
-        lines.append("Поднимите уровень **«сколько думать»** внизу (High, Extra или Ultra) — Rai поищет и прочитает больше "
-                     "источников. Или напишите «подумай: …», «найди в интернете …», или «что ты умеешь».")
+            lines.append(f"Если хотите — научите меня: напишите «запомни, что {subject} — это …», и я запомню.")
+        lines.append("Могу копнуть глубже: поднимите уровень **«сколько думать»** внизу (High, Extra или Ultra) — "
+                     "и я поищу и прочитаю больше источников. Можно и прямо: «подумай: …» или «найди в интернете …». "
+                     "А если не уверены, с чего начать, — спросите «что ты умеешь».")
         return "\n\n".join(lines)
 
 
