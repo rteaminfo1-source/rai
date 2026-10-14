@@ -29,6 +29,10 @@ def _n(s):
 LIST_OPS = [
     ("second_max", r"втор\w+\s+(?:по\s+величине|максимум|наибольш|самое\s+большое)", "второе по величине",
      "sorted(set(nums))[-2] if len(set(nums)) > 1 else None", "[...new Set(nums)].sort((a, b) => a - b).at(-2)"),
+    ("second_min", r"втор\w+\s+(?:по\s+(?:величине|малости)\s+)?(?:минимум|наименьш\w*|сам\w+\s+маленьк\w*)", "второе наименьшее",
+     "sorted(set(nums))[1] if len(set(nums)) > 1 else None", "[...new Set(nums)].sort((a, b) => a - b)[1]"),
+    ("cumsum", r"накопительн\w*\s+сумм|нарастающ\w*\s+(?:сумм|итог)|префиксн\w*\s+сумм", "нарастающие суммы",
+     "[sum(nums[:i + 1]) for i in range(len(nums))]", "nums.map((_, i) => nums.slice(0, i + 1).reduce((a, b) => a + b, 0))"),
     ("median", r"медиан", "медиана", "_median(nums)", "median(nums)"),
     ("avg", r"средн\w*", "среднее арифметическое", "sum(nums) / len(nums) if nums else 0",
      "nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0"),
@@ -91,11 +95,16 @@ NUM_OPS = [
      "String(n) === String(n).split('').reverse().join('') ? 'палиндром' : 'не палиндром'"),
     ("factorize", r"разлож\w*\s+на\s+(?:простые\s+)?множител|простые\s+множител|разлож\w*\s+числ", "разложение на простые множители",
      "_factorize(n)", "factorize(n)"),
+    ("sum_divisors", r"сумм\w*\s+(?:всех\s+)?делител", "сумма делителей",
+     "sum(d for d in range(1, abs(n) + 1) if n % d == 0)",
+     "Array.from({length: Math.abs(n)}, (_, i) => i + 1).filter((d) => n % d === 0).reduce((a, b) => a + b, 0)"),
     ("divisor_count", r"(?:количеств\w*|сколько|число)\s+делител", "количество делителей",
      "len([d for d in range(1, abs(n) + 1) if n % d == 0])", "Array.from({length: Math.abs(n)}, (_, i) => i + 1).filter((d) => n % d === 0).length"),
     ("digital_root", r"цифров\w*\s+корень", "цифровой корень", "(abs(n) - 1) % 9 + 1 if n != 0 else 0", "n === 0 ? 0 : (Math.abs(n) - 1) % 9 + 1"),
     ("divisors", r"делител", "все делители", "[d for d in range(1, abs(n) + 1) if n % d == 0]",
      "Array.from({length: Math.abs(n)}, (_, i) => i + 1).filter((d) => n % d === 0)"),
+    ("count_ones", r"(?:количеств\w*|сколько|число)\s+единиц\s+в\s+двоичн|единиц\s+в\s+(?:двоичн\w*\s+)?запис", "число единиц в двоичной записи",
+     "bin(abs(n)).count('1')", "n.toString(2).split('').filter((c) => c === '1').length"),
     ("binary", r"двоичн\w*|бинарн\w*", "в двоичной системе", "bin(n)[2:] if n >= 0 else '-' + bin(n)[3:]", "n.toString(2)"),
     ("hex", r"шестнадцатеричн\w*|в\s+hex\b", "в шестнадцатеричной системе", "hex(n)[2:] if n >= 0 else '-' + hex(n)[3:]", "n.toString(16)"),
     ("digit_max", r"(?:наибольш\w*|максимальн\w*|сам\w+\s+больш\w*)\s+цифр", "наибольшая цифра",
@@ -108,6 +117,9 @@ NUM_OPS = [
     ("sign", r"знак\s+числ|положительн\w*\s+или\s+отрицательн", "знак числа",
      "'положительное' if n > 0 else 'отрицательное' if n < 0 else 'ноль'",
      "n > 0 ? 'положительное' : n < 0 ? 'отрицательное' : 'ноль'"),
+    ("triangular", r"треугольн\w*\s+числ", "треугольное число", "n * (n + 1) // 2", "n * (n + 1) / 2"),
+    ("power_two", r"степен\w*\s+(?:ли\s+)?дв(?:ойки|ойка|ух)|степен\w*\s+два\b|степень\s+2\b", "степень ли двойки",
+     "'да, степень двойки' if n > 0 and (n & (n - 1)) == 0 else 'нет'", "n > 0 && (n & (n - 1)) === 0 ? 'да, степень двойки' : 'нет'"),
     ("table", r"таблиц\w*\s+умножени", "таблица умножения", None, None),
     ("sqrt", r"корень|корня", "квадратный корень", "math.sqrt(n)", "Math.sqrt(n)"),
     ("cube1", r"\bкуб\w*", "куб числа", "n ** 3", "n ** 3"),
@@ -128,6 +140,10 @@ STR_OPS = [
      "([...s].filter((ch) => '.!?'.includes(ch)).length) || (s.trim() ? 1 : 0)"),
     ("s_abbrev", r"аббревиатур|первы\w+\s+букв\w+\s+(?:кажд\w+\s+)?слов", "аббревиатура из первых букв слов",
      "''.join(w[0].upper() for w in s.split())", "s.split(/\\s+/).filter(Boolean).map((w) => w[0].toUpperCase()).join('')"),
+    ("s_unique_words", r"(?:количеств\w*|сколько|число)\s+(?:уникальн\w*|разн\w*|различн\w*)\s+слов|уникальн\w*\s+слов", "количество уникальных слов",
+     "len(set(s.lower().split()))", "new Set(s.toLowerCase().split(/\\s+/).filter(Boolean)).size"),
+    ("s_top_word", r"(?:самое\s+)?(?:част\w*|популярн\w*|распространённ\w*|распространенн\w*)\s+слов", "самое частое слово",
+     "max(s.split(), key=lambda w: s.lower().split().count(w.lower())) if s.split() else ''", None),
     ("s_words", r"(?:количеств\w*|сколько|посчитай)\s+слов|слов\w*\s+в\s+(?:строке|тексте|предложении)", "количество слов", "len(s.split())",
      "s.split(/\\s+/).filter(Boolean).length"),
     ("s_longest", r"(?:самое\s+)?длинн\w+\s+слов", "самое длинное слово", "max(s.split(), key=len) if s.split() else ''",
@@ -165,7 +181,7 @@ _EXAMPLE_RE = re.compile(r"(?:например|пример)[:,]?\s*(?:для|п
 _STARS_RE = re.compile(r"(?:треугольник|пирамид\w*|ёлочк\w*|елочк\w*|квадрат|ромб)\w*\s+(?:из\s+)?(?:звёзд|звезд|\*|символ)", re.I)
 _TASK_RE = re.compile(r"напиш\w*|сделай|создай|составь|собери|программ\w*|код\b|скрипт|функци\w*|алгоритм|посчита\w*|подсчита\w*|вычисл\w*|найд\w*|найти|"
                       r"выведи|вывести|выводит|проверь|проверить|определи\w*|напечата\w*|выведет|считает|находит|проверяет|"
-                      r"отсортир\w*|упорядоч\w*|разверни|переверни|разлож\w*|удали|убери|первые\s+\d+", re.I)
+                      r"отсортир\w*|упорядоч\w*|разверни|переверни|разлож\w*|построй\w*|удали|убери|первые\s+\d+", re.I)
 
 
 def _find(table, text):
@@ -409,7 +425,8 @@ def expected(spec, inputs):
         return [f"{k} x {i} = {k * i}" for i in range(1, 11)]
     if op[0] == "str":
         s = src["value"] if t == "sdata" else inputs[0]
-        return _fmt(eval(op[1][3], {"__builtins__": {"sum": sum, "len": len, "max": max, "dict": dict}}, dict(_HELPERS, s=s))).split("\n")  # noqa: S307
+        return _fmt(eval(op[1][3], {"__builtins__": {"sum": sum, "len": len, "max": max, "min": min, "dict": dict,
+                                                     "set": set, "sorted": sorted, "list": list}}, dict(_HELPERS, s=s))).split("\n")  # noqa: S307
     if op[0] == "pair":
         a, b = (_n(x) for x in inputs[0].split()[:2])
         v = {"gcd": lambda: math.gcd(int(a), int(b)), "lcm": lambda: abs(int(a) * int(b)) // math.gcd(int(a), int(b)) if a and b else 0,
@@ -442,7 +459,7 @@ def expected(spec, inputs):
             return ["нет подходящих чисел"]
         return [str(x) for x in nums] if spec["out"] == "each" else [_fmt(nums)]
     v = eval(op[1][3], {"__builtins__": {"sum": sum, "len": len, "min": min, "max": max, "sorted": sorted, "set": set,
-                                         "list": list, "dict": dict}}, dict(_HELPERS, nums=nums))  # noqa: S307
+                                         "list": list, "dict": dict, "range": range}}, dict(_HELPERS, nums=nums))  # noqa: S307
     return [_fmt(v) if v not in (None, [], ()) else "нет подходящих чисел"]
 
 
@@ -589,7 +606,7 @@ def python_code(spec):
         body.insert(0, "\n".join(lines) + "\n\n")
         if op[1] is None and spec["out"] == "each":
             body.append("for x in solve(numbers):\n    print(x)")
-        elif op[1] is None or op[1][0] in ("sort_asc", "sort_desc", "unique", "reverse", "minmax"):
+        elif op[1] is None or op[1][0] in ("sort_asc", "sort_desc", "unique", "reverse", "minmax", "cumsum"):
             body.append("result = solve(numbers)\nif result:\n    print(*result)\nelse:\n    print(\"нет подходящих чисел\")")
         else:
             body.append("result = solve(numbers)\nprint(result if result is not None else \"нет подходящих чисел\")")
@@ -779,16 +796,22 @@ def _same(got, want):
 
 # ------------------------------------------------------------------ всё вместе
 
+# Эти операции применяем, только когда о них просят прямо, — не подставляем «вслепую» при переборе
+# толкований (иначе, например, «количество цифр» с опечаткой в примере тихо станет «числом единиц в двоичной»).
+_NO_GUESS = {"count_ones", "binary", "hex", "factorize", "sum_divisors", "divisor_count", "digital_root",
+             "triangular", "power_two", "is_square", "sign", "divisors", "cumsum", "mode", "spread", "second_min"}
+
+
 def _alternatives(spec):
-    """Другие толкования задачи — если программа не прошла пример из условия."""
+    """Другие толкования задачи — если программа не прошла пример из условия (без «экзотики» из _NO_GUESS)."""
     out = []
     if spec["op"][0] == "list" and spec["op"][1]:
         for row in LIST_OPS:
-            if row is not spec["op"][1]:
+            if row is not spec["op"][1] and row[0] not in _NO_GUESS:
                 out.append(dict(spec, op=("list", row)))
     if spec["op"][0] == "num":
         for row in NUM_OPS:
-            if row[0] != "table" and row is not spec["op"][1]:
+            if row[0] != "table" and row is not spec["op"][1] and row[0] not in _NO_GUESS:
                 out.append(dict(spec, op=("num", row)))
     return out
 
