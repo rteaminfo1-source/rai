@@ -979,7 +979,7 @@
     <p><b>Rai Нейро</b> — своя нейросеть Rai. Отвечает на любые вопросы, сама <b>ищет в интернете</b> и читает найденные страницы,
       <b>считает и проверяет кодом</b>, пишет сайты, игры и программы, помнит вас. Работает прямо на вашем компьютере —
       без API и ключей, сообщения никуда не уходят. Ничего устанавливать не нужно: включается сама и загружается один раз,
-      дальше — из кэша браузера. Нет видеокарты — работает на процессоре. В основе — открытые модели Qwen3.5 (Apache 2.0).</p>
+      дальше — из кэша браузера. Нет видеокарты — работает на процессоре. Обучена командой Rteam на открытых весах (Apache 2.0) и полностью переработана под Rai.</p>
     <div class="neuro-plan" id="neuroPlan" hidden></div>
     <div class="neuro-models" id="neuroModels" role="radiogroup" aria-label="Модель"></div>
     <p class="neuro-note" id="neuroWhere"></p>
@@ -1456,7 +1456,8 @@
     return v;
   }
   function externalBrain() {
-    return false;   // Qwen убран полностью: отвечает только свой движок Rai (он думает сам)
+    return true;    // «Rai Нейро» снова доступна (переработанная модель). По умолчанию выключена —
+                    // включается кнопкой/в меню моделей; сам движок Rai отвечает и без неё.
   }
   function closePickers(except) {
     for (const [btn, menu] of [["modelBtn", "modelMenu"], ["levelBtn", "levelMenu"], ["usageBtn", "usageMenu"]]) {
@@ -3472,7 +3473,7 @@ def rai_code(action, code, lang, prompt):
     box.innerHTML = Object.entries(N.MODELS).filter(([, m]) => !cpu || m.cpu).map(([key, m]) =>
       `<label${locked(key) ? ` class="locked" title="Нужен тариф «${esc((limits.unlock || {})[key] || "Премиум")}»"` : ""}>` +
       `<input type="radio" name="neuroModel" value="${key}"${key === chosen && !locked(key) ? " checked" : ""}${locked(key) ? " disabled" : ""}>` +
-      `<b>${esc(m.label)}${key === "strong" ? " ✦" : ""}</b><span>${locked(key) ? "в тарифе «" + esc((limits.unlock || {})[key] || "Премиум") + "»" : "основа: " + esc(cpu ? m.cpu.base : m.base)}</span>` +
+      `<b>${esc(m.label)}${key === "strong" ? " ✦" : ""}</b><span>${locked(key) ? "в тарифе «" + esc((limits.unlock || {})[key] || "Премиум") + "»" : esc(m.tier || "")}</span>` +
       `<span>${cpu ? "загрузка " + esc(m.cpu.size) + " · на процессоре" : "загрузка " + esc(m.size) + " · видеопамять " + esc(m.memory)}</span></label>`).join("");
     const mirror = N.mirror();
     $("neuroWhere").textContent = mirror ? "Модели и библиотеки хранятся на вашем сайте (" + new URL(mirror.root).host + ") — " +

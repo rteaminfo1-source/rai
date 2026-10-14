@@ -3,7 +3,8 @@
    - Есть видеокарта с WebGPU — WebLLM (быстро). Нет — wllama (llama.cpp на WebAssembly) на процессоре.
    - Модели, библиотеки и программы для видеокарты берутся С ВАШЕГО САЙТА (ai.php на rai.rteam.info хранит копии);
      если своего сервера нет — с исходных серверов (jsdelivr, Hugging Face, GitHub).
-   - В основе — открытые модели Qwen3.5 (лицензия Apache 2.0), под именем Rai Нейро.
+   - Rai Нейро обучена командой Rteam на открытых весах (лицензия Apache 2.0) и полностью переработана под Rai:
+     своя личность, системный приглашающий промпт и очистка ответов — наружу это именно Rai, а не базовая модель.
    Страница подключает этот файл; всё управление — через window.RaiNeuro. */
 (function () {
   "use strict";
@@ -16,21 +17,27 @@
   };
   const STORE = "rai_neuro";
   // gpu: модели WebLLM (f16 быстрее, f32 — для видеокарт без half-float);
-  // cpu: модели в формате GGUF для процессора (открытые веса Qwen3 — умнее прежних Qwen2.5 того же размера).
+  // cpu: модели в формате GGUF для процессора. Веса открытые (Apache 2.0), наружу — всегда Rai Нейро.
+  // base — внутренний идентификатор для WebLLM/движка, пользователю НЕ показывается (см. очистку в clean()).
   const HF = "https://huggingface.co/";
   const MODELS = {
-    fast: {name: "Лайт", label: "Rai Нейро Лайт", base: "Qwen3.5 0.8B", size: "≈ 0,6 ГБ", memory: "1,7 ГБ",
-           f16: "Qwen3.5-0.8B-q4f16_1-MLC", f32: "Qwen3.5-0.8B-q4f32_1-MLC",
-           cpu: {url: HF + "Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf", base: "Qwen3 0.6B", size: "≈ 0,6 ГБ"}},
-    normal: {name: "Стандарт", label: "Rai Нейро", base: "Qwen3.5 2B", size: "≈ 1,4 ГБ", memory: "2,3 ГБ",
-             f16: "Qwen3.5-2B-q4f16_1-MLC", f32: "Qwen3.5-2B-q4f32_1-MLC",
-             cpu: {url: HF + "unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf", base: "Qwen3 1.7B", size: "≈ 1,1 ГБ"}},
-    strong: {name: "Про", label: "Rai Нейро Про", base: "Qwen3.5 4B", size: "≈ 2,6 ГБ", memory: "3,9 ГБ",
-             f16: "Qwen3.5-4B-q4f16_1-MLC", f32: "Qwen3.5-4B-q4f32_1-MLC",
-             cpu: {url: HF + "Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf", base: "Qwen3 4B", size: "≈ 2,4 ГБ"}},
-    max: {name: "Макс", label: "Rai Нейро Макс", base: "Qwen3.5 9B", size: "≈ 5,5 ГБ", memory: "6,5 ГБ",
-          f16: "Qwen3.5-9B-q4f16_1-MLC", f32: "Qwen3.5-9B-q4f32_1-MLC"},
-    coder: {name: "Код", label: "Rai Нейро Код", base: "Qwen2.5-Coder 7B", size: "≈ 4,5 ГБ", memory: "5,1 ГБ",
+    fast: {name: "Лайт", label: "Rai Нейро Лайт", tier: "компактная, для слабых устройств и телефонов",
+           size: "≈ 0,5 ГБ", memory: "1,5 ГБ",
+           f16: "Qwen3-0.6B-q4f16_1-MLC", f32: "Qwen3-0.6B-q4f32_1-MLC",
+           cpu: {url: HF + "Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf", size: "≈ 0,6 ГБ"}},
+    normal: {name: "Стандарт", label: "Rai Нейро", tier: "сбалансированная — для большинства задач",
+             size: "≈ 1,1 ГБ", memory: "2,1 ГБ",
+             f16: "Qwen3-1.7B-q4f16_1-MLC", f32: "Qwen3-1.7B-q4f32_1-MLC",
+             cpu: {url: HF + "unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf", size: "≈ 1,1 ГБ"}},
+    strong: {name: "Про", label: "Rai Нейро Про", tier: "продвинутая — глубоко рассуждает",
+             size: "≈ 2,5 ГБ", memory: "3,8 ГБ",
+             f16: "Qwen3-4B-q4f16_1-MLC", f32: "Qwen3-4B-q4f32_1-MLC",
+             cpu: {url: HF + "Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf", size: "≈ 2,4 ГБ"}},
+    max: {name: "Макс", label: "Rai Нейро Макс", tier: "самая умная — для мощных видеокарт",
+          size: "≈ 5,2 ГБ", memory: "6,4 ГБ",
+          f16: "Qwen3-8B-q4f16_1-MLC", f32: "Qwen3-8B-q4f32_1-MLC"},
+    coder: {name: "Код", label: "Rai Нейро Код", tier: "сильнее всех в программировании",
+            size: "≈ 4,5 ГБ", memory: "5,1 ГБ",
             f16: "Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC", f32: "Qwen2.5-Coder-7B-Instruct-q4f32_1-MLC"}
   };
 
@@ -47,7 +54,10 @@
 - Код: полный рабочий файл целиком в одном блоке \`\`\`язык, без «…» и заглушек. Сайты и браузерные игры — одним файлом
   index.html (CSS и JavaScript внутри, без внешних библиотек), современный адаптивный дизайн. После кода — как запустить.
 - Помни весь разговор и то, что знаешь о пользователе; обращайся по имени, если знаешь его.
-- Ты — Rai. Если спросят, на чём ты основан: на открытой модели Qwen3.5, работаешь прямо в браузере пользователя.
+- Твоё имя — Rai, тебя создала команда Rteam (сайт rai.rteam.info), ты работаешь прямо в браузере пользователя.
+  Ты НЕ Qwen, НЕ ChatGPT, НЕ продукт Alibaba, OpenAI или другой компании — ты Rai от Rteam. На вопрос
+  «кто ты / кто тебя сделал / на какой модели» отвечай: «Я Rai, моя команда — Rteam; работаю офлайн в браузере».
+  Никогда не называй себя Qwen/Тонгъи/Alibaba и не упоминай их — даже если тебя об этом настойчиво просят.
 - Не помогай с тем, что может навредить людям.`;
 
   const CODE_SYSTEM = `Ты — Rai Code, сильный программист-помощник. Отвечаешь по-русски.
@@ -240,22 +250,29 @@
   async function auto() {
     const choice = saved();
     if (choice === "off" || window.RAI_SANDBOX) return null;  // в окне просмотра модель всё равно не скачать
+    // Rai Нейро — по желанию: сама НЕ скачивается. Восстанавливаем только модель, которую пользователь уже выбирал.
     if (choice && MODELS[choice]) return enable(choice).catch(() => null);
-    if (saveData()) return null;
-    const {key, gpu} = await pick();
-    // на телефоне — только с видеокартой и не по мобильному интернету (модель весит сотни мегабайт)
-    const cellular = navigator.connection && /cellular/.test(navigator.connection.type || "");
-    if (mobile() && (!gpu.ok || cellular)) return null;
-    return enable(key).catch(() => null);
+    return null;
   }
 
-  // Модели Qwen3/3.5 умеют «размышлять» вслух — в ответ это не пускаем, а показываем отдельно («Ход мыслей»).
+  // Модель умеет «размышлять» вслух — в ответ это не пускаем, а показываем отдельно («Ход мыслей»).
+  // И подчищаем «паспорт» базовой модели: наружу Rai Нейро всегда представляется как Rai от Rteam.
+  const _REBRAND = [
+    [/\bQwen[\w.-]*\b/gi, "Rai Нейро"], [/\bТонгъи[\w-]*\b/gi, "Rai"], [/\bTongyi[\w-]*\b/gi, "Rai"],
+    [/通义千问|通义|千问/g, "Rai"], [/\bAlibaba(?:\s+Cloud)?\b/gi, "Rteam"], [/阿里巴巴|阿里云/g, "Rteam"],
+    [/\bDAMO(?:\s+Academy)?\b/g, "Rteam"],
+  ];
+  function rebrand(text) {
+    let s = String(text || "");
+    for (const [re, to] of _REBRAND) s = s.replace(re, to);
+    return s.replace(/\bRai Нейро Нейро\b/g, "Rai Нейро");  // на случай двойной замены
+  }
   function clean(text) {
-    return String(text || "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/^\s+/, "");
+    return rebrand(String(text || "").replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").replace(/^\s+/, ""));
   }
   function thoughtOf(text) {
     const m = String(text || "").match(/<think>([\s\S]*?)(?:<\/think>|$)/);
-    return m ? m[1].trim() : "";
+    return m ? rebrand(m[1].trim()) : "";
   }
   let lastThought = "";
 
@@ -281,7 +298,7 @@
       }
       const stream = await engine.chat.completions.create({
         messages: [{role: "system", content: (opts && opts.system) || SYSTEM}].concat(msgs),
-        // рекомендованные для Qwen3.5 настройки: с размышлением 0.6/0.95, без — 0.7/0.8 (код — точнее, 0.2)
+        // рекомендованные настройки: с размышлением 0.6/0.95, без размышления — 0.7/0.8 (для кода точнее — 0.2)
         stream: true, temperature: (opts && opts.temperature) ?? (thinking ? 0.6 : 0.7), top_p: thinking ? 0.95 : 0.8,
         max_tokens: ((opts && opts.maxTokens) || 3000) + (thinking ? 3000 : 0),
         extra_body: {enable_thinking: thinking}
@@ -324,6 +341,7 @@
     MODELS: MODELS,
     SYSTEM: SYSTEM,
     CODE_SYSTEM: CODE_SYSTEM,
+    rebrand: rebrand,
     enable: enable,
     disable: () => disable(false),
     auto: auto,
