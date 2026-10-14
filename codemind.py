@@ -47,6 +47,11 @@ LIST_OPS = [
     ("unique", r"уникальн\w*|без\s+повтор\w*|удали\w*\s+(?:дубл|повтор)\w*|убери\w*\s+(?:дубл|повтор)\w*", "без повторов",
      "list(dict.fromkeys(nums))", "[...new Set(nums)]"),
     ("reverse", r"в\s+обратном\s+порядке|разверн\w*|переверн\w*", "в обратном порядке", "nums[::-1]", "[...nums].reverse()"),
+    ("mode", r"наиболее\s+част\w*|чаще\s+всего|\bмода\b|самое\s+часто\w*\s+встреча\w*\s+числ|самое\s+част\w*\s+числ", "самое частое число",
+     "max(set(nums), key=nums.count) if nums else None",
+     "nums.length ? [...new Set(nums)].reduce((best, v) => nums.filter((x) => x === v).length > nums.filter((x) => x === best).length ? v : best) : null"),
+    ("spread", r"размах|разброс", "размах (максимум минус минимум)", "max(nums) - min(nums) if nums else 0",
+     "nums.length ? Math.max(...nums) - Math.min(...nums) : 0"),
     ("count", r"количеств\w*|сколько|посчитай\s+числ", "количество", "len(nums)", "nums.length"),
 ]
 # Отбор чисел: (ключ, слова, по-русски, условие Python от x, условие JS от x)
@@ -84,6 +89,11 @@ NUM_OPS = [
      "int(str(abs(n))[::-1]) * (1 if n >= 0 else -1)", "Math.sign(n) * Number(String(Math.abs(n)).split('').reverse().join(''))"),
     ("palindrome", r"палиндром", "палиндром ли", "'палиндром' if str(n) == str(n)[::-1] else 'не палиндром'",
      "String(n) === String(n).split('').reverse().join('') ? 'палиндром' : 'не палиндром'"),
+    ("factorize", r"разлож\w*\s+на\s+(?:простые\s+)?множител|простые\s+множител|разлож\w*\s+числ", "разложение на простые множители",
+     "_factorize(n)", "factorize(n)"),
+    ("divisor_count", r"(?:количеств\w*|сколько|число)\s+делител", "количество делителей",
+     "len([d for d in range(1, abs(n) + 1) if n % d == 0])", "Array.from({length: Math.abs(n)}, (_, i) => i + 1).filter((d) => n % d === 0).length"),
+    ("digital_root", r"цифров\w*\s+корень", "цифровой корень", "(abs(n) - 1) % 9 + 1 if n != 0 else 0", "n === 0 ? 0 : (Math.abs(n) - 1) % 9 + 1"),
     ("divisors", r"делител", "все делители", "[d for d in range(1, abs(n) + 1) if n % d == 0]",
      "Array.from({length: Math.abs(n)}, (_, i) => i + 1).filter((d) => n % d === 0)"),
     ("binary", r"двоичн\w*|бинарн\w*", "в двоичной системе", "bin(n)[2:] if n >= 0 else '-' + bin(n)[3:]", "n.toString(2)"),
@@ -126,9 +136,13 @@ STR_OPS = [
      "clean(s) === [...clean(s)].reverse().join('') ? 'палиндром' : 'не палиндром'"),
     ("s_title", r"кажд\w+\s+слов\w*\s+с\s+(?:заглавн|больш)", "каждое слово с заглавной буквы", "s.title()",
      "s.replace(/(^|\\s)(\\S)/g, (m, a, b) => a + b.toUpperCase())"),
+    ("s_capital", r"перв\w+\s+букв\w+\s+(?:строки\s+)?(?:сделай\s+)?(?:заглавн|больш|пропис)|начина\w*\s+с\s+(?:заглавн|больш)", "первая буква заглавная",
+     "s[:1].upper() + s[1:]", "s.charAt(0).toUpperCase() + s.slice(1)"),
     ("s_upper", r"заглавн\w*|верхн\w+\s+регистр|больш\w+\s+букв|капс", "заглавными буквами", "s.upper()", "s.toUpperCase()"),
     ("s_lower", r"строчн\w*|нижн\w+\s+регистр|маленьк\w+\s+букв", "строчными буквами", "s.lower()", "s.toLowerCase()"),
     ("s_nospaces", r"(?:удали|убери|без)\w*\s+пробел", "без пробелов", "s.replace(' ', '')", "s.replaceAll(' ', '')"),
+    ("s_nopunct", r"(?:удали|убери|без)\w*\s+(?:знак\w*\s+)?препинани|без\s+пунктуаци", "без знаков препинания",
+     "''.join(ch for ch in s if ch.isalnum() or ch.isspace())", "[...s].filter((ch) => /[\\p{L}\\d\\s]/u.test(ch)).join('')"),
     ("s_digits", r"(?:количеств\w*|сколько)\s+цифр", "количество цифр", "sum(ch.isdigit() for ch in s)", "[...s].filter((ch) => /\\d/.test(ch)).length"),
     ("s_freq", r"частот\w*|сколько\s+раз\s+(?:встречается\s+)?кажд", "сколько раз встречается каждая буква",
      "{ch: s.count(ch) for ch in dict.fromkeys(s) if ch.strip()}", None),
@@ -151,7 +165,7 @@ _EXAMPLE_RE = re.compile(r"(?:например|пример)[:,]?\s*(?:для|п
 _STARS_RE = re.compile(r"(?:треугольник|пирамид\w*|ёлочк\w*|елочк\w*|квадрат|ромб)\w*\s+(?:из\s+)?(?:звёзд|звезд|\*|символ)", re.I)
 _TASK_RE = re.compile(r"напиш\w*|сделай|создай|составь|собери|программ\w*|код\b|скрипт|функци\w*|алгоритм|посчита\w*|подсчита\w*|вычисл\w*|найд\w*|найти|"
                       r"выведи|вывести|выводит|проверь|проверить|определи\w*|напечата\w*|выведет|считает|находит|проверяет|"
-                      r"отсортир\w*|упорядоч\w*|разверни|переверни|удали|убери|первые\s+\d+", re.I)
+                      r"отсортир\w*|упорядоч\w*|разверни|переверни|разлож\w*|удали|убери|первые\s+\d+", re.I)
 
 
 def _find(table, text):
@@ -213,7 +227,7 @@ def parse(text):
         spec["source"] = {"type": "until0"}
     elif str_task:
         spec["source"] = {"type": "str"}
-    elif re.search(r"дв[аеу]\s+числ|два\s+целых", low):
+    elif re.search(r"дв(?:а|е|ух)\s+числ|двух\s+чисел|два\s+целых", low):
         spec["source"] = {"type": "pair"}
     elif _LIST_RE.search(low) and (asks or re.search(r"спис\w*|массив|последовательн", low)):
         spec["source"] = {"type": "ints"}
@@ -325,7 +339,20 @@ def _clean(s):
     return "".join(ch for ch in s.lower() if ch.isalnum())
 
 
-_HELPERS = {"math": math, "_is_prime": _is_prime, "_fib": _fib, "_median": _median, "_clean": _clean}
+def _factorize(n):
+    n, out = abs(int(n)), []
+    d = 2
+    while d * d <= n:
+        while n % d == 0:
+            out.append(d)
+            n //= d
+        d += 1
+    if n > 1:
+        out.append(n)
+    return out or [abs(int(n))]
+
+
+_HELPERS = {"math": math, "_is_prime": _is_prime, "_fib": _fib, "_median": _median, "_clean": _clean, "_factorize": _factorize}
 
 
 def _fmt(v):
@@ -423,10 +450,17 @@ def expected(spec, inputs):
 
 def _title(spec):
     src, op = spec["source"], spec["op"]
-    if op[0] in ("stars", "fizzbuzz", "first_primes", "first_fib", "table"):
-        return {"stars": f"Фигура из звёздочек ({ {'pyramid': 'пирамида', 'square': 'квадрат', 'triangle': 'треугольник'}[op[1]] if op[0] == 'stars' else ''})",
-                "fizzbuzz": "FizzBuzz", "first_primes": f"Первые {src['value']} простых чисел",
-                "first_fib": f"Первые {src['value']} чисел Фибоначчи", "table": "Таблица умножения"}[op[0]].replace(" ()", "")
+    # по одному условию на вид — чтобы не вычислять src['value'] там, где его нет (например, у FizzBuzz)
+    if op[0] == "stars":
+        return "Фигура из звёздочек (%s)" % {"pyramid": "пирамида", "square": "квадрат", "triangle": "треугольник"}[op[1]]
+    if op[0] == "fizzbuzz":
+        return "FizzBuzz"
+    if op[0] == "first_primes":
+        return f"Первые {src['value']} простых чисел"
+    if op[0] == "first_fib":
+        return f"Первые {src['value']} чисел Фибоначчи"
+    if op[0] == "table":
+        return "Таблица умножения"
     if op[0] in ("str", "num"):
         return _cap(op[1][2])
     if op[0] == "pair":
@@ -472,9 +506,13 @@ def python_code(spec):
         if name == "_clean" and not any("def _clean" in h for h in helpers):
             helpers.append("def _clean(s):\n    \"\"\"Только буквы и цифры, маленькими — чтобы «А роза…» считалась палиндромом.\"\"\"\n"
                            "    return \"\".join(ch for ch in s.lower() if ch.isalnum())\n")
+        if name == "_factorize" and not any("def _factorize" in h for h in helpers):
+            helpers.append("def _factorize(n):\n    \"\"\"Разложение на простые множители: 12 -> [2, 2, 3].\"\"\"\n"
+                           "    n, out = abs(int(n)), []\n    d = 2\n    while d * d <= n:\n        while n % d == 0:\n"
+                           "            out.append(d)\n            n //= d\n        d += 1\n    if n > 1:\n        out.append(n)\n    return out or [abs(int(n))]\n")
 
     def scan(expr):
-        for name in ("math", "_is_prime", "_fib", "_median", "_clean"):
+        for name in ("math", "_is_prime", "_fib", "_median", "_clean", "_factorize"):
             if expr and name + ("." if name == "math" else "(") in expr:
                 need(name)
 
@@ -518,7 +556,7 @@ def python_code(spec):
     elif op[0] == "num":
         scan(op[1][3])
         body.append(f"def solve(n):\n    \"\"\"{_cap(op[1][2])}.\"\"\"\n    return {op[1][3]}\n\n\nn = int(input(\"Введите целое число: \"))\n"
-                    + ("print(*solve(n))" if op[1][0] == "divisors" else "print(solve(n))"))
+                    + ("print(*solve(n))" if op[1][0] in ("divisors", "factorize") else "print(solve(n))"))
     else:
         # набор чисел
         if t == "data":
@@ -585,6 +623,9 @@ def js_code(spec):
             helpers.append("function factorial(n) {\n  let r = 1n;\n  for (let i = 2n; i <= BigInt(n); i++) r *= i;\n  return r;\n}")
         if "clean(" in code and not any("function clean" in h for h in helpers):
             helpers.append("function clean(s) {\n  return [...s.toLowerCase()].filter((ch) => /[\\p{L}\\d]/u.test(ch)).join('');\n}")
+        if "factorize(" in code and not any("function factorize" in h for h in helpers):
+            helpers.append("function factorize(n) {\n  n = Math.abs(n);\n  const out = [];\n  for (let d = 2; d * d <= n; d++) {\n"
+                           "    while (n % d === 0) { out.push(d); n /= d; }\n  }\n  if (n > 1) out.push(n);\n  return out.length ? out : [Math.abs(n)];\n}")
 
     if op[0] == "str":
         if not op[1][4]:
