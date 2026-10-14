@@ -376,8 +376,11 @@ _WANT = [
     ("code", r"пример\w* кода|с кодом|код\w* пример\w*"),
     ("summary", r"вывод\w*|итог\w*"),
 ]
-_NO_PICS = re.compile(r"\bбез (?:картин\w*|фото\w*|изображени\w*|иллюстраци\w*)", re.I)
-_PHOTOS = re.compile(r"\b(?:фото\w*|картин\w*|изображени\w*|иллюстраци\w*)", re.I)
+# Слова про картинки — точно по границе слова, чтобы не съесть темы вроде «фотосинтез», «фотон», «картина».
+_PIC_WORDS = r"(?:фото|фотк\w*|фотографи\w*|картинк\w*|изображени\w*|иллюстраци\w*)"
+# После «без …» можно брать широко (там всегда просьба «без картинок/фото», а не тема): ловим и «картинок».
+_NO_PICS = re.compile(r"\bбез\s+(?:картин\w*|рисунк\w*|фото\w*|изображени\w*|иллюстраци\w*)\b", re.I)
+_PHOTOS = re.compile(r"\b" + _PIC_WORDS + r"\b", re.I)
 _COUNT = re.compile(r"(?:\bна|\bиз|\bв)?\s*(\d{1,2})\s*(?:-?ти|-?и|-?х)?\s*слайд\w*", re.I)
 _COMPARE = re.compile(r"сравн\w*\s+([а-яёa-z0-9 -]{2,40}?)\s+(?:и|с|со|vs)\s+([а-яёa-z0-9 -]{2,40}?)(?=[,.;!?]|\s+(?:и|в|на|с|со|для)\s|$)", re.I)
 _SECTIONS = re.compile(
@@ -423,7 +426,7 @@ def parse_deck_request(text: str) -> dict:
         want.add("compare")
     pictures = "none" if _NO_PICS.search(raw) else "photo"
     rest = _NO_PICS.sub(" ", rest)
-    rest = re.sub(r"(?:\bс\s+|\bи\s+)?\b(?:фото\w*|картин\w*|изображени\w*|иллюстраци\w*)(?:\s+из\s+интернета)?", " ", rest, flags=re.I)
+    rest = re.sub(r"(?:\bс\s+|\bи\s+)?\b" + _PIC_WORDS + r"\b(?:\s+из\s+интернета)?", " ", rest, flags=re.I)
     rest = re.sub(r"\s+(?:и|с|со)\s*(?=[,.!?]|$)", " ", rest)
     rest = re.sub(r"\s{2,}", " ", rest).strip(" ,.")
     return {"topic": slides_topic(rest), "count": count, "sections": sections[:8], "want": want,

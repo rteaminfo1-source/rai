@@ -851,6 +851,18 @@ class Brain:
                 page = {"title": art["title"], "lead": art["lead"], "sections": art["sections"], "link": art["url"],
                         "image": known.get("image"), "lang": "ru"}
                 from_deep = True
+        if not page and topic:
+            # Ни интернета, ни глубокой статьи — берём статью из энциклопедии Rai (работает офлайн, падежи нормализуются)
+            known = encyclopedia.lookup(topic)
+            if known and not _kind_mismatch(known["title"], text):
+                desc, body = (known.get("desc") or "").strip(), (known.get("text") or "").strip()
+                # заголовок + краткое определение + полный текст — чтобы слайдам точно хватило материала
+                head = f"{known['title']} — {desc}." if desc and desc.lower() not in body.lower() else ""
+                lead = " ".join(x for x in (head, body) if x).replace("{name}", "").strip()
+                if lead:
+                    page = {"title": known["title"], "lead": lead, "sections": [],
+                            "link": encyclopedia.page_url(known["title"]), "image": known.get("image"), "lang": "ru"}
+                    from_deep = True
         web_articles = []
         if page:
             photo = page["image"]
