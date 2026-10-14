@@ -430,6 +430,12 @@ class Brain:
                 return "Запоминать факты умеет только Rai Pro Sun.", "memory"
             return self._memory(text, session), "memory"
 
+        # ---- «выдумай / придумай / сочини …» — это творчество, а не поиск в энциклопедии:
+        # отвечаем выдумкой (каждый раз новой) про тему разговора, а не ищем статью про слово «выдумать»
+        if talk.is_invent_request(text) and not talk.is_poem_request(text) and not creative.is_slides_request(text) \
+                and not codeai.is_build_request(text):
+            return talk.invent(text, session.get("topic")), "invent"
+
         # ---- ссылка на TikTok, YouTube, Telegram, Instagram, VK, X или сайт — разбор аккаунта, видео, страницы
         if social.is_link_request(text) and not codeai.is_build_request(text):
             return self._link(version, text, attachments), "social"
