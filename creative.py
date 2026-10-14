@@ -612,7 +612,12 @@ def _short(text, limit=110):
     text = (text or "").strip()
     if len(text) <= limit:
         return text
-    cut = text[:limit].rsplit(" ", 1)[0]
+    window = text[:limit]
+    # по возможности заканчиваем на границе предложения — так слайд читается законченной мыслью
+    end = max(window.rfind(". "), window.rfind("! "), window.rfind("? "))
+    if end >= limit * 0.6:
+        return window[:end + 1].strip()
+    cut = window.rsplit(" ", 1)[0]
     return cut.rstrip(",;:—- ") + "…"
 
 

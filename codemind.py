@@ -87,6 +87,17 @@ NUM_OPS = [
     ("divisors", r"делител", "все делители", "[d for d in range(1, abs(n) + 1) if n % d == 0]",
      "Array.from({length: Math.abs(n)}, (_, i) => i + 1).filter((d) => n % d === 0)"),
     ("binary", r"двоичн\w*|бинарн\w*", "в двоичной системе", "bin(n)[2:] if n >= 0 else '-' + bin(n)[3:]", "n.toString(2)"),
+    ("hex", r"шестнадцатеричн\w*|в\s+hex\b", "в шестнадцатеричной системе", "hex(n)[2:] if n >= 0 else '-' + hex(n)[3:]", "n.toString(16)"),
+    ("digit_max", r"(?:наибольш\w*|максимальн\w*|сам\w+\s+больш\w*)\s+цифр", "наибольшая цифра",
+     "max(int(d) for d in str(abs(n)))", "Math.max(...String(Math.abs(n)).split('').map(Number))"),
+    ("digit_min", r"(?:наименьш\w*|минимальн\w*|сам\w+\s+маленьк\w*)\s+цифр", "наименьшая цифра",
+     "min(int(d) for d in str(abs(n)))", "Math.min(...String(Math.abs(n)).split('').map(Number))"),
+    ("is_square", r"полн\w*\s+квадрат|квадрат\s+ли|точн\w*\s+квадрат", "полный ли квадрат",
+     "'да, полный квадрат' if n >= 0 and int(n ** 0.5) ** 2 == n else 'нет'",
+     "Number.isInteger(Math.sqrt(n)) ? 'да, полный квадрат' : 'нет'"),
+    ("sign", r"знак\s+числ|положительн\w*\s+или\s+отрицательн", "знак числа",
+     "'положительное' if n > 0 else 'отрицательное' if n < 0 else 'ноль'",
+     "n > 0 ? 'положительное' : n < 0 ? 'отрицательное' : 'ноль'"),
     ("table", r"таблиц\w*\s+умножени", "таблица умножения", None, None),
     ("sqrt", r"корень|корня", "квадратный корень", "math.sqrt(n)", "Math.sqrt(n)"),
     ("cube1", r"\bкуб\w*", "куб числа", "n ** 3", "n ** 3"),
@@ -102,6 +113,11 @@ STR_OPS = [
     ("s_consonants", r"согласн", "количество согласных",
      "sum(1 for ch in s.lower() if ch.isalpha() and ch not in 'аеёиоуыэюяaeiouyьъ')",
      "[...s.toLowerCase()].filter((ch) => /\\p{L}/u.test(ch) && !'аеёиоуыэюяaeiouyьъ'.includes(ch)).length"),
+    ("s_sentences", r"(?:количеств\w*|сколько)\s+предложени", "количество предложений",
+     "sum(1 for ch in s if ch in '.!?') or (1 if s.strip() else 0)",
+     "([...s].filter((ch) => '.!?'.includes(ch)).length) || (s.trim() ? 1 : 0)"),
+    ("s_abbrev", r"аббревиатур|первы\w+\s+букв\w+\s+(?:кажд\w+\s+)?слов", "аббревиатура из первых букв слов",
+     "''.join(w[0].upper() for w in s.split())", "s.split(/\\s+/).filter(Boolean).map((w) => w[0].toUpperCase()).join('')"),
     ("s_words", r"(?:количеств\w*|сколько|посчитай)\s+слов|слов\w*\s+в\s+(?:строке|тексте|предложении)", "количество слов", "len(s.split())",
      "s.split(/\\s+/).filter(Boolean).length"),
     ("s_longest", r"(?:самое\s+)?длинн\w+\s+слов", "самое длинное слово", "max(s.split(), key=len) if s.split() else ''",
@@ -124,7 +140,7 @@ STR_OPS = [
 _INPUT_RE = re.compile(r"ввод\w*|введ\w*|с\s+клавиатур\w*|на\s+вход|пользовател\w*|спрашива\w*|запраш\w*|дано|даны|дан\b|задаётся|задается", re.I)
 _LIST_RE = re.compile(r"списк\w*|список|массив\w*|последовательност\w*|числа\s+через\s+пробел|несколько\s+чисел|набор\w*\s+чисел|"
                       r"\bn\s+чисел|чисел\b|числа\b", re.I)
-_STR_RE = re.compile(r"строк\w*|текст\w*|слов[оа]\b|предложени\w*|фраз\w*", re.I)
+_STR_RE = re.compile(r"строк\w*|текст\w*|слов\w*|предложени\w*|фраз\w*|аббревиатур\w*", re.I)
 _UNTIL0_RE = re.compile(r"(?:до|пока\s+не\s+(?:введ|встрет)\w*)\s+(?:числ\w*\s+)?(?:ноль|нул\w*|0)\b|заканчива\w*\s+нул\w*", re.I)
 _RANGE_RE = re.compile(r"от\s+(" + _NUM + r")\s+до\s+(" + _NUM + r"|n|н)\b", re.I)
 _FIRST_RE = re.compile(r"(?:первы[ехм]|первые)\s+(\d+)", re.I)
@@ -133,7 +149,7 @@ _LITERAL_STR = re.compile(r"[«\"“]([^»\"”]{1,200})[»\"”]")
 _EXAMPLE_RE = re.compile(r"(?:например|пример)[:,]?\s*(?:для|при|если\s+ввести|вход[:\s]+|ввод[:\s]+)?\s*(.+?)\s*"
                          r"(?:→|->|=>|—|-|ответ(?:\s+будет)?|получится|выход[:\s]*|должно\s+(?:быть|вывести)|выведет)\s*:?\s*(.+?)(?:[.;]|$)", re.I)
 _STARS_RE = re.compile(r"(?:треугольник|пирамид\w*|ёлочк\w*|елочк\w*|квадрат|ромб)\w*\s+(?:из\s+)?(?:звёзд|звезд|\*|символ)", re.I)
-_TASK_RE = re.compile(r"напиш\w*|сделай|создай|программ\w*|код\b|скрипт|функци\w*|алгоритм|посчита\w*|подсчита\w*|вычисл\w*|найд\w*|найти|"
+_TASK_RE = re.compile(r"напиш\w*|сделай|создай|составь|собери|программ\w*|код\b|скрипт|функци\w*|алгоритм|посчита\w*|подсчита\w*|вычисл\w*|найд\w*|найти|"
                       r"выведи|вывести|выводит|проверь|проверить|определи\w*|напечата\w*|выведет|считает|находит|проверяет|"
                       r"отсортир\w*|упорядоч\w*|разверни|переверни|удали|убери|первые\s+\d+", re.I)
 
@@ -199,7 +215,7 @@ def parse(text):
         spec["source"] = {"type": "str"}
     elif re.search(r"дв[аеу]\s+числ|два\s+целых", low):
         spec["source"] = {"type": "pair"}
-    elif _LIST_RE.search(low) and (asks or re.search(r"списк|массив|последовательн", low)):
+    elif _LIST_RE.search(low) and (asks or re.search(r"спис\w*|массив|последовательн", low)):
         spec["source"] = {"type": "ints"}
     elif re.search(r"(?<![а-яё])(?:числ[оау]|n|целое)(?![а-яё])", low):
         spec["source"] = {"type": "int"}
@@ -375,7 +391,8 @@ def expected(spec, inputs):
         return [_fmt(v)]
     if op[0] == "num":
         n = int(inputs[0])
-        return _fmt(eval(op[1][3], {"__builtins__": {"sum": sum, "int": int, "str": str, "abs": abs, "len": len, "range": range, "bin": bin}},
+        return _fmt(eval(op[1][3], {"__builtins__": {"sum": sum, "int": int, "str": str, "abs": abs, "len": len, "range": range,
+                                                     "bin": bin, "hex": hex, "max": max, "min": min}},
                          dict(_HELPERS, n=n))).split("\n")  # noqa: S307
     # набор чисел
     if t == "data":
@@ -637,7 +654,7 @@ def run(code, inputs=(), max_steps=200000):
         return tracer
 
     safe = {k: __builtins__[k] if isinstance(__builtins__, dict) else getattr(__builtins__, k) for k in (
-        "abs", "all", "any", "bin", "bool", "dict", "enumerate", "float", "int", "isinstance", "len", "list", "map", "max",
+        "abs", "all", "any", "bin", "bool", "dict", "enumerate", "float", "hex", "int", "isinstance", "len", "list", "map", "max",
         "min", "pow", "range", "reversed", "round", "set", "sorted", "str", "sum", "tuple", "zip", "ValueError", "Exception")}
     safe.update(input=fake_input, print=fake_print, __import__=lambda name, *a, **k: math if name == "math" else (_ for _ in ()).throw(ImportError(name)))
     env = {"__builtins__": safe, "__name__": "__main__"}
