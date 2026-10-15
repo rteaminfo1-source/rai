@@ -29,6 +29,7 @@ import nlp
 import meds
 import memes
 import mind
+import model3d
 import moderation
 import online
 import proglangs
@@ -444,6 +445,14 @@ class Brain:
             if "slides" not in version.skills:
                 return "Презентации умеют делать Rai Pro Plus и Rai Pro Sun.", "slides"
             return self._slides(version, text, attachments), "slides"
+
+        # ---- 3D-модель: «сделай 3д модель снеговика», «3d красная машина», «модель дома для Blender».
+        # Собираем из простых фигур; модель можно крутить прямо в чате + скачать для Blender/.obj.
+        if model3d.wants(text):
+            m = model3d.build(text)
+            if m:
+                attachments.append({"type": "model3d", "title": m["title"], "scene": m["scene"], "blender": m["blender"]})
+                return m["about"], "model3d"
 
         # ---- фото: «покажи фото Марса», «как выглядит галактика Андромеды», «фото дня NASA» (а «нарисуй» — рисунок)
         if places.is_apod_request(text):

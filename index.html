@@ -1015,6 +1015,7 @@
 <script src="vision.js"></script>
 <script src="files.js"></script>
 <script src="neuro.js"></script>
+<script src="model3d.js"></script>
 <script src="pptx.js"></script>
 <script>
 (function () {
@@ -1772,6 +1773,7 @@
       if (a.type === "photo" && /^https:\/\//.test(a.url || "")) wrap.append(renderPhoto(a));
       if (a.type === "slides" && Array.isArray(a.slides)) wrap.append(renderDeck(a));
       if (a.type === "code" && typeof a.code === "string") wrap.append(renderCode(a));
+      if (a.type === "model3d" && a.scene && window.RaiModel) wrap.append(renderModel(a));
       if (a.type === "archive") wrap.append(renderArchive(a, current()));
     }
     const acts = document.createElement("div");
@@ -1802,6 +1804,44 @@
       (/^https:\/\//.test(a.source || "") ? ` · <a href="${esc(a.source)}" target="_blank" rel="noopener noreferrer">источник</a>` : "") +
       `</figcaption>`;
     fig.querySelector("img").addEventListener("error", () => fig.remove());
+    return fig;
+  }
+
+  function renderModel(a) {
+    const fig = document.createElement("figure");
+    fig.className = "art model3d";
+    const mount = document.createElement("div");
+    mount.style.cssText = "border-radius:14px;overflow:hidden";
+    fig.append(mount);
+    const acts = document.createElement("div");
+    acts.className = "actions";
+    acts.innerHTML = `<button class="icon-btn full" type="button">${icon("full")}На весь экран</button>` +
+      `<button class="icon-btn blend" type="button">${icon("down")}Для Blender (.py)</button>` +
+      `<button class="icon-btn obj" type="button">${icon("down")}Скачать .obj</button>` +
+      `<span class="meta">${esc(a.title || "3D-модель")} · тяните, чтобы покрутить</span>`;
+    fig.append(acts);
+    let ctrl = null;
+    setTimeout(() => { try { ctrl = window.RaiModel.view(mount, a.scene, {height: 300}); } catch (e) { mount.textContent = "3D-просмотр недоступен в этом браузере."; } }, 0);
+    acts.querySelector(".blend").addEventListener("click", () =>
+      download(safeName(a.title) + "_blender.py", new Blob([a.blender || ""], {type: "text/x-python"})));
+    acts.querySelector(".obj").addEventListener("click", () =>
+      download(safeName(a.title) + ".obj", new Blob([window.RaiModel.obj(a.scene, a.title)], {type: "text/plain"})));
+    acts.querySelector(".full").addEventListener("click", () => {
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(6,6,11,.94);display:flex;flex-direction:column;";
+      const big = document.createElement("div");
+      big.style.cssText = "flex:1;min-height:0;padding:14px";
+      const bar = document.createElement("div");
+      bar.style.cssText = "padding:10px 16px;text-align:center;color:#a1a1b0;font:500 13px/1 var(--font-mono)";
+      bar.textContent = "Тяните — повернуть · колесо — приблизить · Esc — закрыть";
+      ov.append(big, bar);
+      document.body.append(ov);
+      const c = window.RaiModel.view(big, a.scene, {height: Math.round(innerHeight * 0.8)});
+      const close = () => { c.stop(); ov.remove(); document.removeEventListener("keydown", onKey); };
+      const onKey = (e) => { if (e.key === "Escape") close(); };
+      document.addEventListener("keydown", onKey);
+      bar.addEventListener("click", close);
+    });
     return fig;
   }
 
@@ -2957,7 +2997,7 @@ def rai_code(action, code, lang, prompt):
   function isToolAnswer(data) {
     const intents = (Array.isArray(data.intent) ? data.intent : [data.intent]).filter((i) => !NEURO_MEMORY_INTENTS.has(i));
     if (!intents.length) return false;
-    return intents.every((i) => TOOL_INTENTS.has(i)) || (data.attachments || []).some((a) => a.type === "slides" || a.type === "image" || a.type === "archive");
+    return intents.every((i) => TOOL_INTENTS.has(i)) || (data.attachments || []).some((a) => a.type === "slides" || a.type === "image" || a.type === "archive" || a.type === "model3d");
   }
   function sendAsStop(on) {
     sendBtn.classList.toggle("stop", on);

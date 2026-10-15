@@ -3114,5 +3114,50 @@ class BuildQualityTest(unittest.TestCase):
         tmp.cleanup()
 
 
+class Model3DTest(unittest.TestCase):
+    """3D-модели: сборка сцены из фигур, скрипт для Blender, маршрутизация в чате."""
+
+    def test_build_known_models(self):
+        import model3d
+        for text, title in [("сделай 3д модель снеговика", "Снеговик"), ("3d красная машина", "Машина"),
+                             ("смоделируй дом", "Домик"), ("3д синий куб", "Куб"), ("нарисуй 3d ёлку", "Ёлка")]:
+            m = model3d.build(text)
+            self.assertIsNotNone(m, text)
+            self.assertEqual(m["title"], title, text)
+            self.assertGreaterEqual(len(m["scene"]["objects"]), 1)
+            for o in m["scene"]["objects"]:
+                self.assertIn(o["geo"], ("box", "sphere", "cylinder", "cone", "torus"))
+                self.assertRegex(o["color"], r"^#[0-9a-fA-F]{6}$")
+
+    def test_color_applied(self):
+        import model3d
+        m = model3d.build("3d красный шар")
+        self.assertTrue(any(o["color"] == "#e23b2e" for o in m["scene"]["objects"]), "красный должен примениться")
+
+    def test_blender_script_valid_python(self):
+        import model3d, ast
+        m = model3d.build("сделай 3д модель ракеты для blender")
+        ast.parse(m["blender"])                       # скрипт должен быть валидным Python
+        self.assertIn("import bpy", m["blender"])
+        self.assertIn("primitive_", m["blender"])
+
+    def test_not_triggered_by_questions(self):
+        import model3d
+        for q in ("что такое 3d принтер", "посоветуй 3d фильм", "как работает 3d печать",
+                  "сделай сайт", "напиши программу", "сделай 3д игру"):
+            self.assertFalse(model3d.wants(q), q)
+
+    def test_chat_routes_to_model3d(self):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        b = Brain(learned_path=os.path.join(tmp.name, "m.json"))
+        r = b.answer(SUN, "сделай 3д модель снеговика", session_id="m3d")
+        self.assertEqual(r["intent"], "model3d")
+        att = next(a for a in r["attachments"] if a["type"] == "model3d")
+        self.assertIn("objects", att["scene"])
+        self.assertIn("bpy", att["blender"])
+        tmp.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()
