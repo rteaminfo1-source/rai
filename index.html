@@ -2435,6 +2435,9 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
   const mirrorReady = findMirror().then((m) => {
     window.RAI_AI = m;
     if (m && window.RaiNeuro) window.RaiNeuro.useMirror(m);
+    // Хотите хранить модели Rai Нейро на GitHub? Задайте window.RAI_NEURO_GITHUB = "логин/репо@main" —
+    // модели будут раздаваться через бесплатный CDN jsDelivr (если файла там нет, страница возьмёт его с исходного сервера).
+    if (window.RAI_NEURO_GITHUB && window.RaiNeuro) window.RaiNeuro.githubMirror(window.RAI_NEURO_GITHUB);
     // PowerPoint и распознавание текста — тоже со своего сайта
     const own = (path) => m.pathInfo ? m.root + "/" + path : m.root + "?p=" + path;
     if (m) {
@@ -3516,9 +3519,12 @@ def rai_code(action, code, lang, prompt):
       `<b>${esc(m.label)}${key === "strong" ? " ✦" : ""}</b><span>${locked(key) ? "в тарифе «" + esc((limits.unlock || {})[key] || "Премиум") + "»" : esc(m.tier || "")}</span>` +
       `<span>${cpu ? "загрузка " + esc(m.cpu.size) + " · на процессоре" : "загрузка " + esc(m.size) + " · видеопамять " + esc(m.memory)}</span></label>`).join("");
     const mirror = N.mirror();
-    $("neuroWhere").textContent = mirror ? "Модели и библиотеки хранятся на вашем сайте (" + new URL(mirror.root).host + ") — " +
-      (mirror.pathInfo ? "первый посетитель скачивает их туда, дальше всё грузится оттуда." : "библиотеки — с сайта, сами модели — с Hugging Face (адреса ai.php/… на хостинге не включены).")
-      : "Своего сервера нейросети (ai.php) рядом нет — модели загружаются с Hugging Face.";
+    const host = mirror ? new URL(mirror.root).host : "";
+    const where = mirror
+      ? (/jsdelivr/.test(host) ? "Модель лежит на GitHub и раздаётся через бесплатный CDN jsDelivr" : "Модель лежит на вашем сайте (" + host + ")")
+      : "Модель берётся с бесплатных серверов (Hugging Face) — свой хостинг не нужен";
+    $("neuroWhere").textContent = where + ". Скачивается в браузер один раз, потом открывается из памяти браузера — "
+      + "даже без интернета. Включили — и всё работает.";
   }
   function initNeuro() {
     const N = window.RaiNeuro;

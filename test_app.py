@@ -3158,6 +3158,33 @@ class Model3DTest(unittest.TestCase):
         self.assertIn("bpy", att["blender"])
         tmp.cleanup()
 
+    def test_categories_build(self):
+        """Широкие категории: любой зверь/птица/рыба/транспорт/растение/предмет — узнаётся."""
+        import model3d
+        for text, title in [("сделай 3д модель кота", "Зверёк"), ("3d самолёт", "Самолётик"),
+                            ("смоделируй рыбу", "Рыбка"), ("слепи 3д попугая", "Птица"),
+                            ("сделай 3д модель человека", "Человечек"), ("3д модель корабля", "Кораблик"),
+                            ("смоделируй цветок", "Цветок"), ("сделай 3д меч", "Меч")]:
+            m = model3d.build(text)
+            self.assertIsNotNone(m, text)
+            self.assertEqual(m["title"], title, text)
+
+    def test_any_word_builds_a_model(self):
+        """Любое слово (даже выдуманное) даёт объёмную модель; одно слово → всегда одна модель, разные слова → разные."""
+        import model3d, ast
+        for text in ("сделай 3д модель кракозябры", "смоделируй 3д штуковину", "3д модель чебурашки"):
+            m = model3d.build(text)
+            self.assertIsNotNone(m, text)
+            self.assertGreaterEqual(len(m["scene"]["objects"]), 2)
+            for o in m["scene"]["objects"]:
+                self.assertIn(o["geo"], ("box", "sphere", "cylinder", "cone", "torus"))
+            ast.parse(m["blender"])
+        a = model3d.build("смоделируй кракозябру")
+        b = model3d.build("смоделируй кракозябру")
+        self.assertEqual(a["scene"], b["scene"], "одно слово должно давать одну и ту же модель")
+        c = model3d.build("смоделируй квакозябру")
+        self.assertNotEqual(a["scene"], c["scene"], "разные слова должны давать разные модели")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -79,6 +79,7 @@
   }
 
   let engine = null, backend = null, worker = null, loading = null, current = null, abort = null;
+  let loadedFromCache = false;   // модель взялась из памяти браузера (ничего не скачивалось)
   const listeners = new Set();
   let status = {state: "off", text: "Нейросеть выключена", progress: 0};
 
@@ -147,8 +148,12 @@
       const gpu = window.RAI_NEURO_TEST ? {ok: !window.RAI_NEURO_TEST.cpu, f16: true} : await gpuInfo();
       const model = MODELS[key];
       await disable(true);
-      const onProgress = (p, fromCache) => emit({state: "loading", progress: p,
-        text: "Загружаю нейросеть: " + Math.round(p * 100) + "%" + (fromCache ? " (из кэша)" : "")});
+      loadedFromCache = false;
+      const onProgress = (p, fromCache) => {
+        if (fromCache) loadedFromCache = true;
+        emit({state: "loading", progress: p,
+          text: (loadedFromCache ? "Беру из памяти браузера: " : "Скачиваю один раз: ") + Math.round(p * 100) + "%"});
+      };
       if (gpu.ok) {
         const id = gpu.f16 ? model.f16 : model.f32;
         const progress = (r) => onProgress(typeof r.progress === "number" ? r.progress : 0, r.text && /cache|кэш/i.test(r.text));
@@ -209,8 +214,11 @@
         emit({label: MODELS[current].label + " · процессор"});
       }
       remember(key);
-      emit({state: "ready", progress: 1, model: key, backend: backend, from: from,
-            text: status.label + " — " + (from === "site" ? "загружена с вашего сайта" : "загружена с исходного сервера")});
+      const promise = loadedFromCache
+        ? "включена из памяти браузера — скачивать ничего не нужно"
+        : "скачалась один раз, дальше будет открываться из памяти браузера, без интернета";
+      emit({state: "ready", progress: 1, model: key, backend: backend, from: from, cached: loadedFromCache,
+            text: status.label + " — " + promise + "."});
       return engine;
     })();
     try {
@@ -334,8 +342,24 @@
     return out;
   }
 
+  /**
+   * Хранить модели на GitHub и отдавать их через бесплатный мировой CDN jsDelivr.
+   * githubMirror("rteaminfo1-source/rai-neuro")  или  githubMirror({user, repo, tag}).
+   * В репозитории файлы лежат по папкам: hf/… (модели с Hugging Face), npm/… (библиотеки), gh/… .
+   * Если файла на GitHub не оказалось — страница сама подхватит его с исходного сервера (есть запасной путь).
+   */
+  function githubMirror(a) {
+    let user, repo, tag = "main";
+    if (typeof a === "string") { const p = a.split("@"); if (p[1]) tag = p[1]; [user, repo] = p[0].split("/"); }
+    else if (a) { user = a.user; repo = a.repo; tag = a.tag || "main"; }
+    if (!user || !repo) { mirror = null; return null; }
+    mirror = {root: "https://cdn.jsdelivr.net/gh/" + user + "/" + repo + "@" + tag, pathInfo: true};
+    return mirror;
+  }
+
   window.RaiNeuro = {
     useMirror: (m) => { mirror = m && m.root ? {root: m.root.replace(/\/+$/, ""), pathInfo: !!m.pathInfo} : null; },
+    githubMirror: githubMirror,
     mirror: () => mirror,
     own: own,
     MODELS: MODELS,
