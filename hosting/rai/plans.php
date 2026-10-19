@@ -19,19 +19,19 @@ const PLAN_DEFAULTS = [
         'features' => ['Rai думает сам: уровни Low, Medium и High', '100 000 токенов в день', 'Поиск и чтение сайтов, ответы со ссылками', 'Погода, курсы, перевод, код, презентации — без ограничений', 'Чаты в аккаунте на всех устройствах'],
     ],
     'plus' => [
-        'name' => 'Плюс', 'price' => 249, 'neuro_day' => 150, 'tokens_day' => 1000000, 'think' => true, 'models' => ['fast', 'normal', 'strong'],
+        'name' => 'Плюс', 'price' => 249, 'stars' => 150, 'neuro_day' => 150, 'tokens_day' => 1000000, 'think' => true, 'models' => ['fast', 'normal', 'strong'],
         'levels' => ['low', 'medium', 'high', 'extra', 'code'],
         'tagline' => 'Для учёбы и каждого дня',
         'features' => ['Уровни Extra и Code: глубже ищет, сам пишет и проверяет программы', '1 000 000 токенов в день', 'Разбор тем по разделам статей', 'Разбор соцсетей и сайтов'],
     ],
     'premium' => [
-        'name' => 'Премиум', 'price' => 599, 'neuro_day' => 600, 'tokens_day' => 3000000, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
+        'name' => 'Премиум', 'price' => 599, 'stars' => 390, 'neuro_day' => 600, 'tokens_day' => 3000000, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
         'levels' => ['low', 'medium', 'high', 'extra', 'code', 'ultra'],
         'tagline' => 'Для работы и кода', 'popular' => true,
         'features' => ['Все уровни, включая Ultra: максимум источников и сверка', '3 000 000 токенов в день', 'Rai Code: программы с проверкой запуском', 'Приоритетная поддержка'],
     ],
     'ultra' => [
-        'name' => 'Ультра', 'price' => 1290, 'neuro_day' => 0, 'tokens_day' => 0, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
+        'name' => 'Ультра', 'price' => 1290, 'stars' => 850, 'neuro_day' => 0, 'tokens_day' => 0, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
         'levels' => ['low', 'medium', 'high', 'extra', 'code', 'ultra'],
         'tagline' => 'Без ограничений',
         'features' => ['Все уровни размышления без ограничений', 'Токены без ограничений — бесконечно', 'Ранний доступ к новым функциям', 'Личная поддержка команды Rteam'],
@@ -72,11 +72,12 @@ function plans() {
     $over = load_json('plans.json', []);
     $out = PLAN_DEFAULTS;
     foreach ($out as $key => &$plan) {
-        foreach (['name', 'price', 'neuro_day', 'tokens_day', 'tagline'] as $f) {
+        foreach (['name', 'price', 'stars', 'neuro_day', 'tokens_day', 'tagline'] as $f) {
             if (isset($over[$key][$f]) && $over[$key][$f] !== '') $plan[$f] = $over[$key][$f];
         }
         if (isset($over[$key]['features']) && is_array($over[$key]['features'])) $plan['features'] = $over[$key]['features'];
         $plan['price'] = max(0, (int)$plan['price']);
+        $plan['stars'] = max(0, (int)($plan['stars'] ?? 0));
         $plan['neuro_day'] = max(0, (int)$plan['neuro_day']);
         $plan['tokens_day'] = max(0, (int)($plan['tokens_day'] ?? 0));
     }
@@ -95,6 +96,18 @@ function plan_price($key, $months) {
     if ($months >= 12) $price = (int)round($price * (100 - YEAR_DISCOUNT) / 100);
     return $price;
 }
+
+/** Цена в звёздах Telegram за выбранный период (за год — та же скидка YEAR_DISCOUNT). 0 — звёздами не продаётся. */
+function plan_stars($key, $months) {
+    $per = (int)(plans()[$key]['stars'] ?? 0);
+    if ($per <= 0) return 0;
+    $stars = $per * (int)$months;
+    if ($months >= 12) $stars = (int)round($stars * (100 - YEAR_DISCOUNT) / 100);
+    return max(1, $stars);
+}
+
+/** Сколько дней подписки за $months месяцев (месяц = 30 дней, год = 365). */
+function plan_days($months) { return (int)$months >= 12 ? 365 : max(1, (int)$months) * 30; }
 
 // ====================================================================== скидки и промокоды (админ-панель → «Rai: скидки»)
 // data/discounts.php: {"sale": {percent, plans: [], title, until}, "promos": {"КОД": {percent, plans: [], until, uses_max, used, note}}}

@@ -5,6 +5,7 @@
  */
 require __DIR__ . '/config.php';
 require __DIR__ . '/plans.php';
+require __DIR__ . '/stars.php';
 
 $plan = (string)($_REQUEST['plan'] ?? '');
 $months = (int)($_REQUEST['months'] ?? 1);
@@ -21,7 +22,21 @@ $p = plans()[$plan];
 $promo = promo_code($_REQUEST['promo'] ?? '');
 $offer = plan_offer($plan, $months, $promo);
 $amount = $offer['price'];
+$stars = stars_ready() ? plan_stars($plan, $months) : 0;
 $error = null;
+
+// Оплата звёздами Telegram: создаём заказ и уводим пользователя в бота (оплата идёт в Telegram).
+if (($_GET['stars'] ?? '') === '1') {
+    if (!$stars) {
+        $error = 'Этот тариф пока нельзя оплатить звёздами Telegram.';
+    } elseif (rate_limited('stars:' . $user['login'], 15, 600)) {
+        $error = 'Слишком много попыток. Подождите пару минут.';
+    } else {
+        $link = stars_link($user['login'], $plan, $months);
+        if ($link) redirect($link);
+        $error = 'Не удалось создать оплату звёздами. Попробуйте ещё раз.';
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!csrf_ok()) {
@@ -95,6 +110,13 @@ page_head('Оплата — Rai ' . $p['name'], $user);
       <input type="hidden" name="promo" value="<?= h($offer['promo'] ?? '') ?>">
       <button class="btn big" type="submit">Оплатить <?= rub($amount) ?></button>
     </form>
+    <?php if ($stars > 0): ?>
+      <p class="muted small" style="text-align:center;margin:14px 0 8px">— или —</p>
+      <a class="btn big stars-btn" href="?plan=<?= h($plan) ?>&amp;months=<?= $months ?>&amp;stars=1"
+         style="display:block;text-align:center;background:linear-gradient(135deg,#2aabee,#229ed9);border-color:#229ed9;color:#fff">
+        Оплатить Telegram Stars · <?= (int)$stars ?> ⭐</a>
+      <p class="muted small">Откроется Telegram (@<?= h(stars_bot_username()) ?>) — оплата звёздами, подписка включится сразу.</p>
+    <?php endif; ?>
     <p class="muted small">Оплата через Platega: СБП, банковские карты. Аккаунт: <b><?= h($user['login']) ?></b>.
       Подписка включится сразу после оплаты. <a href="./#pricing">Все тарифы</a></p>
   </section>

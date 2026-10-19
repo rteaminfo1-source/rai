@@ -38,6 +38,7 @@ PLACEHOLDERS = {
     "ВСТАВЬТЕ_MERCHANT_ID": "PLATEGA_MERCHANT_ID",
     "ВСТАВЬТЕ_СЕКРЕТНЫЙ_КЛЮЧ_PLATEGA": "PLATEGA_SECRET",
     "ВСТАВЬТЕ_КЛЮЧ_ДЛЯ_АДМИНКИ": "ADMIN_API_KEY",
+    "ВСТАВЬТЕ_ТОКЕН_БОТА": "TELEGRAM_BOT_TOKEN",
 }
 
 README = """RAI — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГА
@@ -72,6 +73,13 @@ README = """RAI — ФАЙЛЫ ДЛЯ ВИРТУАЛЬНОГО ХОСТИНГА
   • Старый index.html на хостинге УДАЛИТЕ — теперь чат называется chat.html, а главная — index.php.
   • Подписку по логину выдают в админ-панели основного сайта rteam.info/admin.php (вкладка «Rai: подписки»
     встроена в сам файл), тот же ADMIN_API_KEY. Ключи Platega можно вписать и там.
+
+Оплата звёздами Telegram (Telegram Stars) — бот tgbot.php:
+  • В config.php впишите TELEGRAM_BOT_TOKEN (из @BotFather) и TELEGRAM_BOT_USERNAME (имя бота без «@»).
+  • Один раз откройте: https://rai.rteam.info/tgbot.php?action=setwebhook&key=ВАШ_ADMIN_API_KEY (в ответе ok: true).
+  • На странице тарифа появится кнопка «Оплатить Telegram Stars». Оплата идёт в Telegram, подписка
+    включается сама на том же аккаунте. Цены в звёздах — в plans.php (поле stars) или в админке.
+  • Платёжный провайдер и сторонние комиссии не нужны (валюта XTR). Токен не вписан — кнопка просто не видна.
 
 Приложение Rai для компьютера (Windows, macOS, Linux) — раздел «Приложение» на главной, кнопки ведут на download.php.
   • Файлы приложения лежат в rai.rteam.info/app/: Rai-Setup.exe, Rai-mac-arm64.dmg (или .zip), Rai-mac-x64.dmg,

@@ -38,6 +38,15 @@ define('PLATEGA_API', getenv('PLATEGA_API') ?: 'https://app.platega.io');
 // ---- Ключ для админ-панели (вкладка «Rai» в admin.php): длинная случайная строка, ОДИНАКОВАЯ здесь и в админке.
 define('ADMIN_API_KEY', getenv('ADMIN_API_KEY') ?: 'ВСТАВЬТЕ_КЛЮЧ_ДЛЯ_АДМИНКИ');
 
+// ---- Оплата через Telegram Stars (звёзды). Бот: @BotFather → токен; имя бота — без «@».
+// Webhook ставится на tgbot.php (см. ЗВЁЗДЫ_TG.txt). Если токен не вписан — оплата звёздами просто не показывается.
+define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: 'ВСТАВЬТЕ_ТОКЕН_БОТА');
+define('TELEGRAM_BOT_USERNAME', getenv('TELEGRAM_BOT_USERNAME') ?: 'RaiPayBot');
+// Секрет для подписи ссылок/платежей бота. По умолчанию берём общий SSO_SECRET — отдельно вписывать не нужно.
+define('TELEGRAM_PAY_SECRET', getenv('TELEGRAM_PAY_SECRET') ?: SSO_SECRET);
+// Секретный токен вебхука Telegram (заголовок X-Telegram-Bot-Api-Secret-Token) — защита tgbot.php от чужих запросов.
+define('TELEGRAM_WEBHOOK_SECRET', getenv('TELEGRAM_WEBHOOK_SECRET') ?: substr(hash('sha256', 'wh|' . SSO_SECRET), 0, 32));
+
 // Папка с данными (пользователи и чаты). Если хостинг позволяет — вынесите её выше корня сайта.
 define('DATA_DIR', __DIR__ . '/data');
 define('CHATS_MAX_BYTES', 4 * 1024 * 1024);  // чаты одного человека (со скриншотами)
