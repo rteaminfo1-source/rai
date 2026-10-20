@@ -1769,7 +1769,13 @@ class HostingTest(unittest.TestCase):
                 self.assertTrue(os.path.isfile(os.path.join(rai, name)), name)  # кнопки «Скачать приложение» и папка для его файлов
             with open(os.path.join(rai, "config.php"), encoding="utf-8") as fh:
                 self.assertIn("ВСТАВЬТЕ_СЕКРЕТНЫЙ_КЛЮЧ_PLATEGA", fh.read())  # секреты Platega — только на хостинге
+            # Движок Rai (Pyodide) лежит локально рядом с chat.html — чтобы Rai запускался без интернета и без CDN
+            for name in ("pyodide.js", "pyodide.asm.wasm", "python_stdlib.zip"):
+                self.assertTrue(os.path.isfile(os.path.join(rai, "pyodide", name)), "pyodide/" + name)
             for root, _, files in os.walk(out):
+                # папка pyodide/ — это движок (.wasm/.zip/.mjs/.json/.js), остальное на хостинге только PHP и HTML
+                if os.path.basename(root) == "pyodide" or os.sep + "pyodide" + os.sep in root + os.sep:
+                    continue
                 for f in files:  # на хостинге только PHP и HTML (+ необязательные настройки сервера)
                     self.assertTrue(f.endswith((".php", ".html")) or f in (".htaccess", "web.config", "ПРОЧТИ.txt"), f)
             if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "medicines.json")):

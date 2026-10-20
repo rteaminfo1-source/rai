@@ -2336,7 +2336,10 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     const mine = mirror && mirror.pathInfo ? [mirror.root + "/npm/pyodide@314.0.7/"] : [];
     // В приложении Rai для компьютера Python уже лежит внутри — без скачивания и без CDN
     const app = window.RaiApp && window.RaiApp.pyodide ? [window.RaiApp.pyodide] : [];
-    for (const src of [CFG.pyodide].concat(app, mine, window.RAI_PYODIDE_SOURCES)) {
+    // Сначала — ЛОКАЛЬНАЯ папка pyodide/ рядом с chat.html: движок запускается без интернета и без CDN.
+    // Это важно там, где внешние CDN (jsdelivr, unpkg) заблокированы — тогда Rai стартует прямо с вашего хостинга.
+    const localPy = /^https?:$/.test(location.protocol) ? ["pyodide/"] : [];
+    for (const src of [CFG.pyodide].concat(app, localPy, mine, window.RAI_PYODIDE_SOURCES)) {
       if (src && !sources.includes(src)) sources.push(src);
     }
     const problems = [];
@@ -3945,8 +3948,12 @@ def rai_code(action, code, lang, prompt):
     const box = document.createElement("div");
     box.className = "inner msg rai";
     box.innerHTML = `<div class="who">Rai</div><div class="bubble md"></div>`;
+    const onSite = /^https?:$/.test(location.protocol);
     box.querySelector(".bubble").innerHTML = renderMarkdown("**Не получилось запустить Rai:** " + err.message.replace(/\n/g, "\n\n") +
-      "\n\nПроверьте интернет (или не блокирует ли антивирус загрузку) и попробуйте снова.");
+      (onSite ? "\n\nЧаще всего это значит, что рядом с **chat.html** на хостинге нет папки **pyodide/** (это движок Rai). "
+              + "Загрузите папку **pyodide/** из архива в ту же папку, где лежит chat.html — и Rai запустится **без интернета и без CDN**. "
+              + "Если папка уже загружена — проверьте, что сайт открыт по **https** и загрузку не блокирует антивирус/провайдер."
+              : "\n\nПроверьте интернет (или не блокирует ли антивирус загрузку) и попробуйте снова."));
     const retry = document.createElement("button");
     retry.type = "button";
     retry.className = "btn red retry";

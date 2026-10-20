@@ -253,6 +253,16 @@ def build(out):
         copy_tree(os.path.join(BASE, src), os.path.join(out, domain))
     with open(os.path.join(out, "rai.rteam.info", "chat.html"), "w", encoding="utf-8") as f:
         f.write(build_standalone.build(cdn=True))
+    # Движок Rai (Pyodide) — ЛОКАЛЬНО рядом с chat.html, чтобы Rai запускался без интернета и без внешних CDN
+    # (важно там, где jsdelivr/unpkg заблокированы, например в России). chat.html ищет эту папку первой.
+    pyo_src = os.path.join(BASE, "pyodide")
+    if os.path.isdir(pyo_src):
+        pyo_dst = os.path.join(out, "rai.rteam.info", "pyodide")
+        shutil.copytree(pyo_src, pyo_dst)
+        # README.md не нужен на хостинге (оставляем только файлы движка)
+        readme = os.path.join(pyo_dst, "README.md")
+        if os.path.exists(readme):
+            os.remove(readme)
     write_kb(os.path.join(out, "rai.rteam.info", "kb.php"))
     write_kb(os.path.join(out, "rai.rteam.info", "vision.php"), "vision_labels.json",
              "Зрение Rai: понятия для распознавания картинок (считает GitHub: tools/build_vision.py)")
