@@ -2843,6 +2843,17 @@ def rai_code(action, code, lang, prompt):
         : "Не удалось получить ответ. Попробуйте ещё раз.", meta: "ошибка"};
       }
     }
+    // Rai отвечает ВСЕГДА: если ответ вышел пустым (нейросеть ничего не вернула, оборвалась или сбой оформления) —
+    // показываем ответ движка Rai, а если и его нет — дружелюбную реплику. Пустого пузыря быть не должно.
+    if (!reply || (!(reply.text && reply.text.trim()) && !(reply.attachments && reply.attachments.length) && !reply.violation)) {
+      const fromEngine = engineData && typeof engineData.answer === "string" && engineData.answer.trim() ? engineData.answer : "";
+      reply = reply || {role: "rai"};
+      reply.role = "rai";
+      reply.text = fromEngine || "Привет! Я на связи. Спрашивайте о чём угодно — отвечу или помогу сделать: текст, код, картинки, презентации, 3D.";
+      if (fromEngine) { reply.attachments = (engineData && engineData.attachments) || reply.attachments || []; reply.usage = reply.usage || (engineData && engineData.usage) || null; }
+      reply.meta = reply.meta || versionName(chat.version);
+      reply.q = reply.q || text;
+    }
     if (reply.violation) stopDialog(chat, reply.violation, text);
     try { if (reply.usage) Usage.spend(reply.usage); } catch (e) { /* счётчик токенов не критичен */ }
     pending.remove();
@@ -2995,12 +3006,15 @@ def rai_code(action, code, lang, prompt):
   // ---------------------------------------------------------------- нейросеть в чате
   // Ответ «из интернета» (web) нейросеть переписывает связным текстом со ссылками, остальное — точные инструменты Rai
   const TOOL_INTENTS = new Set(["violation", "crisis", "tool", "game", "tools_list", "weather", "currency", "translate", "image", "slides", "archive", "skill", "set_name", "get_name", "memory", "meds", "mind"]);
+  // Приветствие, «как дела», «спасибо», «кто ты», «что умеешь» и т.п. движок Rai отвечает сам — быстро и всегда,
+  // не дожидаясь загрузки нейросети. Так Rai отвечает на «привет» мгновенно, даже если Rai Нейро ещё качается.
+  const CHAT_INTENTS = new Set(["greeting", "how_are_you", "thanks", "bye", "ok", "compliment", "insult", "bot_feelings", "bot_age", "who_are_you", "abilities"]);
   // Имя и личные факты при включённой нейросети запоминает она сама — навсегда и для всех чатов
   const NEURO_MEMORY_INTENTS = new Set(["set_name", "get_name", "memory"]);
   function isToolAnswer(data) {
     const intents = (Array.isArray(data.intent) ? data.intent : [data.intent]).filter((i) => !NEURO_MEMORY_INTENTS.has(i));
     if (!intents.length) return false;
-    return intents.every((i) => TOOL_INTENTS.has(i)) || (data.attachments || []).some((a) => a.type === "slides" || a.type === "image" || a.type === "archive" || a.type === "model3d");
+    return intents.every((i) => TOOL_INTENTS.has(i) || CHAT_INTENTS.has(i)) || (data.attachments || []).some((a) => a.type === "slides" || a.type === "image" || a.type === "archive" || a.type === "model3d");
   }
   function sendAsStop(on) {
     sendBtn.classList.toggle("stop", on);
