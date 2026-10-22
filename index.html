@@ -1028,7 +1028,7 @@
   if (params.get("py")) CFG.pyBase = params.get("py");
 
   const PY_FILES = ["meds.py", "mind.py", "deep.py", "sense.py", "codemind.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "toolbox.py", "facts.py", "games.py", "lexicon.py", "fixer.py", "creative.py",
-                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"];
+                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "model3d.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -2262,10 +2262,15 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
   }
 
   function readPyFiles() {
+    // Файлы, встроенные в собранную страницу (build_standalone.py). Берём ВСЕ встроенные файлы,
+    // а не отдельный список PY_FILES — иначе один забытый в списке модуль (например model3d.py)
+    // ломает запуск всего движка. Два списка больше не могут разойтись.
+    const embedded = document.getElementById("rai-files");
+    if (embedded) {
+      const obj = JSON.parse(embedded.textContent);
+      return Promise.resolve(Object.keys(obj).map((name) => [name, obj[name]]));
+    }
     return Promise.all(PY_FILES.map(async (name) => {
-      // Файлы, встроенные в страницу (rai.html, собранный build_standalone.py).
-      const embedded = document.getElementById("rai-files");
-      if (embedded) return [name, JSON.parse(embedded.textContent)[name]];
       const r = await fetch(CFG.pyBase.replace(/\/?$/, "/") + name, {cache: "no-cache"});
       if (!r.ok) throw new Error("нет файла " + name + " (" + r.status + ")");
       return [name, await r.text()];
