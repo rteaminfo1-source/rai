@@ -52,23 +52,29 @@ function tg_api($method, $params = []) {
 
 // ------------------------------------------------------------------ заказы (data/stars.json)
 
-function stars_price_for($plan, $months) { return plan_stars($plan, $months); }
+function stars_price_for($plan, $months, $promo = '') { return plan_stars($plan, $months, $promo); }
 
-/** Создать заказ на оплату звёздами. Возвращает короткий id (его кладём в ссылку ?start=<id>). */
-function stars_order_create($login, $plan, $months) {
+/**
+ * Создать заказ на оплату звёздами. Возвращает короткий id (его кладём в ссылку ?start=<id>).
+ * Цена — от итоговой цены в рублях (скидка за год, акция, промокод) + комиссия Telegram.
+ */
+function stars_order_create($login, $plan, $months, $promo = '') {
     $plan = (string)$plan;
     $months = (int)$months >= 12 ? 12 : 1;
     if (!in_array($plan, PAID_PLANS, true)) return null;
-    $stars = plan_stars($plan, $months);
+    $offer = plan_offer($plan, $months, $promo);
+    $stars = (int)$offer['stars'];
     if ($stars <= 0) return null;
     $id = bin2hex(random_bytes(8));   // 16 символов [0-9a-f] — помещается в Telegram start (≤64, разрешённые символы)
-    update_json('stars.json', function (&$all) use ($id, $login, $plan, $months, $stars) {
+    $extra = ['rub' => (int)$offer['price'], 'base' => (int)$offer['base'], 'discount' => (int)$offer['percent'],
+              'promo' => $offer['promo'], 'commission' => stars_commission(), 'rate' => stars_rate()];
+    update_json('stars.json', function (&$all) use ($id, $login, $plan, $months, $stars, $extra) {
         // чистим старые незавершённые заказы (старше суток)
         foreach ($all as $k => $o) {
             if (($o['status'] ?? '') !== 'paid' && (int)($o['created'] ?? 0) < time() - 86400) unset($all[$k]);
         }
         $all[$id] = ['id' => $id, 'login' => (string)$login, 'plan' => $plan, 'months' => $months,
-                     'stars' => $stars, 'status' => 'new', 'created' => time()];
+                     'stars' => $stars, 'status' => 'new', 'created' => time()] + $extra;
     });
     return $id;
 }
@@ -81,9 +87,9 @@ function stars_order($id) {
 }
 
 /** Ссылка в Telegram, которая откроет бота и начнёт оплату выбранного тарифа. */
-function stars_link($login, $plan, $months) {
+function stars_link($login, $plan, $months, $promo = '') {
     if (!stars_ready()) return null;
-    $id = stars_order_create($login, $plan, $months);
+    $id = stars_order_create($login, $plan, $months, $promo);
     if (!$id) return null;
     return 'https://t.me/' . stars_bot_username() . '?start=' . $id;
 }
@@ -107,8 +113,10 @@ function stars_grant($id, $charge_id, $tg_user = '') {
     if (!$done) return false;
     $o = stars_order($id);
     $days = plan_days($o['months']);
-    $note = 'Telegram Stars · ' . $o['stars'] . '⭐ · заказ ' . $id . ($tg_user ? ' · tg ' . $tg_user : '');
+    $note = 'Telegram Stars · ' . $o['stars'] . '⭐' . (!empty($o['discount']) ? ' · скидка −' . (int)$o['discount'] . '%' : '')
+          . (!empty($o['promo']) ? ' · промокод ' . $o['promo'] : '') . ' · заказ ' . $id . ($tg_user ? ' · tg ' . $tg_user : '');
     set_subscription($o['login'], $o['plan'], $days, 'telegram-stars', $note);
+    if (!empty($o['promo'])) promo_used($o['promo']);   // промокод засчитан, как и при оплате картой
     sub_log('stars', $o['login'], $o['plan'], $days, $note);
     return true;
 }

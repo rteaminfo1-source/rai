@@ -56,6 +56,11 @@ function stars_help_text($site) {
         $y = plan_stars($key, 12);
         if ($m > 0) $lines[] = "• <b>" . htmlspecialchars($p['name']) . "</b> — {$m}⭐ / месяц, {$y}⭐ / год";
     }
+    $sale = sale_active();
+    if ($sale) $lines[] = "\n🏷 Сейчас акция «" . htmlspecialchars((string)($sale['title'] ?: 'Скидка')) . "»: −" . (int)$sale['percent'] . "% — цены выше уже со скидкой.";
+    $lines[] = "";
+    $lines[] = "В цену в звёздах входит " . stars_commission() . "% — комиссия Telegram (1 ⭐ ≈ " . str_replace('.', ',', (string)stars_rate()) . " ₽). "
+             . "Промокоды с сайта тоже действуют.";
     $lines[] = "";
     $lines[] = "Чтобы купить, откройте тариф на сайте и нажмите «Оплатить Telegram Stars» — я сразу выставлю счёт.";
     $lines[] = $site;
@@ -112,7 +117,9 @@ if (strpos($text, '/start') === 0) {
         $r = tg_api('sendInvoice', [
             'chat_id' => $chat_id,
             'title' => 'Rai ' . $p['name'] . ' · ' . $period,
-            'description' => 'Подписка Rai ' . $p['name'] . ' на ' . $period . ' для аккаунта ' . $order['login'] . '.',
+            'description' => 'Подписка Rai ' . $p['name'] . ' на ' . $period . ' для аккаунта ' . $order['login'] . '.'
+                . (!empty($order['discount']) ? ' Скидка −' . (int)$order['discount'] . '%' . (!empty($order['promo']) ? ' (промокод ' . $order['promo'] . ')' : '') . '.' : '')
+                . ' Включает ' . (int)($order['commission'] ?? stars_commission()) . '% комиссии Telegram.',
             'payload' => $order['id'],
             'provider_token' => '',               // для Telegram Stars — пусто
             'currency' => 'XTR',

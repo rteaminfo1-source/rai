@@ -22,17 +22,19 @@ $p = plans()[$plan];
 $promo = promo_code($_REQUEST['promo'] ?? '');
 $offer = plan_offer($plan, $months, $promo);
 $amount = $offer['price'];
-$stars = stars_ready() ? plan_stars($plan, $months) : 0;
+$stars = stars_ready() ? (int)$offer['stars'] : 0;   // звёзды — от цены со скидкой, + комиссия Telegram
 $error = null;
 
 // Оплата звёздами Telegram: создаём заказ и уводим пользователя в бота (оплата идёт в Telegram).
 if (($_GET['stars'] ?? '') === '1') {
     if (!$stars) {
         $error = 'Этот тариф пока нельзя оплатить звёздами Telegram.';
+    } elseif ($promo !== '' && $offer['promo_error'] && !$offer['promo']) {
+        $error = $offer['promo_error'];
     } elseif (rate_limited('stars:' . $user['login'], 15, 600)) {
         $error = 'Слишком много попыток. Подождите пару минут.';
     } else {
-        $link = stars_link($user['login'], $plan, $months);
+        $link = stars_link($user['login'], $plan, $months, (string)($offer['promo'] ?? ''));
         if ($link) redirect($link);
         $error = 'Не удалось создать оплату звёздами. Попробуйте ещё раз.';
     }
@@ -112,10 +114,13 @@ page_head('Оплата — Rai ' . $p['name'], $user);
     </form>
     <?php if ($stars > 0): ?>
       <p class="muted small" style="text-align:center;margin:14px 0 8px">— или —</p>
-      <a class="btn big stars-btn" href="?plan=<?= h($plan) ?>&amp;months=<?= $months ?>&amp;stars=1"
+      <a class="btn big stars-btn" href="?plan=<?= h($plan) ?>&amp;months=<?= $months ?>&amp;stars=1<?= !empty($offer['promo']) ? '&amp;promo=' . h(rawurlencode($offer['promo'])) : '' ?>"
          style="display:block;text-align:center;background:linear-gradient(135deg,#2aabee,#229ed9);border-color:#229ed9;color:#fff">
-        Оплатить Telegram Stars · <?= (int)$stars ?> ⭐</a>
-      <p class="muted small">Откроется Telegram (@<?= h(stars_bot_username()) ?>) — оплата звёздами, подписка включится сразу.</p>
+        Оплатить Telegram Stars · <?= (int)$stars ?> ⭐<?php if ($offer['percent'] && $offer['stars_base'] > $stars): ?> <s style="opacity:.7"><?= (int)$offer['stars_base'] ?> ⭐</s><?php endif; ?></a>
+      <p class="muted small stars-note">⭐ При оплате звёздами к цене добавляется <b><?= stars_commission() ?>% — это комиссия Telegram</b>:
+        <?= rub($amount) ?> + <?= stars_commission() ?>% = <?= rub($offer['stars_rub']) ?> ≈ <b><?= (int)$stars ?> ⭐</b>
+        (1 ⭐ ≈ <?= h(str_replace('.', ',', (string)stars_rate())) ?> ₽).<?= $offer['percent'] ? ' Скидка −' . (int)$offer['percent'] . '% действует и при оплате звёздами.' : ' Скидки и промокоды действуют и при оплате звёздами.' ?>
+        Откроется Telegram (@<?= h(stars_bot_username()) ?>), подписка включится сразу после оплаты.</p>
     <?php endif; ?>
     <p class="muted small">Оплата через Platega: СБП, банковские карты. Аккаунт: <b><?= h($user['login']) ?></b>.
       Подписка включится сразу после оплаты. <a href="./#pricing">Все тарифы</a></p>

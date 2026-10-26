@@ -19,19 +19,19 @@ const PLAN_DEFAULTS = [
         'features' => ['Rai думает сам: уровни Low, Medium и High', '100 000 токенов в день', 'Поиск и чтение сайтов, ответы со ссылками', 'Погода, курсы, перевод, код, презентации — без ограничений', 'Чаты в аккаунте на всех устройствах'],
     ],
     'plus' => [
-        'name' => 'Плюс', 'price' => 249, 'stars' => 150, 'neuro_day' => 150, 'tokens_day' => 1000000, 'think' => true, 'models' => ['fast', 'normal', 'strong'],
+        'name' => 'Плюс', 'price' => 249, 'neuro_day' => 150, 'tokens_day' => 1000000, 'think' => true, 'models' => ['fast', 'normal', 'strong'],
         'levels' => ['low', 'medium', 'high', 'extra', 'code'],
         'tagline' => 'Для учёбы и каждого дня',
         'features' => ['Уровни Extra и Code: глубже ищет, сам пишет и проверяет программы', '1 000 000 токенов в день', 'Разбор тем по разделам статей', 'Разбор соцсетей и сайтов'],
     ],
     'premium' => [
-        'name' => 'Премиум', 'price' => 599, 'stars' => 390, 'neuro_day' => 600, 'tokens_day' => 3000000, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
+        'name' => 'Премиум', 'price' => 599, 'neuro_day' => 600, 'tokens_day' => 3000000, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
         'levels' => ['low', 'medium', 'high', 'extra', 'code', 'ultra'],
         'tagline' => 'Для работы и кода', 'popular' => true,
         'features' => ['Все уровни, включая Ultra: максимум источников и сверка', '3 000 000 токенов в день', 'Rai Code: программы с проверкой запуском', 'Приоритетная поддержка'],
     ],
     'ultra' => [
-        'name' => 'Ультра', 'price' => 1290, 'stars' => 850, 'neuro_day' => 0, 'tokens_day' => 0, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
+        'name' => 'Ультра', 'price' => 1290, 'neuro_day' => 0, 'tokens_day' => 0, 'think' => true, 'models' => ['fast', 'normal', 'strong', 'max', 'coder'],
         'levels' => ['low', 'medium', 'high', 'extra', 'code', 'ultra'],
         'tagline' => 'Без ограничений',
         'features' => ['Все уровни размышления без ограничений', 'Токены без ограничений — бесконечно', 'Ранний доступ к новым функциям', 'Личная поддержка команды Rteam'],
@@ -41,6 +41,10 @@ const PAID_PLANS = ['plus', 'premium', 'ultra'];
 const GUEST_NEURO_DAY = 5;                 // без входа — столько сообщений в день (по IP); меняется в админке
 const GUEST_TOKENS_DAY = 30000;            // без входа — столько токенов движка Rai в день
 const YEAR_DISCOUNT = 25;                  // скидка за год, %
+// Оплата звёздами Telegram: цена в рублях (уже со скидкой за год, акцией и промокодом) + комиссия Telegram, по курсу звезды.
+// Поменять без правки кода: в config.php — const TELEGRAM_STAR_RUB = 1.5; и/или const TELEGRAM_STARS_COMMISSION = 20;
+const STARS_COMMISSION = 20;               // +20% к цене при оплате звёздами — это комиссия Telegram
+const STARS_RUB_DEFAULT = 1.5;             // сколько рублей «стоит» одна звезда ⭐
 const PLAN_PERIODS = [1 => 'месяц', 12 => 'год'];
 const PLAN_FOREVER = 4102444800;           // 1 января 2100 — подписка «навсегда» (выдаётся в админ-панели)
 // Особые роли (ставятся в админ-панели): значок у имени и полный доступ (как «Ультра») навсегда
@@ -97,13 +101,30 @@ function plan_price($key, $months) {
     return $price;
 }
 
-/** Цена в звёздах Telegram за выбранный период (за год — та же скидка YEAR_DISCOUNT). 0 — звёздами не продаётся. */
-function plan_stars($key, $months) {
-    $per = (int)(plans()[$key]['stars'] ?? 0);
-    if ($per <= 0) return 0;
-    $stars = $per * (int)$months;
-    if ($months >= 12) $stars = (int)round($stars * (100 - YEAR_DISCOUNT) / 100);
-    return max(1, $stars);
+/** Курс: сколько рублей стоит одна звезда Telegram. */
+function stars_rate() {
+    $r = defined('TELEGRAM_STAR_RUB') ? (float)TELEGRAM_STAR_RUB : STARS_RUB_DEFAULT;
+    return $r >= 0.1 ? $r : STARS_RUB_DEFAULT;
+}
+
+/** Комиссия Telegram при оплате звёздами, %. */
+function stars_commission() {
+    return defined('TELEGRAM_STARS_COMMISSION') ? max(0, min(100, (int)TELEGRAM_STARS_COMMISSION)) : STARS_COMMISSION;
+}
+
+/** Рубли с комиссией Telegram: 249 ₽ → 299 ₽ (+20%). */
+function stars_rub($rub) { return $rub > 0 ? (int)ceil(round($rub * (100 + stars_commission()) / 100, 6)) : 0; }
+
+/** Сколько звёзд за сумму в рублях (уже со всеми скидками): + комиссия Telegram, по курсу, округление вверх. */
+function rub_to_stars($rub) { return $rub > 0 ? max(1, (int)ceil(round($rub * (100 + stars_commission()) / 100 / stars_rate(), 6))) : 0; }
+
+/**
+ * Цена в звёздах Telegram за период — от итоговой цены в рублях: скидка за год, акция и промокод действуют и на звёзды,
+ * сверху — комиссия Telegram (STARS_COMMISSION). 0 — бесплатный тариф.
+ */
+function plan_stars($key, $months, $promo = '') {
+    if (!in_array($key, PAID_PLANS, true)) return 0;
+    return plan_offer($key, $months, $promo)['stars'];
 }
 
 /** Сколько дней подписки за $months месяцев (месяц = 30 дней, год = 365). */
@@ -148,7 +169,8 @@ function promo_check($code, $plan) {
  */
 function plan_offer($plan, $months, $promo = '') {
     $base = plan_price($plan, $months);
-    $out = ['base' => $base, 'price' => $base, 'percent' => 0, 'reason' => '', 'title' => '', 'until' => null, 'promo' => null, 'promo_error' => null];
+    $out = ['base' => $base, 'price' => $base, 'percent' => 0, 'reason' => '', 'title' => '', 'until' => null, 'promo' => null, 'promo_error' => null,
+            'stars' => 0, 'stars_rub' => 0, 'stars_base' => 0];
     if ($base <= 0) return $out;   // бесплатный тариф
     $sale = sale_active();
     if ($sale && discount_fits($sale, $plan)) {
@@ -162,6 +184,10 @@ function plan_offer($plan, $months, $promo = '') {
         $out['promo_error'] = 'Акция уже даёт скидку больше, чем этот промокод.';
     }
     if ($out['percent'] > 0) $out['price'] = max(1, (int)round($base * (100 - min(95, $out['percent'])) / 100));
+    // то же самое звёздами Telegram: цена со скидкой + комиссия Telegram
+    $out['stars_rub'] = stars_rub($out['price']);
+    $out['stars'] = rub_to_stars($out['price']);
+    $out['stars_base'] = rub_to_stars($out['base']);
     return $out;
 }
 

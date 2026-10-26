@@ -6,6 +6,7 @@ require __DIR__ . '/config.php';
 require __DIR__ . '/plans.php';
 require __DIR__ . '/app.php';
 require __DIR__ . '/festive.php';
+require_once __DIR__ . '/stars.php';
 
 $user = current_user();
 $mine = $user ? user_plan($user) : ['key' => 'free', 'until' => 0];
@@ -13,11 +14,13 @@ $plans = plans();
 $free = $plans['free'];
 $app_version = app_version();
 $pricing = [];
+$stars_on = stars_ready();   // оплата звёздами Telegram подключена (вписан токен бота)
 foreach ($plans as $key => $p) {
     $m1 = plan_offer($key, 1);
     $m12 = plan_offer($key, 12);
     $pricing[$key] = ['month' => $m1['price'], 'year' => $m12['price'], 'year_month' => (int)round($m12['price'] / 12),
-                      'month_base' => $m1['base'], 'year_base' => $m12['base'], 'sale' => $m1['percent']];
+                      'month_base' => $m1['base'], 'year_base' => $m12['base'], 'sale' => $m1['percent'],
+                      'stars_month' => $m1['stars'], 'stars_year' => $m12['stars']];
 }
 $sale = sale_active();
 $fest = festive_current();
@@ -211,6 +214,7 @@ h2 { font: 800 clamp(30px, 4vw, 48px)/1.1 var(--head); letter-spacing: -.03em; m
 .price span { color: var(--muted); font-size: 15px; }
 .per { color: var(--dim); font-size: 13.5px; min-height: 20px; margin-bottom: 22px; }
 .per s { color: var(--dim); } .per em { font-style: normal; color: var(--green); }
+.stars-per { margin: -16px 0 18px; min-height: 0; } .stars-per b { color: #2aabee; }
 .plan ul { list-style: none; padding: 0; margin: 0 0 26px; display: grid; gap: 11px; flex: 1; align-content: start; }
 .plan li { display: flex; gap: 10px; font-size: 15px; color: #d9d9e2; }
 .plan li::before, .dl-points li::before { content: ""; flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 50%; background: rgba(61,220,151,.14) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M6 10.5l2.5 2.5L14 7.5' fill='none' stroke='%233ddc97' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/18px no-repeat; }
@@ -454,6 +458,7 @@ footer .sp { margin-left: auto; }
             <p class="tl"><?= h($p['tagline']) ?></p>
             <div class="price"><b data-price><?= $key === 'free' ? '0 ₽' : rub($pricing[$key]['month']) ?></b><span><?= $key === 'free' ? 'навсегда' : '/ мес' ?></span></div>
             <div class="per" data-per><?= $key === 'free' ? 'Без карты и подписки' : 'Оплата за месяц' ?></div>
+            <?php if ($stars_on && $key !== 'free'): ?><div class="per stars-per" data-stars title="Цена со скидкой + <?= stars_commission() ?>% комиссия Telegram">или <b><?= (int)$pricing[$key]['stars_month'] ?> ⭐</b> в Telegram</div><?php endif; ?>
             <ul><?php foreach ($p['features'] as $f): ?><li><?= h($f) ?></li><?php endforeach; ?></ul>
             <?php if ($key === 'free'): ?>
               <a class="btn" href="<?= $user ? CHAT_URL : 'login.php?tab=register&amp;next=' . rawurlencode(CHAT_URL) ?>"><?= $user ? 'Открыть Rai' : 'Начать бесплатно' ?></a>
@@ -464,7 +469,9 @@ footer .sp { margin-left: auto; }
           </article>
         <?php endforeach; ?>
       </div>
-      <p class="note reveal">Оплата через Platega: СБП и банковские карты. Подписка не продлевается сама — никаких скрытых списаний.
+      <p class="note reveal">Оплата через Platega: СБП и банковские карты<?= $stars_on ? ' — или звёздами Telegram ⭐' : '' ?>. Подписка не продлевается сама — никаких скрытых списаний.
+        <?php if ($stars_on): ?><br>⭐ При оплате звёздами Telegram к цене добавляется <b><?= stars_commission() ?>% — это комиссия Telegram</b>
+        (1 ⭐ ≈ <?= h(str_replace('.', ',', (string)stars_rate())) ?> ₽). Скидки, акции и промокоды действуют и при оплате звёздами.<?php endif; ?>
         Без входа нейросеть отвечает <?= guest_limit() ?> раз в день.</p>
     </div>
   </section>
@@ -479,6 +486,7 @@ footer .sp { margin-left: auto; }
         <details class="reveal"><summary>Что будет, когда закончатся сообщения нейросети?</summary><div class="ans">Rai продолжит отвечать своим движком: погода, курсы, перевод, код, презентации, расчёты — всё работает. Лимит нейросети обновляется каждый день в полночь (по Москве).</div></details>
         <details class="reveal"><summary>Как оплатить и когда включится подписка?</summary><div class="ans">Выберите тариф, войдите или зарегистрируйтесь и оплатите через Platega — СБП или картой. Подписка включается сразу после оплаты.</div></details>
         <details class="reveal"><summary>Подписка продлевается автоматически?</summary><div class="ans">Нет. Вы платите за месяц или год, и всё. Продлить можно в любой момент — новое время добавится к оставшемуся.</div></details>
+        <?php if ($stars_on): ?><details class="reveal"><summary>Можно ли оплатить звёздами Telegram?</summary><div class="ans">Да. На странице оплаты нажмите «Оплатить Telegram Stars» — откроется наш бот и выставит счёт в звёздах, подписка включится сразу. Цена в звёздах = цена в рублях (уже со скидкой и промокодом) + <?= stars_commission() ?>% комиссии Telegram, по курсу 1 ⭐ ≈ <?= h(str_replace('.', ',', (string)stars_rate())) ?> ₽.</div></details><?php endif; ?>
         <details class="reveal"><summary>Можно ли вернуть деньги?</summary><div class="ans">Если что-то пошло не так — напишите нам в течение 14 дней после оплаты, разберёмся и вернём деньги за неиспользованное время.</div></details>
       </div>
     </div>
@@ -627,6 +635,8 @@ footer .sp { margin-left: auto; }
         price.textContent = rub(period === "year" ? p.year_month : p.month);
         per.innerHTML = period === "year" ? `<s>${rub(p.month_base * 12)}</s> <em>${rub(p.year)} за год · −${p.sale ? Math.round(100 - p.year * 100 / (p.month_base * 12)) : DISCOUNT}%</em>`
           : (p.sale ? `<s>${rub(p.month_base)}</s> <em>скидка −${p.sale}%</em>` : "Оплата за месяц");
+        const st = card.querySelector("[data-stars]");
+        if (st) st.innerHTML = `или <b>${period === "year" ? p.stars_year : p.stars_month} ⭐</b> в Telegram${period === "year" ? " за год" : ""}`;
         price.style.opacity = 1;
       }, still ? 0 : 180);
       if (buy) buy.href = `pay.php?plan=${encodeURIComponent(key)}&months=${period === "year" ? 12 : 1}`;
