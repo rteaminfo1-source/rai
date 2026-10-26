@@ -33,7 +33,7 @@ def find(text, session=None):
     for t in TOOLS:
         try:
             reply = t["fn"](text, low, session if session is not None else {})
-        except (ValueError, ZeroDivisionError, OverflowError, ArithmeticError, IndexError, KeyError):
+        except Exception:  # noqa: BLE001 — ошибка разбора внутри функции = «не моё», а не падение всего ответа
             reply = None
         if reply:
             return reply, t["cat"]
@@ -135,6 +135,8 @@ def _fr(x):
 def equation(text, low, s):
     if not re.search(r"уравнени|реши|найди x|найди х|чему равен x", low) or "=" not in low:
         return None
+    # «найди x, если 2x + 3 = 11» — убираем вступление, чтобы первым «x» было уравнение, а не слово запроса
+    low = re.sub(r"^.*?(?:найди|чему\s+равен|чему\s+равно)\s+[xх]\s*(?:,\s*)?(?:если|при|когда|:)?\s*", "", low, count=1)
     expr = low.translate(_POW)
     expr = re.sub(r"^.*?(?=[-\d(x]*x)", "", expr.replace("х", "x"), count=1) if "x" in expr.replace("х", "x") else ""
     expr = expr.replace("х", "x")

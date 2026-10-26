@@ -3192,5 +3192,145 @@ class Model3DTest(unittest.TestCase):
         self.assertNotEqual(a["scene"], c["scene"], "разные слова должны давать разные модели")
 
 
+
+class PowerToolsTest(unittest.TestCase):
+    """170+ новых точных функций (powertools.py): точные ответы, доступность из чата, без ложных срабатываний."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "p.json"))
+        self.q = VERSIONS["pro-quasar"]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def ask(self, text, sid="pt"):
+        return self.brain.answer(self.q, text, session_id=sid + str(abs(hash(text))))
+
+    def test_many_new_functions(self):
+        import toolbox
+        import powertools  # noqa: F401
+        mine = [t for t in toolbox.TOOLS if t["fn"].__module__ == "powertools"]
+        self.assertGreaterEqual(len(mine), 150)
+
+    def test_exact_answers(self):
+        import toolbox
+        r = toolbox.run
+        self.assertIn("x = 2, y = 1", r("реши систему 2x+y=5, x-y=1"))
+        self.assertIn("3x² + 4x − 1", r("производная x^3 + 2x^2 - x"))
+        self.assertIn("**9**", r("интеграл x^2 от 0 до 3"))
+        self.assertIn("**-2**", r("определитель матрицы [[1,2],[3,4]]"))
+        self.assertIn("6√2", r("упрости корень из 72"))
+        self.assertIn("5 050", r("сумма всех чисел от 1 до 100"))
+        self.assertIn("98,07 г/моль", r("молярная масса H2SO4"))
+        self.assertIn("74,09 г/моль", r("молярная масса Ca(OH)2"))
+        self.assertIn("2,2 А", r("ток при напряжении 220 в и сопротивлении 100 ом"))
+        self.assertIn("2 мая 2027", r("когда пасха в 2027"))
+        self.assertIn("28 марта 2027", r("когда пасха в 2027"))
+        self.assertIn("сходятся", r("проверь инн 7707083893"))
+        self.assertIn("НЕ сходятся", r("проверь инн 7707083894"))
+        self.assertIn("верное", r("проверь снилс 112-233-445 95"))
+        self.assertIn("255.255.255.0", r("подсеть 192.168.1.0/24"))
+        self.assertIn("rwxr-xr-x", r("chmod 755"))
+        self.assertIn("16:9", r("соотношение сторон 1920 на 1080"))
+        self.assertIn("21 : 1", r("контраст #000000 и #ffffff"))
+        self.assertIn("92 дня", r("сколько дней между 1 марта 2026 и 1 июня 2026"))
+        self.assertIn("14.11.2023 22:13:20 UTC", r("unix timestamp 1700000000"))
+        self.assertIn("2480 × 3508", r("сколько пикселей a4 при 300 dpi"))
+        self.assertIn("привет как дела", r("латиница в кириллицу: privet kak dela"))
+        self.assertIn("ООН", r("аббревиатура: Организация Объединённых Наций"))
+        self.assertIn("очень слабый", r("проверь пароль qwerty123"))
+        self.assertIn("рулонов: 12", r("сколько рулонов обоев комната 4 на 5 высота 2,7"))
+
+    def test_reachable_from_chat(self):
+        for text, part in [("найди производную от 5x^4 - 3x + 7", "20x³ − 3"), ("найди x если 2x + 3 = 11", "x = 4"),
+                           ("сколько стоит электричество 2000 вт 3 часа в день по 6 рублей", "6 кВт·ч"),
+                           ("арифметическая прогрессия a1=2 d=3 n=10", "155"),
+                           ("статистика текста: Привет. Как дела? Хорошо", "Предложений | 3"),
+                           ("придумай кличку для кота", "клички"), ("придумай ник", "")]:
+            r = self.ask(text)
+            self.assertEqual(r["intent"], "tool", text)
+            self.assertIn(part, r["answer"], text)
+
+    def test_no_false_positives(self):
+        for text, intent in [("привет", "greeting"), ("напиши стих про осень", "poem"), ("переведи 100 км в мили", "skill"),
+                             ("сделай 3д модель кота", "model3d"), ("сделай презентацию про космос", "slides"),
+                             ("придумай историю про дракона", "invent")]:
+            self.assertEqual(self.ask(text)["intent"], intent, text)
+        self.assertNotEqual(self.ask("стихийные бедствия")["intent"], "poem")      # «стихия» — не стихи
+        self.assertNotEqual(self.ask("давление 120 на 80 это нормально")["intent"], "tool")
+        self.assertEqual(self.ask("найди площадь москвы")["intent"], "web")          # без чисел «найди» — это поиск
+
+    def test_module_lists_match(self):
+        """Каждый модуль, который импортирует движок, встроен в страницу (иначе Rai не запустится — как было с model3d)."""
+        import ast
+        import build_standalone
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"), encoding="utf-8") as fh:
+            page = fh.read()
+        block = page[page.index("const PY_FILES = ["):]
+        py_files = re.findall(r'"([\w.]+)"', block[:block.index("];")])
+        self.assertEqual(sorted(py_files), sorted(build_standalone.FILES))
+        here = os.path.dirname(os.path.abspath(__file__))
+        local = {f[:-3] for f in os.listdir(here) if f.endswith(".py")}
+        for name in [f for f in build_standalone.FILES if f.endswith(".py")]:
+            tree = ast.parse(open(os.path.join(here, name), encoding="utf-8").read())
+            for node in ast.walk(tree):
+                mods = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                       [node.module] if isinstance(node, ast.ImportFrom) and node.module and node.level == 0 else []
+                for mod in mods:
+                    if mod in local and mod not in ("app", "fake_net", "make_hosting", "build_standalone", "make_admin"):
+                        self.assertIn(mod + ".py", build_standalone.FILES, f"{name} импортирует {mod}, а его нет в сборке")
+
+
+class StarsPaymentTest(unittest.TestCase):
+    """Оплата звёздами Telegram: цена от рублей со скидкой + 20% комиссии Telegram, промокод засчитывается."""
+
+    @unittest.skipUnless(__import__("shutil").which("php"), "нет PHP")
+    def test_discounts_apply_to_stars(self):
+        import shutil
+        import subprocess
+        base = os.path.dirname(os.path.abspath(__file__))
+        script = r'''<?php
+require __DIR__ . '/config.php';
+require __DIR__ . '/plans.php';
+require __DIR__ . '/stars.php';
+$out = ['ready' => stars_ready(), 'plain' => plan_offer('plus', 1), 'year' => plan_offer('plus', 12)];
+update_json('discounts.json', function (&$d) {
+    $d['sale'] = ['percent' => 10, 'plans' => [], 'title' => 'Акция', 'until' => time() + 3600];
+    $d['promos']['RAI30'] = ['percent' => 30, 'plans' => [], 'until' => null, 'uses_max' => 5, 'used' => 0];
+});
+$out['sale'] = plan_offer('plus', 1);
+$out['promo'] = plan_offer('plus', 1, 'rai30');
+update_json('users.json', function (&$u) { $u['ann'] = ['login' => 'ann', 'plan' => 'free']; });
+$id = stars_order_create('ann', 'plus', 1, 'RAI30');
+$out['order'] = stars_order($id);
+$out['grant'] = stars_grant($id, 'c1', '1');
+$out['again'] = stars_grant($id, 'c1', '1');
+$out['used'] = discounts()['promos']['RAI30']['used'];
+$out['plan'] = load_json('users.json', [])['ann']['plan'] ?? null;
+echo json_encode($out, JSON_UNESCAPED_UNICODE);
+'''
+        with tempfile.TemporaryDirectory() as site:
+            shutil.copytree(os.path.join(base, "hosting", "rai"), site, dirs_exist_ok=True, ignore=shutil.ignore_patterns("data"))
+            os.makedirs(os.path.join(site, "data"), exist_ok=True)
+            with open(os.path.join(site, "t.php"), "w", encoding="utf-8") as fh:
+                fh.write(script)
+            env = dict(os.environ, TELEGRAM_BOT_TOKEN="123:TEST")
+            r = subprocess.run(["php", os.path.join(site, "t.php")], capture_output=True, text=True, env=env, check=True)
+            out = json.loads(r.stdout)
+        self.assertTrue(out["ready"])
+        self.assertEqual(out["plain"]["price"], 249)
+        self.assertEqual(out["plain"]["stars_rub"], 299)            # +20% комиссия Telegram
+        self.assertEqual(out["plain"]["stars"], 200)                # 299 ₽ / 1,5 ₽ за звезду (вверх)
+        self.assertLess(out["year"]["stars"], out["plain"]["stars"] * 12)   # годовая скидка действует и на звёзды
+        self.assertEqual(out["sale"]["stars"], 180)                 # акция −10% → меньше звёзд
+        self.assertEqual(out["promo"]["price"], 174)
+        self.assertEqual(out["promo"]["stars"], 140)                # промокод −30% → меньше звёзд
+        self.assertEqual((out["order"]["stars"], out["order"]["promo"], out["order"]["discount"]), (140, "RAI30", 30))
+        self.assertTrue(out["grant"])
+        self.assertFalse(out["again"])                              # повторно не начисляем
+        self.assertEqual(out["used"], 1)                            # промокод засчитан один раз
+        self.assertEqual(out["plan"], "plus")
+
 if __name__ == "__main__":
     unittest.main()

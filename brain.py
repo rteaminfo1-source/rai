@@ -44,6 +44,7 @@ except Exception:                      # noqa: BLE001 — любой сбой и
 import toolbox
 import facts  # noqa: F401 — регистрирует справочник в toolbox
 import games
+import powertools  # noqa: F401 — ещё 170+ точных функций (регистрируются в toolbox)
 import fixer
 import encyclopedia
 import files
@@ -82,6 +83,8 @@ _FORGET_RE = re.compile(r"^\s*забудь (?:вс[её]|об? мне)", re.I)
 _ARCHIVE_RE = re.compile(r"(сделай|собери|скачай|создай|упакуй|сохрани)\w*\s+(?:мне\s+)?(?:весь\s+)?(?:чат\s+)?(?:в\s+)?(архив|zip)|"
                          r"^\s*(архив|zip)(?:\s+чата)?\s*[.!?]*$", re.I)
 _ABOUT_ME = {"bot_age", "bot_feelings", "who_are_you"}
+# «команда: текст» («статистика текста: …», «в верхний регистр: …») — одно задание, его не режем по «?» и строкам
+_COMMAND_RE = re.compile(r"^\s*[^:\n?]{2,60}:\s*\S")
 _YOU_RE = re.compile(r"\b(?:ты|тебя|тебе|тобой|твой|твоя|твоё|твое|твои|твоих|вы|вас|вам|ваш|rai|рай|раи|бот\w*)\b", re.I)
 # Темы-реплики: отвечают, только когда весь вопрос про них (иначе «что посмотреть вечером» = «добрый вечер»).
 _ALL_TOOLS_RE = re.compile(r"(?:все|список|покажи)\s+(?:твои\s+|свои\s+)?(?:функци|возможност|команд)|(?:100|сто)\s+функци|какие\s+(?:у\s+тебя\s+)?(?:есть\s+)?функци", re.I)
@@ -348,7 +351,8 @@ class Brain:
         parts = [message]
         if social.is_link_request(message):
             parts = [message]  # ссылку с вопросом не режем на части
-        elif version.multi and not _REMEMBER_RE.match(message) and not codeai.extract_code(message)[0]:
+        elif version.multi and not _REMEMBER_RE.match(message) and not codeai.extract_code(message)[0] \
+                and not _COMMAND_RE.match(message):
             parts = [p.strip() for p in re.split(r"(?<=\?)\s+|\n+", message) if p.strip()] or [message]
 
         net.PROBLEMS.clear()
@@ -435,6 +439,10 @@ class Brain:
         # отвечаем выдумкой (каждый раз новой) про тему разговора, а не ищем статью про слово «выдумать»
         if talk.is_invent_request(text) and not talk.is_poem_request(text) and not creative.is_slides_request(text) \
                 and not codeai.is_build_request(text):
+            # «придумай кличку / название / имя / ник» — у Rai есть точные генераторы, они лучше общей выдумки
+            named = powertools.invent_tool(text, session)
+            if named:
+                return named, "tool"
             return talk.invent(text, session.get("topic")), "invent"
 
         # ---- ссылка на TikTok, YouTube, Telegram, Instagram, VK, X или сайт — разбор аккаунта, видео, страницы
@@ -547,6 +555,12 @@ class Brain:
             thought = self._think(version, text, attachments, min_conf=0.35)
             if thought:
                 return thought
+
+        # ---- точные расчёты с единицами — раньше советов и конвертера («3 часа в день» — это не «часы в сутки»)
+        if not codeai.is_build_request(text) and not online.explicit_search(text):
+            early = powertools.early_tool(text, play)
+            if early:
+                return early, "tool"
 
         # ---- разговор: стихи, советы фильмов и книг, поддержка
         if talk.is_poem_request(text) and not creative.is_slides_request(text):
