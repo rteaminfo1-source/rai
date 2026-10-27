@@ -2637,9 +2637,19 @@ def rai_code(action, code, lang, prompt):
       // Правила Rai: мат, 18+, наркотики, насилие, взлом, экстремизм — до любого ответа (и до нейросети)
       const broken = engine.moderate ? await engine.moderate(text).catch(() => null) : null;
       if (broken) throw {violation: broken};
+      // Rai сам зовёт агентов (team.js): «позови агентов…», несколько задач в одном сообщении
+      const autoTeam = !shots.length && window.RaiTeam && !window.RaiTeam.active() && window.RaiTeam.autoPlan ? window.RaiTeam.autoPlan(text) : null;
       if (!shots.length && window.RaiTeam && window.RaiTeam.active()) {
         // Команда моделей: до 1000 моделей Rai отвечают параллельно, побеждает лучший ответ (team.js)
         reply = await teamReply(text, chat, history, pending);
+      } else if (autoTeam && autoTeam.text) {
+        reply = await teamReply(autoTeam.text, chat, history, pending, autoTeam);
+      } else if (autoTeam) {
+        // «позови 50 агентов» без вопроса — команда включается и отвечает на следующие вопросы
+        window.RaiTeam.configure({on: true, groups: [{n: autoTeam.n, version: "*", level: "*"}]});
+        reply = {role: "rai", q: text, meta: "Команда Rai",
+                 text: "👥 **Команда включена: " + autoTeam.n + " агентов.** Задавайте вопрос — агенты ответят вместе и параллельно, " +
+                       "лучший ответ победит голосованием. Выключить или поменять состав — кнопка «👥 Команда» под полем ввода."};
       } else {
         await new Promise((r) => setTimeout(r, 40));  // успеть показать «печатает…»
         t0 = performance.now();
@@ -2714,6 +2724,17 @@ def rai_code(action, code, lang, prompt):
                    q: text, tool: isToolAnswer(data) || [].concat(data.intent || []).some((i) => i === "file" || i === "screen" || i === "social")};
           if (data.violation) reply.violation = data.violation;
         }
+        // Один Rai не нашёл уверенного ответа — он сам зовёт команду агентов; нашли — показываем их ответ
+        if (!shots.length && !reply.violation && window.RaiTeam && window.RaiTeam.shouldEscalate && window.RaiTeam.shouldEscalate(data)) {
+          let team = null;
+          try { team = await teamReply(text, chat, history, pending, {reason: "unsure", n: 8, mode: "council"}); }
+          catch (e) { console.warn("Rai: команда агентов не помогла:", e); }
+          if (team && team.found) reply = team;
+          else if (team && team.summary) {
+            reply.attachments = (reply.attachments || []).concat([team.summary]);
+            reply.meta += " · агенты тоже не нашли";
+          }
+        }
       }
     } catch (e) {
       if (e && e.violation) {
@@ -2746,6 +2767,8 @@ def rai_code(action, code, lang, prompt):
     if (reply.violation) stopDialog(chat, reply.violation, text);
     try { if (reply.usage) Usage.spend(reply.usage); } catch (e) { /* счётчик токенов не критичен */ }
     pending.remove();
+    delete reply.found;     // служебные поля ответа команды — в историю чата не пишем
+    delete reply.summary;
     chat.messages.push(reply);
     chat.updated = Date.now();
     if (currentId === chat.id) renderMessage(reply);
@@ -2769,19 +2792,23 @@ def rai_code(action, code, lang, prompt):
   }
 
   // Команда моделей (team.js): живая карточка в пузыре «Rai пишет…», потом — ответ-победитель и отчёт о работе команды
-  async function teamReply(text, chat, history, pending) {
+  // auto — команду позвал сам Rai: {reason, n, mode} (team.js → autoPlan, shouldEscalate)
+  async function teamReply(text, chat, history, pending, auto) {
     sendAsStop(true);   // кнопка отправки на время работы — «остановить команду»
     let r;
     try {
-      r = await window.RaiTeam.answer({text: text, history: history, chatId: chat.id, host: pending.querySelector(".bubble")});
+      r = await window.RaiTeam.answer({text: text, history: history, chatId: chat.id, host: pending.querySelector(".bubble"), auto: auto || null});
     } finally {
       sendAsStop(false);
       sendBtn.disabled = true;
     }
     let use = null;
     try { use = Usage.compute({prompt: text, answer: r.text || ""}); } catch (e) { /* без счётчика токенов */ }
-    return {role: "rai", text: r.text, attachments: r.attachments || [], usage: use, q: text,
-            meta: r.meta + (use ? " · " + Usage.num(use.total) + " ток." : ""), tool: !!(r.data && isToolAnswer(r.data))};
+    const atts = r.attachments || [];
+    return {role: "rai", text: r.text, attachments: atts, usage: use, q: text,
+            meta: r.meta + (use ? " · " + Usage.num(use.total) + " ток." : ""), tool: !!(r.data && isToolAnswer(r.data)),
+            found: !!r.data,
+            summary: atts.find((a) => a && a.type === "team") || null};
   }
 
   // ---------------------------------------------------------------- правила Rai: остановка диалога и блокировка

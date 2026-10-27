@@ -1244,9 +1244,10 @@ class Brain:
 
     @staticmethod
     def _code_attachment(result, attachments):
-        attachments.append({"type": "code", "lang": result["lang"], "code": result["code"],
-                            "filename": result.get("filename") or "main." + codeai.EXT_OF.get(result["lang"], "txt"),
-                            "title": result.get("title") or "Код", "site": bool(result.get("site"))})
+        for r in [result] + list(result.get("more") or []):     # несколько программ — от агентов-программистов
+            attachments.append({"type": "code", "lang": r["lang"], "code": r["code"],
+                                "filename": r.get("filename") or "main." + codeai.EXT_OF.get(r["lang"], "txt"),
+                                "title": r.get("title") or "Код", "site": bool(r.get("site"))})
 
     def _site_facts(self, topic):
         """Тексты о теме для сайта «про X» — из своих знаний Rai (словарь, база знаний, энциклопедия, глубокие

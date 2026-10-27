@@ -1179,8 +1179,35 @@ def scaffold(prompt, lang=None):
     return {"answer": about, "code": code, "lang": lang, "filename": name, "title": task[:60], "scaffold": True}
 
 
+_LIST_ITEM = re.compile(r"^\s*(?:\d{1,3}[.)]|[-•*–—])\s+")
+_MANY_BUILDS = re.compile(r"[,;]?\s+(?:и|а\s+также|а\s+ещ[её]|плюс)\s+(?=(?:сделай|напиши|создай|собери|сгенерируй|сверстай)\b)", re.I)
+
+
+def plan(prompt):
+    """Планировщик агентов Rai Code: на какие задачи разбить просьбу — по агенту-программисту на каждую.
+
+    «1) калькулятор 2) змейка» и строки с «-» → по задаче на пункт; «калькулятор на python и rust» → та же задача
+    на каждом языке; «напиши калькулятор и сделай сайт кофейни» → две просьбы. Иначе — одна задача."""
+    text = (prompt or "").strip()
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    marked = [l for l in lines if _LIST_ITEM.match(l)]
+    if len(marked) >= 2 and len(marked) >= len(lines) - 1:
+        items = [_LIST_ITEM.sub("", l).strip() for l in marked]
+        return [{"prompt": it, "lang": polyglot.find_lang(it)} for it in items if len(it) > 1][:12]
+    langs = polyglot.find_langs(text)
+    if len(langs) >= 2:
+        base = polyglot.strip_langs(text)
+        return [{"prompt": f"{base} на {polyglot.LANGS[k].name}", "lang": k} for k in langs[:8]]
+    parts = [p.strip(" ,.;") for p in _MANY_BUILDS.split(text) if p.strip(" ,.;")]
+    if len(parts) >= 2:
+        return [{"prompt": p, "lang": polyglot.find_lang(p)} for p in parts[:8]]
+    return [{"prompt": text, "lang": polyglot.find_lang(text)}]
+
+
 def run_action(action, code, lang=None, prompt=""):
     """Выполнить действие над кодом. Возвращает {"answer", "code"?, "lang", "filename"?}."""
+    if action == "plan":                          # планировщик агентов: задачи для агентов-программистов
+        return {"answer": "", "tasks": plan(prompt), "lang": lang or "text"}
     # Сайт, приложение или программу на запрещённую тему (наркотики, фишинг, вирусы…) Rai не делает
     if action == "generate":
         bad = moderation.forbidden_build(prompt)
@@ -1239,7 +1266,7 @@ def run_action(action, code, lang=None, prompt=""):
         found = codelib.generate(prompt, lang)
         if found:
             return {"answer": found["about"], "code": found["code"], "lang": found["lang"], "filename": found["filename"],
-                    "title": found["title"]}
+                    "title": found["title"], "stdin": found.get("stdin", "")}
         built = codemind.generate(prompt, lang)   # нет в каталоге — Rai собирает сам по смыслу задачи
         if built:
             return {"answer": built["about"], "code": built["code"], "lang": built["lang"],
@@ -1247,7 +1274,7 @@ def run_action(action, code, lang=None, prompt=""):
         made = polyglot.generate(prompt, lang if lang in polyglot.LANGS else "python")   # 50 классических задач на 27 языках
         if made:
             return {"answer": made["about"], "code": made["code"], "lang": made["lang"], "filename": made["filename"],
-                    "title": made["title"]}
+                    "title": made["title"], "stdin": made.get("stdin", "")}
         return scaffold(prompt, lang)             # всегда даём рабочий каркас, а не «не знаю»
     return {"answer": "Не понял, что сделать с кодом. Могу: проверить, исправить, объяснить, прокомментировать, написать.",
             "lang": lang}
@@ -1295,6 +1322,30 @@ def chat(text, version=None, state=None):
             action == "generate" and (polyglot.find_lang(text) or re.search(
                 r"код|программ|скрипт|функци|игр|бот|сайт|страниц|калькулятор|hello|приложени|класс\b|алгоритм|сортировк|"
                 r"парсер|сервер|таймер|html", (text or "").lower())):
+        tasks = plan(text)
+        if len(tasks) > 1:                    # «калькулятор на python и rust», «1) … 2) …» — по агенту на задачу
+            return agents_chat(tasks)
         result = run_action("generate", "", codelib.lang_from_text(text) or "python", text)
         return result if result.get("code") else None
     return None
+
+
+def agents_chat(tasks):
+    """Несколько программ в чате: Rai сам зовёт агентов-программистов, у каждого — своя задача и свой файл."""
+    done = []
+    for t in tasks:
+        r = run_action("generate", "", t["lang"] or codelib.lang_from_text(t["prompt"]) or "python", t["prompt"])
+        if r.get("code"):
+            done.append(r)
+    if not done:
+        return None
+    lines = [f"👥 **Rai позвал агентов-программистов: {len(done)}** — у каждого своя задача, все работали без интернета.", ""]
+    for i, r in enumerate(done, 1):
+        title = r.get("title") or "Программа"
+        lang = LANG_NAMES.get(r["lang"], r["lang"])
+        lines.append(f"{i}. 👨‍💻 **{title}** · {lang} · `{r.get('filename') or 'main.' + EXT_OF.get(r['lang'], 'txt')}`")
+    lines += ["", "Файлы — ниже: «Открыть в Code», «Скачать», «Копировать»."]
+    first = dict(done[0])
+    first["answer"] = "\n".join(lines)
+    first["more"] = done[1:]
+    return first

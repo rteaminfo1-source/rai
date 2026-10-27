@@ -4566,6 +4566,39 @@ RUN_HINT = {k: run for k, _, run in LANG_INFO}
 _LANG_RES = [(k, re.compile(p, re.I)) for k, p, _ in LANG_INFO]
 
 
+# Названия языков в перечислении («на python, go и rust»): после первого языка короткие имена (go, c, r) уже понятны
+_LANG_WORD = (r"(?:c\+\+|с\+\+|cpp|c#|с#|csharp|си\s*шарп\w*|шарп\w*|си\s*плюс\s*плюс\w*|плюсах|typescript|тайпскрипт\w*|ts|"
+              r"javascript|джаваскрипт\w*|js|java|джав[аеуы]|kotlin|котлин\w*|python|питон\w*|пайтон\w*|py|golang|голанг\w*|go|"
+              r"rust|раст[еау]?|swift|свифт\w*|php|пхп|ruby|руби|lua|луа|dart|дарт[еау]?|pascal|паскал\w*|delphi|делфи|дельфи|"
+              r"vb\.?net|vb|visual\s*basic|бейсик\w*|powershell|bash|баш[еу]?|shell|perl|перл\w*|julia|джули[ия]|scala|скал[аеу]|"
+              r"groovy|груви|fortran|фортран\w*|nim|ним[еу]?|crystal|кристал\w*|си|c|r)")
+_LANG_LIST = re.compile(r"(?<![\w+#])(?:на\s+(?:языках?\s+)?|языках?\s+)" + _LANG_WORD + r"(?:\s*(?:,|и|или|/)\s*" + _LANG_WORD +
+                        r")+(?![\w+#])", re.I)
+
+
+def find_langs(text):
+    """Все языки из перечисления: «калькулятор на python и rust» → ["python", "rust"]; один язык → [он]."""
+    low = (text or "").lower().replace("ё", "е")
+    m = _LANG_LIST.search(low)
+    if m:
+        body = re.sub(r"^(?:на\s+)?(?:языках?\s+)?", "", m.group(0))
+        out = []
+        for word in re.split(r"\s*(?:,|\bи\b|\bили\b|/)\s*", body):
+            key = find_lang("на " + word.strip())
+            if key and key not in out:
+                out.append(key)
+        if len(out) >= 2:
+            return out
+    one = find_lang(low)
+    return [one] if one else []
+
+
+def strip_langs(text):
+    """Просьба без перечисления языков: «калькулятор на python и rust» → «калькулятор»."""
+    out = _LANG_LIST.sub(" ", text or "")
+    return re.sub(r"\s{2,}", " ", out).strip(" ,.")
+
+
 def find_lang(text):
     """Язык программирования из просьбы: «fizzbuzz на расте» → "rust"."""
     low = (text or "").lower().replace("ё", "е")
@@ -4593,7 +4626,7 @@ def program(task, lang):
     em = LANGS[lang]({"main": t["main"], "funcs": t["funcs"]})
     return {"code": em.render(), "lang": lang, "filename": em.file or f"main.{em.ext}", "title": t["title"],
             "about": f"**{t['title']}** на {em.name} — {t['about']}\n\nКак запустить: `{RUN_HINT[lang]}`",
-            "task": task}
+            "task": task, "stdin": t["stdin"]}
 
 
 def generate(text, lang=None):

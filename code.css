@@ -107,3 +107,31 @@
   .code-top { padding-inline: 12px; }
   .tb .lbl { display: none; }
 }
+
+/* ---------- агенты Rai Code: планировщик, программисты, тестировщик, исправитель, ревьюер */
+.agents { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px;
+  background: radial-gradient(120% 100% at 100% 0%, rgba(255, 61, 129, .10), transparent 60%), rgba(255, 255, 255, .02); }
+.ag-head { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; font-size: 13.5px; }
+.ag-head .ag-sub { color: var(--muted); font-size: 12.5px; }
+.ag-head .ag-time { margin-left: auto; font: 600 12px/1 var(--font-mono); color: #ff3d81; }
+.ag-rows { display: grid; gap: 4px; }
+.ag-row { display: grid; grid-template-columns: 22px auto 1fr auto; gap: 8px; align-items: baseline; font-size: 12.5px; line-height: 1.45;
+  padding: 4px 6px; border-radius: 8px; animation: agIn .25s ease-out; }
+.ag-row .ag-ic { font-size: 14px; }
+.ag-row b { white-space: nowrap; font-weight: 600; }
+.ag-row .ag-t { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.ag-row .ag-st { font-style: normal; font: 500 11.5px/1.4 var(--font-mono); white-space: nowrap; color: var(--muted); }
+.ag-row.run { background: rgba(255, 209, 102, .06); }
+.ag-row.run .ag-st { color: #ffd166; animation: agPulse 1s infinite; }
+.ag-row.ok .ag-st { color: #3ccf7a; }
+.ag-row.bad { background: rgba(255, 77, 77, .07); }
+.ag-row.bad .ag-st { color: #ff6b6b; }
+.ag-row.skip .ag-st { color: #8b8b9a; }
+.ag-result { margin-top: 10px; display: grid; gap: 6px; }
+.ag-result details.codeblock > summary { cursor: pointer; list-style: none; }
+.ag-result details.codeblock > summary::-webkit-details-marker { display: none; }
+.ag-result details.codeblock pre { max-height: 320px; overflow: auto; }
+.tb.agents-tg.on { border-color: rgba(255, 61, 129, .7); background: rgba(255, 61, 129, .12); }
+@keyframes agIn { from { opacity: 0; transform: translateY(3px); } }
+@keyframes agPulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .ag-row, .ag-row.run .ag-st { animation: none; } }

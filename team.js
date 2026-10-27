@@ -50,7 +50,7 @@
 
   // ---------------------------------------------------------------- настройки
   function load() {
-    const def = {on: false, groups: [{n: 12, version: "*", level: "*"}], threads: 0, mode: "auto", ver: "*", lvl: "*"};
+    const def = {on: false, auto: true, groups: [{n: 12, version: "*", level: "*"}], threads: 0, mode: "auto", ver: "*", lvl: "*"};
     try {
       const s = JSON.parse(localStorage.getItem(KEY) || "null");
       if (!s || !Array.isArray(s.groups)) return def;
@@ -61,7 +61,7 @@
         const n = Math.min(left, Math.max(0, Math.floor(+g.n || 0)));
         if (n > 0) { groups.push({n: n, version: g.version, level: g.level}); left -= n; }
       }
-      return {on: !!s.on, groups: groups, threads: Math.max(0, Math.floor(+s.threads || 0)),
+      return {on: !!s.on, auto: s.auto !== false, groups: groups, threads: Math.max(0, Math.floor(+s.threads || 0)),
               mode: ["auto", "council", "split"].includes(s.mode) ? s.mode : "auto",
               ver: typeof s.ver === "string" ? s.ver : "*", lvl: typeof s.lvl === "string" ? s.lvl : "*"};
     } catch (e) {
@@ -88,10 +88,10 @@
   }
 
   // Список моделей команды: группа «все версии · все уровни» перебирает все сочетания по кругу
-  function models() {
+  function models(groups) {
     const V = versionIds(), L = levelIds(), out = [];
     const chatV = page.chatVersion(), chatL = page.currentLevel();
-    for (const g of S.groups) {
+    for (const g of groups || S.groups) {
       for (let j = 0; j < g.n && out.length < MAX; j++) {
         const version = g.version === "*" ? V[j % V.length] : g.version === "chat" || !V.includes(g.version) ? chatV : g.version;
         const spin = g.version === "*" ? Math.floor(j / V.length) : j;
@@ -130,6 +130,39 @@
       return lines.length > 1 ? lines.slice(0, MAX) : [text];
     }
     return list || [text];
+  }
+
+  // ---------------------------------------------------------------- Rai сам зовёт агентов
+  // «позови 20 агентов: почему небо голубое», «спроси у команды…», список задач в одном сообщении — команда собирается
+  // сама; а если один Rai не нашёл уверенного ответа — он сам спрашивает команду (escalate).
+  const SUMMON = /(?:^|[\s,.!?:;])(?:позови|позовите|подключи|вызови|призови|запусти|собери|задействуй|используй|давай)\s+(?:мне\s+|нам\s+)?(?:(\d{1,4})\s+)?(?:агент|команд|модел|помощник)[а-яё]*/i;
+  const ASK_TEAM = /(?:спроси|посоветуйся|узнай)\s+(?:у\s+)?(?:команд|агент|модел)[а-яё]*|(?:командой|агентами|всей\s+командой)\s+(?:реши|ответь|подумай|ответьте|решите|посчитай)/i;
+  const REASONS = {ask: "вы попросили позвать агентов", tasks: "в сообщении несколько задач — агенты делят их и работают параллельно",
+                   unsure: "один Rai не нашёл уверенного ответа — спросил команду агентов"};
+  function summonOf(text) {
+    const t = String(text || "");
+    const m = t.match(SUMMON) || t.match(ASK_TEAM);
+    if (!m) return null;
+    const n = m[1] ? Math.max(2, Math.min(MAX, +m[1])) : 0;
+    const rest = (t.slice(0, m.index) + " " + t.slice(m.index + m[0].length))
+      .replace(/^[\s,.:;!?—-]+|[\s,.:;—-]+$/g, "").replace(/^(?:и|чтобы|пусть|пускай)\s+/i, "").trim();
+    return {n: n, rest: rest};
+  }
+  function autoPlan(text) {
+    const asked = summonOf(text);
+    if (asked) return {reason: "ask", n: asked.n || 12, text: asked.rest, mode: splitTasks(asked.rest) ? "split" : "council"};
+    if (!S.auto || !canThread()) return null;
+    const list = splitTasks(text);
+    if (list && list.length >= 2) return {reason: "tasks", n: Math.min(24, Math.max(4, list.length * 2)), text: text, mode: "split"};
+    return null;
+  }
+  // Один Rai не нашёл ответа — стоит позвать команду (но не когда просто нет интернета)
+  function shouldEscalate(data) {
+    if (!S.auto || active || !canThread() || !data || typeof data.answer !== "string") return false;
+    const intents = [].concat(data.intent || []).filter(Boolean);
+    if (intents.some((i) => SURE.test(i))) return false;
+    const head = data.answer.slice(0, 400);
+    return ABSTAIN.test(head) && !/нет связи с интернетом|без интернета|нет интернета/i.test(head);
   }
 
   // ---------------------------------------------------------------- потоки: Web Worker с Python и знаниями Rai
@@ -491,17 +524,20 @@ async function handle(m) {
 
   // Ответ команды для чата: живая карточка в пузыре, потом — ответ-победитель и отчёт о работе
   function answer(opts) {
-    const ms = models();
+    const auto = opts.auto || null;
+    const ms = auto ? models([{n: Math.max(2, Math.min(MAX, auto.n || 12)), version: "*", level: "*"}]) : models();
     if (!ms.length) ms.push({i: 0, name: "Rai-1", version: page.chatVersion(), level: page.currentLevel()});
-    const tasks = tasksFor(opts.text);
+    const tasks = auto ? (auto.mode === "split" ? splitTasks(opts.text) || [opts.text] : [opts.text]) : tasksFor(opts.text);
     const run = {id: ++runSeq, question: String(opts.text || ""), models: ms, jobs: [], queue: [], live: true,
                  tasks: tasks.map((q) => ({q: q, clusters: [], byKey: new Map(), abst: 0, err: 0, done: 0, total: 0, abstData: null})),
                  start: performance.now(), first: null, lastEnd: 0, work: 0, log: [], logSeq: 0, stopped: false, finished: false, fallback: false,
                  session: "team-" + (opts.chatId || "chat"), history: opts.history || [], historyJson: JSON.stringify(opts.history || []),
                  profile: (page.profile && page.profile()) || {}};
     run.mode = run.tasks.length > 1 ? "split" : "council";
+    run.auto = auto ? (REASONS[auto.reason] || auto.reason || "") : "";
     plan(run);
     active = last = run;
+    if (run.auto) note(run, "🤖 Rai сам позвал агентов: " + run.auto);
     note(run, "Команда: " + ms.length + " " + plural(ms.length, "модель", "модели", "моделей") +
       (run.tasks.length > 1 ? ", " + run.tasks.length + " " + plural(run.tasks.length, "задача", "задачи", "задач") : "") +
       ", потоков: " + (canThread() ? threads() : 1));
@@ -539,6 +575,10 @@ async function handle(m) {
           (run.stopped ? "Команду остановили раньше, чем модели успели ответить." : "Команда не смогла ответить: модели не нашли ответа. Попробуйте спросить иначе.");
       }
     } else {
+      for (const t of run.tasks) {
+        const best = leader(t);
+        for (const a of (best && best.data && best.data.attachments) || []) attachments.push(a);
+      }
       text = run.tasks.map((t, k) => {
         const best = leader(t), voters = t.clusters.reduce((a, c) => a + c.n, 0);
         const body = best ? best.text : (t.abstData && t.abstData.answer) || "_Нет ответа — модели не успели или не нашли._";
@@ -576,7 +616,7 @@ async function handle(m) {
       return [j.m, j.task, j.thread, j.t0 == null ? -1 : Math.round(j.t0), j.t1 == null ? -1 : Math.round(j.t1), r == null ? 6 : r, STATE_CODE[j.state] || 0];
     });
     const used = new Set(run.jobs.filter((j) => j.thread >= 0 && j.t1 != null).map((j) => j.thread));
-    return {type: "team", v: 1, q: run.question.slice(0, 300), mode: run.mode, models: run.models.length, threads: Math.max(1, used.size),
+    return {type: "team", v: 1, q: run.question.slice(0, 300), mode: run.mode, auto: run.auto || "", models: run.models.length, threads: Math.max(1, used.size),
             ms: Math.round(run.end || 0), work: Math.round(run.work), first: Math.round(run.first || 0), lastEnd: Math.round(run.lastEnd || 0),
             fallback: !!run.fallback, stopped: !!run.stopped, cfg: cfg, mc: mc, tasks: tasks, jobs: jobs};
   }
@@ -760,6 +800,7 @@ async function handle(m) {
     const el = document.createElement("div");
     el.className = "team-live";
     el.innerHTML = `<div class="tl-top"><b>👥 Команда Rai</b><span class="tl-sub"></span><span class="tl-time"></span></div>` +
+      (run.auto ? `<div class="tl-auto">🤖 Rai сам позвал агентов: ${esc(run.auto)}</div>` : "") +
       `<div class="tl-bar"><i></i></div><div class="tl-stat"></div><div class="tl-lanes"></div>` +
       `<canvas class="tl-tiles" aria-hidden="true"></canvas><div class="tl-lead"></div>` +
       `<div class="tl-acts"><button type="button" class="tl-btn watch">🔭 Смотреть в отдельном окне</button>` +
@@ -819,7 +860,8 @@ async function handle(m) {
     const best = t0.clusters[0];
     const boost = a.lastEnd - a.first > 50 && a.work ? a.work / (a.lastEnd - a.first) : 1;
     const agree = vm.tasks.length === 1 && best && a.tasks[0].voters ? Math.round((best.n / a.tasks[0].voters) * 100) : null;
-    box.innerHTML = `<summary><span class="ts-ic">👥</span><b>Команда Rai</b> · ${a.models} ${plural(a.models, "модель", "модели", "моделей")} · ` +
+    box.innerHTML = `<summary><span class="ts-ic">${a.auto ? "🤖" : "👥"}</span><b>${a.auto ? "Rai сам позвал агентов" : "Команда Rai"}</b> · ` +
+      `${a.models} ${plural(a.models, "модель", "модели", "моделей")} · ` +
       `${a.threads} ${plural(a.threads, "поток", "потока", "потоков")} · ${secs(a.ms)}` +
       (boost >= 1.15 ? ` · ×${boost.toFixed(1).replace(".", ",")} быстрее` : "") + (agree != null ? ` · согласие ${agree}%` : "") +
       (a.stopped ? " · остановлено" : "") + `</summary><div class="ts-body"></div>`;
@@ -841,7 +883,7 @@ async function handle(m) {
     const abst = tasks.reduce((x, t) => x + (t.abst || 0), 0), err = tasks.reduce((x, t) => x + (t.err || 0), 0);
     const meta = document.createElement("p");
     meta.className = "ts-meta";
-    meta.textContent = "Ответили " + num(tasks.reduce((x, t) => x + (t.voters || 0), 0)) + " · воздержались " + num(abst) + (err ? " · ошибок " + err : "") +
+    meta.textContent = (a.auto ? "Почему: " + a.auto + ". " : "") + "Ответили " + num(tasks.reduce((x, t) => x + (t.voters || 0), 0)) + " · воздержались " + num(abst) + (err ? " · ошибок " + err : "") +
       " · модели думали в сумме " + secs(a.work) + (a.fallback ? " · без отдельных потоков" : "");
     const btn = document.createElement("button");
     btn.type = "button";
@@ -1203,6 +1245,8 @@ async function handle(m) {
       <p class="td-lead">До <b>1000 моделей Rai</b> отвечают вместе и <b>параллельно</b> — в нескольких потоках вашего компьютера.
         Похожие ответы объединяются, модели голосуют, побеждает лучший ответ. Как они работают, видно в чате и в отдельном окне.</p>
       <label class="td-switch"><input type="checkbox" id="tdOn"><span>Отвечать командой</span></label>
+      <label class="td-switch"><input type="checkbox" id="tdAuto"><span>Rai сам зовёт агентов — когда в сообщении несколько задач,
+        когда один Rai не нашёл ответа или вы пишете «позови агентов»</span></label>
       <div class="td-count"><b id="tdN">0</b><span>из 1000 моделей</span></div>
       <div class="td-add">
         <label>Версия <select id="tdVer"></select></label>
@@ -1232,6 +1276,7 @@ async function handle(m) {
     $("tdDone").addEventListener("click", close);
     dlg.addEventListener("click", (e) => { if (e.target === dlg) close(); });
     $("tdOn").addEventListener("change", (e) => { S.on = e.target.checked; if (S.on && !total()) addModels(12); save(); renderDialog(); renderChip(); });
+    $("tdAuto").addEventListener("change", (e) => { S.auto = e.target.checked; save(); });
     $("tdVer").addEventListener("change", (e) => { S.ver = e.target.value; save(); });
     $("tdLvl").addEventListener("change", (e) => { S.lvl = e.target.value; save(); });
     dlg.querySelector(".td-quick").addEventListener("click", (e) => {
@@ -1286,6 +1331,7 @@ async function handle(m) {
     const $ = (id) => dlg.querySelector("#" + id);
     const n = total();
     $("tdOn").checked = S.on && n > 0;
+    $("tdAuto").checked = S.auto !== false;
     $("tdN").textContent = num(n);
     const vers = ((page.versions && page.versions()) || []);
     $("tdVer").innerHTML = `<option value="*">Все версии по кругу</option><option value="chat">Как в чате</option>` +
@@ -1355,6 +1401,8 @@ async function handle(m) {
   .team-live .tl-bar { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
   .team-live .tl-bar i { display: block; height: 100%; width: 0; background: var(--grad, linear-gradient(90deg, #ff2d2d, #ff3d81, #8b5cff)); transition: width .2s; }
   .team-live .tl-stat { font-size: 12.5px; color: var(--muted); }
+  .team-live .tl-auto { font-size: 12.5px; color: var(--fg); padding: 5px 9px; border-radius: 10px; background: rgba(139, 92, 255, .14);
+    border: 1px solid rgba(139, 92, 255, .35); }
   .team-live .tl-lanes { display: grid; gap: 2px; font: 12px/1.45 var(--font-mono); }
   .tl-lane { display: flex; gap: 8px; align-items: center; min-width: 0; }
   .tl-lane b { flex: none; width: 66px; color: var(--muted); font-weight: 500; }
@@ -1391,7 +1439,8 @@ async function handle(m) {
   .td-head h2 { margin: 0; font: 700 19px/1.2 var(--font-display, sans-serif); }
   .td-lead, .td-note { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
   .td-switch { display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
-  .td-switch input { width: 18px; height: 18px; accent-color: #ff3d81; }
+  .td-switch input { width: 18px; height: 18px; accent-color: #ff3d81; flex: none; }
+  .td-switch span { font-weight: 500; }
   .td-count { display: flex; align-items: baseline; gap: 8px; }
   .td-count b { font: 800 34px/1 var(--font-display, sans-serif); background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .td-count span { color: var(--muted); font-size: 13px; }
@@ -1428,6 +1477,8 @@ async function handle(m) {
     active() { return !!(S.on && total() > 0); },
     running() { return !!active; },
     answer: answer,
+    autoPlan: autoPlan,
+    shouldEscalate: shouldEscalate,
     stop() { if (active) stop(active); },
     renderSummary: renderSummary,
     openSettings: openSettings,
@@ -1436,12 +1487,13 @@ async function handle(m) {
     // для проверок: состав, потоки и прямые настройки
     configure(o) {
       if (o && Array.isArray(o.groups)) S.groups = o.groups.map((g) => ({n: Math.max(1, Math.min(MAX, g.n | 0)), version: g.version || "*", level: g.level || "*"}));
-      for (const k of ["on", "threads", "mode"]) if (o && k in o) S[k] = o[k];
+      for (const k of ["on", "auto", "threads", "mode"]) if (o && k in o) S[k] = o[k];
       while (total() > MAX) removeModels(total() - MAX);
       save(); renderChip(); renderDialog();
     },
     // для тестов (test_app.py): разбор задач, оценка ответов, голосование и отчёт без браузера
-    _internals: {splitTasks: splitTasks, judge: judge, place: place, leader: leader, summary: summary, fromSummary: fromSummary, plan: plan},
+    _internals: {splitTasks: splitTasks, judge: judge, place: place, leader: leader, summary: summary, fromSummary: fromSummary, plan: plan,
+                 summonOf: summonOf},
     state() {
       return {settings: JSON.parse(JSON.stringify(S)), models: total(), threads: threads(), maxThreads: maxThreads(),
               pool: pool.list.map((w) => ({n: w.n, state: w.state, done: w.done, label: w.label})), running: !!active};

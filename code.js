@@ -227,6 +227,8 @@
         <button class="tb" type="button" data-act="fix">${ICON("wand")}Исправить</button>
         <button class="tb" type="button" data-act="explain">${ICON("book")}Объяснить</button>
         <button class="tb" type="button" data-act="comment">${ICON("edit")}Комментарии</button>
+        <button class="tb agents-tg" type="button" id="cAgents" aria-pressed="true"
+          title="Агенты Rai Code: планировщик, программисты, тестировщик, исправитель и ревьюер работают над задачей вместе">👥 Агенты: авто</button>
       </div>
       <div class="ai-log" id="cAiLog"></div>
       <form class="ai-form" id="cAiForm">
@@ -237,7 +239,7 @@
   </div>
 </div>`;
     for (const id of ["cRun", "cStop", "cLang", "cDiag", "cUsage", "cUsageVal", "cOpen", "cDl", "cZip", "cFile", "cFiles", "cGutter", "cHl", "cText",
-                      "cStdin", "cConsole", "outPane", "previewPane", "cPrevEmpty", "aiPane", "cAiLog", "cAiForm", "cAiInput"]) {
+                      "cStdin", "cConsole", "outPane", "previewPane", "cPrevEmpty", "aiPane", "cAiLog", "cAiForm", "cAiInput", "cAgents"]) {
       el[id] = root.querySelector("#" + id);
     }
     el.root = root;
@@ -889,7 +891,7 @@ onmessage = async (e) => {
    * Возвращает {ok, output, error, images}; зависшую программу останавливает по времени.
    */
   let snippetWorker = null;
-  function runSnippet(language, code, sources, timeoutMs) {
+  function runSnippet(language, code, sources, timeoutMs, stdin) {
     return new Promise((resolve) => {
       const isPy = language !== "javascript";
       let worker;
@@ -922,8 +924,8 @@ onmessage = async (e) => {
         }
       };
       worker.onerror = (e) => { e.preventDefault && e.preventDefault(); finish({ok: false, output: output, error: e.message || "ошибка запуска"}); };
-      if (isPy) worker.postMessage({files: [{name: "main.py", text: code}], main: "main.py", stdin: "", sources: sources});
-      else worker.postMessage({code: code, stdin: ""});
+      if (isPy) worker.postMessage({files: [{name: "main.py", text: code}], main: "main.py", stdin: stdin || "", sources: sources});
+      else worker.postMessage({code: code, stdin: stdin || ""});
     });
   }
 
@@ -1206,6 +1208,7 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
 
   async function ai(action, prompt) {
     const f = active();
+    if (action === "generate" && prompt && agentsOn() && !(H.neuro && H.neuro.ready && H.neuro.ready())) return agents(prompt);
     if (action !== "generate" && !f.text.trim()) { H.toast("Файл пустой — сначала напишите код"); return; }
     // Нейросеть включена — пишет и правит код сама; «Проверить» остаётся за быстрым анализатором
     if (H.neuro && H.neuro.ready() && action !== "check") return neuroAi(action === "edit" ? "generate" : action, prompt);
@@ -1283,6 +1286,180 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     refreshUsage();   // обновим счётчик токенов после ответа ИИ
   }
 
+  // ---------------------------------------------------------------- агенты Rai Code
+  // На каждую просьбу «напиши / сделай» Rai сам зовёт команду агентов: 🧭 планировщик делит задачу (несколько программ,
+  // несколько языков — по программисту на каждую), 👨‍💻 программисты пишут и создают файлы, 🧪 тестировщик запускает
+  // Python и JavaScript (с примером ввода), 🔧 исправитель чинит упавшую программу, 🔍 ревьюер проверяет код.
+  const AGENTS_KEY = "rai_code_agents";
+  function agentsOn() { try { return localStorage.getItem(AGENTS_KEY) !== "off"; } catch (e) { return true; } }
+  function renderAgentsBtn() {
+    if (!el.cAgents) return;
+    const on = agentsOn();
+    el.cAgents.setAttribute("aria-pressed", String(on));
+    el.cAgents.classList.toggle("on", on);
+    el.cAgents.textContent = on ? "👥 Агенты: авто" : "👤 Один помощник";
+  }
+  const plural = (n, one, few, many) => {
+    const a = Math.abs(n) % 100, b = a % 10;
+    return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many;
+  };
+  const secs = (ms) => (ms < 1000 ? Math.round(ms) + " мс" : (ms / 1000).toFixed(1).replace(".", ",") + " с");
+  const plainText = (md) => String(md || "").replace(/```[\s\S]*?```/g, " ").replace(/[*_`#>|]/g, "").replace(/\s+/g, " ").trim();
+  function agentBoard(host) {
+    const box = document.createElement("div");
+    box.className = "agents";
+    box.innerHTML = `<div class="ag-head"><b>👥 Агенты Rai Code</b><span class="ag-sub"></span><span class="ag-time"></span></div>` +
+      `<div class="ag-rows"></div>`;
+    host.append(box);
+    const t0 = performance.now(), rows = box.querySelector(".ag-rows");
+    let count = 0;
+    const tick = setInterval(() => { box.querySelector(".ag-time").textContent = secs(performance.now() - t0); }, 200);
+    return {
+      add(icon, name, text) {
+        count++;
+        box.querySelector(".ag-sub").textContent = " · " + count + " " + plural(count, "агент", "агента", "агентов");
+        const row = document.createElement("div");
+        row.className = "ag-row run";
+        row.innerHTML = `<span class="ag-ic" aria-hidden="true">${icon}</span><b></b><span class="ag-t"></span><em class="ag-st">думает…</em>`;
+        row.querySelector("b").textContent = name;
+        row.querySelector(".ag-t").textContent = text;
+        rows.append(row);
+        el.cAiLog.scrollTop = el.cAiLog.scrollHeight;
+        const t = performance.now();
+        const set = (cls, mark, txt) => {
+          row.className = "ag-row " + cls;
+          row.querySelector(".ag-st").textContent = mark + " " + secs(performance.now() - t);
+          if (txt != null) row.querySelector(".ag-t").textContent = txt;
+          el.cAiLog.scrollTop = el.cAiLog.scrollHeight;
+        };
+        return {done: (txt) => set("ok", "✓", txt), fail: (txt) => set("bad", "⚠", txt), skip: (txt) => set("skip", "⏸", txt),
+                note: (txt) => { row.querySelector(".ag-t").textContent = txt; }};
+      },
+      finish() {
+        clearInterval(tick);
+        box.querySelector(".ag-time").textContent = secs(performance.now() - t0);
+        box.classList.add("done");
+      }
+    };
+  }
+  async function agents(prompt) {
+    showPane("ai");
+    const me = aiMsg("me");
+    me.textContent = prompt;
+    const pend = aiMsg("rai", "");
+    const board = agentBoard(pend);
+    // 🧭 Планировщик: сколько программистов позвать
+    const planner = board.add("🧭", "Планировщик", "читаю задачу…");
+    let tasks = [{prompt: prompt, lang: null}];
+    try {
+      const p = await H.api("plan", "", null, prompt);
+      if (p && Array.isArray(p.tasks) && p.tasks.length) tasks = p.tasks.slice(0, 12);
+    } catch (e) { /* одна задача */ }
+    planner.done(tasks.length > 1
+      ? `разбил на ${tasks.length} ${plural(tasks.length, "задачу", "задачи", "задач")}: ${tasks.map((t) => "«" + t.prompt + "»").join(", ")} — ` +
+        `зову ${tasks.length} ${plural(tasks.length, "программиста", "программистов", "программистов")}`
+      : "задача одна — зову программиста");
+    // 👨‍💻 Программисты: каждый пишет свою программу и создаёт файл
+    const hint = tasks.length === 1 && lang() !== "text" ? lang() : null;
+    const made = await Promise.all(tasks.map(async (t, k) => {
+      const row = board.add("👨‍💻", tasks.length > 1 ? "Программист " + (k + 1) : "Программист", "пишу: " + t.prompt);
+      let r = null;
+      try { r = await H.api("generate", "", t.lang || hint, t.prompt); }
+      catch (e) { row.fail("не получилось: " + ((e && e.message) || e)); return null; }
+      if (!r || !r.code) { row.fail(r && r.answer ? plainText(r.answer).slice(0, 140) : "кода нет"); return r ? {r: r} : null; }
+      const name = addFile(r.filename || "main.py", r.code);
+      row.done(name + " · " + (NAMES[r.lang] || r.lang) + (r.scaffold ? " · заготовка" : ""));
+      return {r: r, name: name};
+    }));
+    const files = made.filter((m) => m && m.name);
+    // 🧪 Тестировщик (и 🔧 исправитель): Python и JavaScript запускаем прямо в браузере, сайт — в «Просмотре»
+    for (const m of files) {
+      const l = langOf(m.name);
+      if (l === "html") {
+        const row = board.add("🧪", "Тестировщик", "открываю " + m.name + " в «Просмотре»");
+        if (project.active !== m.name) openTab(m.name);
+        runHTML(active());
+        showPane("ai");
+        row.done(m.name + " открыт в «Просмотре» ✓");
+        continue;
+      }
+      if (l !== "python" && l !== "javascript") continue;          // другие языки — ревьюер проверит код
+      const reads = l === "python" ? /\binput\s*\(/.test(m.r.code) : /\b(?:prompt|ask)\s*\(/.test(m.r.code);
+      const stdin = m.r.stdin || (reads ? el.cStdin.value : "");
+      const row = board.add("🧪", "Тестировщик", "запускаю " + m.name + (stdin && m.r.stdin ? " с примером ввода" : ""));
+      if (reads && !stdin.trim()) {
+        row.skip("программа ждёт ввода — впишите данные в «Ввод для программы» (вкладка «Вывод») и нажмите «Запустить»");
+        continue;
+      }
+      if (!H.pyodideSources && l === "python") { row.skip("запуск в этом окне недоступен"); continue; }
+      let res = await runSnippet(l, m.r.code, H.pyodideSources ? H.pyodideSources() : null, 45000, stdin);
+      if (res.ok) {
+        const first = (res.output || "").trim().split("\n").filter(Boolean).slice(-2).join(" · ");
+        row.done("работает ✓" + (first ? " · вывод: " + first.slice(0, 120) : ""));
+        m.output = res.output;
+        continue;
+      }
+      row.fail("ошибка: " + String(res.error || "").slice(0, 160));
+      if (l !== "python") continue;
+      const fixer = board.add("🔧", "Исправитель", "чиню " + m.name);
+      let fx = null;
+      try { fx = await H.api("fix", m.r.code, "python", ""); } catch (e) { fx = null; }
+      if (fx && fx.code && fx.changed) {
+        applyCode(m.name, fx.code);
+        m.r.code = fx.code;
+        res = await runSnippet(l, fx.code, H.pyodideSources(), 45000, stdin);
+        if (res.ok) fixer.done("исправил — теперь работает ✓");
+        else fixer.fail("исправил, что смог; осталась ошибка: " + String(res.error || "").slice(0, 120));
+      } else {
+        fixer.fail("сам не исправить — нажмите «Проверить», покажу строки с ошибками");
+      }
+    }
+    // 🔍 Ревьюер: проверка кода на любом языке
+    for (const m of files) {
+      const row = board.add("🔍", "Ревьюер", "проверяю " + m.name);
+      let ck = null;
+      try { ck = await H.api("check", m.r.code, langOf(m.name), ""); } catch (e) { ck = null; }
+      const issues = (ck && ck.issues) || [];
+      const errs = issues.filter((i) => i.severity === "error").length;
+      if (!ck) row.skip("проверка недоступна");
+      else if (!issues.length) row.done(m.name + ": ошибок не нашёл ✓");
+      else if (errs) row.fail(m.name + ": " + errs + " " + plural(errs, "ошибка", "ошибки", "ошибок") + " — " + issues[0].message);
+      else row.done(m.name + ": " + issues.length + " " + plural(issues.length, "совет", "совета", "советов") + " — " + issues[0].message);
+    }
+    board.finish();
+    // Итог: что сделал каждый программист — с кодом и кнопками
+    for (const m of made) {
+      if (!m) continue;
+      const box = document.createElement("div");
+      box.className = "ag-result";
+      box.innerHTML = `<div class="md">${H.md(m.r.answer || "")}</div>`;
+      if (m.name) {
+        const code = document.createElement("details");
+        code.className = "codeblock ai-code";
+        code.open = made.length === 1;
+        code.innerHTML = `<summary class="codehead"><span>${esc(m.name)}</span></summary><pre><code>${highlight(m.r.code, m.r.lang)}</code></pre>`;
+        const row = document.createElement("div");
+        row.className = "row";
+        const btn = (label, fn, red) => {
+          const b = document.createElement("button");
+          b.type = "button"; b.className = "tb" + (red ? " run" : ""); b.textContent = label;
+          b.addEventListener("click", fn);
+          row.append(b);
+        };
+        const l = langOf(m.name);
+        if (l === "html" || l === "python" || l === "javascript") {
+          btn(l === "html" ? "Показать сайт" : "Запустить", () => { if (project.active !== m.name) openTab(m.name); run(); }, true);
+        }
+        btn("Открыть " + m.name, () => openTab(m.name));
+        btn("Копировать", () => H.copy(m.r.code));
+        box.append(code, row);
+      }
+      pend.append(box);
+    }
+    el.cAiLog.scrollTop = el.cAiLog.scrollHeight;
+    refreshUsage();
+  }
+
   // Токены по подписке — показываем в панели Code (та же система, что в чате и слайдах).
   function refreshUsage() {
     if (!el.cUsage) return;
@@ -1335,7 +1512,13 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     el.cUsage.addEventListener("click", refreshUsage);
     refreshUsage();
     for (const b of root.querySelectorAll(".side-tabs button")) b.addEventListener("click", () => showPane(b.dataset.pane));
-    for (const b of root.querySelectorAll(".ai-quick button")) b.addEventListener("click", () => ai(b.dataset.act));
+    for (const b of root.querySelectorAll(".ai-quick button[data-act]")) b.addEventListener("click", () => ai(b.dataset.act));
+    el.cAgents.addEventListener("click", () => {
+      try { localStorage.setItem(AGENTS_KEY, agentsOn() ? "off" : "on"); } catch (e) { /* только до перезагрузки */ }
+      renderAgentsBtn();
+      H.toast(agentsOn() ? "Агенты включены: планировщик, программисты, тестировщик, исправитель и ревьюер" : "Отвечает один помощник, без команды агентов");
+    });
+    renderAgentsBtn();
     const aiInput = el.cAiInput;
     const send = () => {
       const text = aiInput.value.trim();
@@ -1350,7 +1533,10 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     if (window.RaiCode && window.RaiCode.neuroChanged) setTimeout(window.RaiCode.neuroChanged, 0);
     aiMsg("rai", H.md("Я — **Rai Code**, помощник-агент для кода (как Claude Code): опишите задачу — я сам **напишу код, " +
       "создам файл и сразу запущу** (а сайт покажу в «Просмотре»), по шагам. Соберу **любой сайт, приложение, игру " +
-      "или программу** (HTML/JS, Python и другие). Дальше можно править словами: «добавь счёт очков», «сделай тёмным». " +
+      "или программу** — на **27 языках** без интернета: Python, JavaScript, C++, Java, C#, Go, Rust, Kotlin, Swift, Pascal… " +
+      "Над задачей работает **команда агентов**: 🧭 планировщик, 👨‍💻 программисты (по одному на задачу или язык — " +
+      "«калькулятор на python и rust»), 🧪 тестировщик, 🔧 исправитель и 🔍 ревьюер. " +
+      "Дальше можно править словами: «добавь счёт очков», «сделай тёмным», «сделай сайт красиво». " +
       "Ещё умею: **проверить** и найти ошибки, **исправить**, **объяснить** по строкам, **добавить комментарии**. " +
       "Напишите что угодно — «сайт кофейни в тёмных тонах», «игра тетрис», «бот для Telegram». " +
       "Горячие клавиши: `Ctrl+Enter` — запуск, `Ctrl+/` — комментарий, `Tab` / `Shift+Tab` — отступ."));

@@ -3727,5 +3727,59 @@ class PolyglotTest(unittest.TestCase):
                 else:
                     self.assertEqual(out, expected[task], f"{lang}/{task}")
 
+
+class AgentsTest(unittest.TestCase):
+    """Агенты: планировщик Rai Code делит просьбу на задачи и языки, в чате несколько программ пишут агенты-программисты,
+    команда сама собирается по «позови агентов»."""
+
+    def test_planner(self):
+        import codeai
+        import polyglot
+        self.assertEqual(polyglot.find_langs("калькулятор на python и rust"), ["python", "rust"])
+        self.assertEqual(polyglot.find_langs("fizzbuzz на go, rust и kotlin"), ["go", "rust", "kotlin"])
+        self.assertEqual(polyglot.find_langs("hello world на питоне и джаве"), ["python", "java"])
+        self.assertEqual(polyglot.strip_langs("калькулятор на python и rust"), "калькулятор")
+        plan = codeai.run_action("plan", "", None, "калькулятор на python и rust")["tasks"]
+        self.assertEqual([(t["prompt"], t["lang"]) for t in plan], [("калькулятор на Python", "python"), ("калькулятор на Rust", "rust")])
+        plan = codeai.plan("1) fizzbuzz на go\n2) палиндром на rust\n3) сайт кофейни Зерно")
+        self.assertEqual([t["lang"] for t in plan], ["go", "rust", None])
+        self.assertEqual(len(codeai.plan("напиши калькулятор и сделай сайт кофейни")), 2)
+        self.assertEqual(codeai.plan("fizzbuzz на расте"), [{"prompt": "fizzbuzz на расте", "lang": "rust"}])
+        self.assertEqual(len(codeai.plan("сделай сайт красиво")), 1)
+
+    def test_programmers_in_chat(self):
+        tmp = tempfile.TemporaryDirectory()
+        brain = Brain(learned_path=os.path.join(tmp.name, "l.json"))
+        r = brain.answer(VERSIONS["pro-quasar"], "гипотеза коллатца на python и rust")
+        self.assertEqual(r["intent"], "code")
+        self.assertIn("агентов-программистов: 2", r["answer"])
+        self.assertEqual([a["lang"] for a in r["attachments"]], ["python", "rust"])
+        tmp.cleanup()
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_team_summons_itself(self):
+        import subprocess
+        base = os.path.dirname(os.path.abspath(__file__))
+        prelude = ("global.window = global; global.navigator = global.navigator || {hardwareConcurrency: 8};"
+                   "global.localStorage = {getItem: () => null, setItem() {}};"
+                   "global.document = {getElementById: () => null, createElement: () => ({}), head: {append() {}}};"
+                   "require(process.argv[1]); const T = window.RaiTeam, I = T._internals;"
+                   "T.init({versions: () => [{id: 'pro'}], levels: [{id: 'high', name: 'High'}], levelAllowed: () => true,"
+                   "currentLevel: () => 'high', chatVersion: () => 'pro', device: 'pc'});")
+        body = ("console.log(JSON.stringify({a: I.summonOf('позови 20 агентов: почему небо голубое'), b: I.summonOf('спроси у команды, сколько планет'),"
+                "c: I.summonOf('почему небо голубое'), d: T.autoPlan('позови агентов'), e: T.autoPlan('подключи команду и реши 2+2'),"
+                "f: T.shouldEscalate({answer: 'Пока не нашёл уверенного ответа — не хочу выдумывать.'}),"
+                "g: T.state().settings.auto}));")
+        r = subprocess.run(["node", "-e", prelude + body, os.path.join(base, "team.js")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["a"], {"n": 20, "rest": "почему небо голубое"})
+        self.assertEqual(out["b"]["rest"], "сколько планет")
+        self.assertIsNone(out["c"])
+        self.assertEqual((out["d"]["reason"], out["d"]["text"], out["d"]["n"]), ("ask", "", 12))
+        self.assertEqual(out["e"]["text"], "реши 2+2")
+        self.assertFalse(out["f"])           # без потоков (в Node) команду не зовём
+        self.assertTrue(out["g"])            # «Rai сам зовёт агентов» включено по умолчанию
+
 if __name__ == "__main__":
     unittest.main()
