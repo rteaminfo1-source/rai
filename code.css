@@ -135,3 +135,17 @@
 @keyframes agIn { from { opacity: 0; transform: translateY(3px); } }
 @keyframes agPulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .ag-row, .ag-row.run .ag-st { animation: none; } }
+
+/* ---------- ИИ-помощник в стиле чата Rai: свои сообщения — мягкий пузырь в цветах темы, ответы — стеклянные карточки,
+   поле ввода — капсула с круглой кнопкой отправки */
+.ai-log { padding: 14px 12px; gap: 12px; }
+.ai-msg { border-radius: 16px; background: rgba(255, 255, 255, .035); border-color: var(--line); padding: 11px 13px; line-height: 1.55; }
+.ai-msg.me { background: #251420; color: #fff; border-radius: 18px 18px 6px 18px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--red) 30%, #13131b), color-mix(in srgb, var(--pink) 20%, #13131b) 60%, color-mix(in srgb, var(--violet, #8b5cff) 22%, #13131b));
+  border-color: color-mix(in srgb, var(--pink) 32%, transparent); }
+.ai-form { margin: 4px 8px 8px; padding: 5px 5px 5px 4px; align-items: flex-end; border: 1px solid var(--line-2, rgba(255, 255, 255, .16)); border-radius: 20px;
+  background: rgba(17, 17, 26, .86); transition: border-color .2s, box-shadow .2s; }
+.ai-form:focus-within { border-color: color-mix(in srgb, var(--pink) 50%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--pink) 11%, transparent); }
+.ai-form textarea, .ai-form textarea:focus { border: 0; background: none; padding: 9px 10px; }
+.ai-form .round { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--grad); color: #fff; box-shadow: var(--glow); }
+.ai-form .round:hover { background: var(--grad); filter: brightness(1.08); }

@@ -668,6 +668,250 @@
   @media (min-width: 1500px) { html[data-device="pc"] .inner { max-width: 960px; } html[data-device="pc"] .app { grid-template-columns: 300px minmax(0, 1fr); } }
   .stage:fullscreen { width: calc(100vw / var(--z, 1)); height: calc(100vh / var(--z, 1)); }
   .stage:fullscreen .slide { width: min(calc(100vw / var(--z, 1)), calc(177.78vh / var(--z, 1))); }
+
+  /* ================= Дизайн чатов v3: группы чатов по датам и поиск, одна верхняя строка с названием,
+     ответы Rai без рамок — как статья, поле ввода — одна капсула с кнопками внутри, кнопка «вниз», дни в ленте ================= */
+  :root { --col: 860px; --rail: 44px; --side-bg: #0c0c13; }
+  html[data-device="pc"] { --col: 900px; }
+  @media (min-width: 1500px) { html[data-device="pc"] { --col: 960px; } }
+
+  /* ---- список чатов ---- */
+  #sidebar { grid-template-rows: auto auto auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); }
+  #sidebar > * { min-width: 0; }
+  .brand { padding: 16px 10px 14px 18px; gap: 10px; }
+  .brand .byline { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sideHide { flex: none; }
+  #newChat { margin: 0 12px 10px; padding: 10px 14px; }
+  .side-search { margin: 0 12px 6px; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 8px 0 12px; border-radius: 12px;
+    background: var(--glass); border: 1px solid var(--line); color: var(--muted); cursor: text; transition: border-color .2s, background .2s; }
+  .side-search:focus-within { border-color: color-mix(in srgb, var(--pink) 55%, transparent); background: var(--glass-2); color: var(--fg); }
+  .side-search svg.i { width: 16px; height: 16px; }
+  .side-search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--fg); font: 400 14px/1 var(--font-body); outline: none; padding: 0; }
+  .side-search input::placeholder { color: var(--muted); }
+  .side-search input::-webkit-search-cancel-button { filter: invert(1) opacity(.45); cursor: pointer; }
+  .side-search kbd { font: 500 10.5px/1 var(--font-mono); color: var(--muted); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 5px; white-space: nowrap; }
+  .side-search:focus-within kbd, html[data-device="phone"] .side-search kbd, html[data-device="tablet"] .side-search kbd { display: none; }
+  #chatList { padding: 2px 8px 12px; gap: 1px; }
+  .chat-group { padding: 14px 12px 6px; font: 600 11px/1 var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); opacity: .85; }
+  .chat-group:first-child { padding-top: 8px; }
+  .chat-empty { padding: 18px 12px; color: var(--muted); font-size: 13px; text-align: center; }
+  .chat-item > button.open { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; min-height: 38px; }
+  .chat-item .t { flex: 1; min-width: 0; font-size: 14px; font-weight: 500; color: #dedee6; }
+  .chat-item.active .t, .chat-item > button.open:hover .t { color: #fff; }
+  .chat-item .m { flex: none; font: 400 11px/1 var(--font-mono); color: var(--muted); opacity: .8; }
+  .chat-item .pin-ic { flex: none; width: 14px; height: 14px; color: var(--pink); }
+  .chat-item .t mark { background: color-mix(in srgb, var(--pink) 35%, transparent); color: #fff; border-radius: 3px; padding: 0 1px; }
+  .chat-item .acts { opacity: 0; pointer-events: none; right: 4px; gap: 0; transition: opacity .15s; }
+  .chat-item .acts .icon-btn { padding: 5px; }
+  .chat-item .acts svg.i { width: 16px; height: 16px; }
+  .chat-item .acts .pin.on { color: var(--pink); }
+  .chat-item .more { display: none; position: absolute; top: 50%; right: 4px; transform: translateY(-50%); }
+  .chat-item:hover .acts, .chat-item.reveal .acts, .chat-item:focus-within .acts { opacity: 1; pointer-events: auto; }
+  .chat-item.active .acts { opacity: 0; }
+  .chat-item.active:hover .acts, .chat-item.active.reveal .acts, .chat-item.active:focus-within .acts { opacity: 1; }
+  .chat-item:hover > button.open, .chat-item.reveal > button.open, .chat-item:focus-within > button.open { padding-right: 100px; }
+  .chat-item:hover .m, .chat-item.reveal .m, .chat-item:focus-within .m { visibility: hidden; }
+  .chat-item.active > button.open { background: linear-gradient(90deg, color-mix(in srgb, var(--red) 18%, transparent), color-mix(in srgb, var(--violet) 10%, transparent)); }
+  /* телефон и планшет: наведения нет — у каждого чата кнопка «⋯», она показывает «закрепить / переименовать / удалить» */
+  @media (hover: none) {
+    .chat-item .more { display: inline-flex; }
+    .chat-item .m { display: none; }
+    .chat-item > button.open { padding-right: 44px; }
+    .chat-item.reveal .more { display: none; }
+    .chat-item .acts { opacity: 0; }
+    .chat-item.reveal .acts, .chat-item.active.reveal .acts { opacity: 1; }
+    .chat-item:not(.reveal):hover .acts { opacity: 0; pointer-events: none; }
+    .chat-item:not(.reveal):hover > button.open { padding-right: 44px; }
+  }
+  html[data-device="phone"] .chat-item .acts { opacity: 0; }
+  html[data-device="phone"] .chat-item.reveal .acts { opacity: 1; }
+
+  /* низ панели: ссылки, аккаунт и «⋯» с уведомлениями, правилами и выходом */
+  .side-foot { padding: 8px 10px 12px; gap: 6px; }
+  .side-links { display: grid; gap: 2px; }
+  .side-link { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 12px; color: var(--fg); text-decoration: none; transition: background .2s; }
+  .side-link:hover { background: var(--glass-2); }
+  .side-link .sl-ic { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 9px; font-size: 15px;
+    background: var(--glass-2); border: 1px solid var(--line); }
+  .side-link b { display: block; font-size: 13.5px; font-weight: 600; line-height: 1.25; }
+  .side-link small { display: block; font-size: 11.5px; line-height: 1.3; color: var(--muted); }
+  .side-me { display: flex; align-items: center; gap: 4px; margin-top: 4px; padding: 10px 0 0 4px; border-top: 1px solid var(--line); min-width: 0; }
+  .side-me #accountBox { flex: 1; min-width: 0; }
+  .side-me #moreBtn[aria-expanded="true"] { color: var(--fg); background: var(--glass-2); }
+  .side-more { display: flex; flex-direction: column; gap: 9px; padding: 12px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line-2);
+    font-size: 12.5px; color: var(--muted); animation: rai-pop-in .25s var(--ease) both; }
+  .side-more[hidden] { display: none; }
+  .side-more a { color: inherit; }
+  .side-more .legal-mini, .side-more .learn-mini { margin-top: 0; }
+  #logoutSlot:empty { display: none; }
+  #logoutSlot .icon-btn { width: 100%; justify-content: flex-start; padding: 8px 10px; color: var(--fg); background: var(--glass); border: 1px solid var(--line); border-radius: 10px; }
+  #logoutSlot .icon-btn:hover { border-color: var(--line-2); background: var(--glass-2); }
+  .account .avatar { width: 32px; height: 32px; font-size: 14px; }
+  .account .who-am b { font-size: 13.5px; }
+  .account .who-am span { font-size: 11.5px; }
+  .account .sso-btn { padding: 9px 12px; }
+  @media (min-width: 861px) {
+    body.side-hidden .app { grid-template-columns: minmax(0, 1fr); }
+    body.side-hidden #sidebar { display: none; }
+    body.side-hidden #menuBtn { display: inline-flex; }
+  }
+
+  /* ---- одна верхняя строка: режимы, название чата, состояние ---- */
+  #chatView { grid-template-rows: minmax(0, 1fr) auto; }
+  .topbar { padding: 9px 18px 9px 20px; gap: 10px; min-height: 58px; }
+  .head-title { min-width: 0; display: flex; align-items: center; padding-left: 12px; margin-left: 2px; border-left: 1px solid var(--line); }
+  #chatTitle { flex: 0 1 auto; max-width: min(460px, 40vw); padding: 6px 10px; border-radius: 10px; font: 600 15px/1.3 var(--font-body); letter-spacing: 0; color: var(--fg); }
+  #chatTitle:hover { background: var(--glass-2); }
+  body[data-mode="code"] .head-title, body[data-mode="slides"] .head-title { display: none; }
+  #newChatTop { display: none; }
+  @media (min-width: 861px) { body.side-hidden #newChatTop { display: inline-flex; } }
+
+  /* ---- лента ---- */
+  #log { padding: 26px 24px 18px; gap: 26px; }
+  .day-sep { display: flex; align-items: center; gap: 12px; color: var(--muted); font: 500 12px/1 var(--font-body); letter-spacing: .02em; }
+  .day-sep::before, .day-sep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  /* Rai: аватар слева, текст — без рамки, как статья */
+  .msg.rai { position: relative; padding-left: var(--rail); gap: 8px; }
+  .msg.rai .who { display: flex; align-items: center; gap: 8px; min-height: 22px; background: none; -webkit-background-clip: border-box; background-clip: border-box;
+    color: var(--muted); -webkit-text-fill-color: currentColor; font: 500 12px/1 var(--font-body); letter-spacing: 0; width: auto; }
+  .msg.rai .who b { font: 700 13px/1 var(--font-display); letter-spacing: -.01em; background: var(--grad); -webkit-background-clip: text; background-clip: text;
+    color: transparent; -webkit-text-fill-color: transparent; }
+  .msg.rai .who time { font: 400 11.5px/1 var(--font-mono); color: var(--muted); }
+  .msg.rai .who .who-ava { position: absolute; left: 0; top: -4px; width: 30px; height: 30px; border-radius: 10px; font-size: 14px;
+    box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--pink) 80%, transparent); }
+  .msg.rai .bubble { background: none; border: 0; box-shadow: none; border-radius: 0; padding: 0; max-width: 100%; font-size: 15.5px; line-height: 1.7; color: #ececf2; }
+  .msg.rai:hover .bubble { border: 0; box-shadow: none; }
+  .msg.pending .bubble { display: block; color: var(--muted); }
+  .msg.team-run .bubble { padding: 0; }
+  .md p { margin: 0 0 12px; }
+  .md h2 { font-size: 19px; margin: 24px 0 10px; } .md h3 { font-size: 16.5px; margin: 20px 0 8px; } .md h4 { margin: 16px 0 6px; }
+  .md ul, .md ol { padding-left: 24px; margin-bottom: 12px; }
+  .md li { margin: 5px 0; padding-left: 2px; }
+  .md hr { margin: 20px 0; }
+  .md code { font-size: 13px; padding: 1px 6px; border-radius: 6px; }
+  .md blockquote { margin: 0 0 12px; padding: 10px 16px; }
+  .table-wrap { margin: 4px 0 14px; }
+  .codeblock { margin: 4px 0 14px; border-radius: 14px; background: #0b0b11; border-color: var(--line); box-shadow: 0 14px 34px -26px rgba(0, 0, 0, .9); }
+  .codehead { padding: 6px 6px 6px 14px; background: rgba(255, 255, 255, .04); border-bottom: 1px solid var(--line); }
+  .codeblock pre { padding: 14px 16px; }
+  .codeblock code { font-size: 13px; line-height: 1.6; }
+
+  /* действия под ответом — при наведении; у последнего ответа и на телефоне — всегда */
+  .msg.rai .actions { margin-left: -8px; opacity: 0; transition: opacity .2s; }
+  .msg.rai:hover .actions, .msg.rai:focus-within .actions, .msg.rai.last .actions { opacity: 1; }
+  @media (hover: none) { .msg.rai .actions { opacity: 1; } }
+  .actions .icon-btn svg.i { width: 16px; height: 16px; }
+  .actions .icon-btn.regen { color: var(--fg); }
+
+  /* свои сообщения — мягкий пузырь в цветах темы, время и «копировать» при наведении */
+  .msg.user { gap: 4px; }
+  .msg.user .bubble { background: #251420; background: linear-gradient(135deg, color-mix(in srgb, var(--red) 30%, #13131b), color-mix(in srgb, var(--pink) 20%, #13131b) 60%, color-mix(in srgb, var(--violet) 22%, #13131b));
+    border: 1px solid color-mix(in srgb, var(--pink) 32%, transparent); color: #fff; border-radius: 22px 22px 6px 22px; padding: 11px 16px;
+    box-shadow: 0 12px 30px -20px color-mix(in srgb, var(--red) 90%, transparent); font-size: 15px; line-height: 1.55; }
+  .u-acts { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity .2s; }
+  .msg.user:hover .u-acts, .msg.user:focus-within .u-acts { opacity: 1; }
+  .u-acts time { font: 400 11px/1 var(--font-mono); color: var(--muted); padding: 0 6px; }
+  .u-acts .icon-btn { padding: 4px 6px; font-size: 12px; }
+  .u-acts .icon-btn svg.i { width: 15px; height: 15px; }
+  @media (hover: none) { .u-acts { display: none; } }
+
+  /* ---- приветствие ---- */
+  .welcome { margin-block: auto; padding-block: 3vh 6px; gap: 14px; }
+  .welcome .hello { margin-bottom: -4px; }
+  .neuro-tip { align-self: flex-start; display: inline-flex; flex-direction: row; align-items: center; gap: 10px; padding: 8px 14px 8px 10px; border-radius: 999px;
+    max-width: 100%; text-align: left; }
+  .neuro-tip b { white-space: nowrap; font-size: 13.5px; }
+  .neuro-tip small { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .examples { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin-top: 4px; }
+  .examples button { flex-direction: row; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; min-height: 64px; }
+  .examples .ex-ic { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 12px; font-size: 19px;
+    background: var(--glass-2); border: 1px solid var(--line); }
+  .examples .ex-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .examples b { font-size: 14px; line-height: 1.35; }
+  .examples button:nth-child(n+10) { display: none; }
+
+  /* ---- поле ввода: одна капсула, внутри — текст, файлы, модель, уровень, токены, команда, голос и отправка ---- */
+  .composer { border-top: 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; padding: 4px 24px 12px; }
+  .composer > :not(#toBottom) { max-width: var(--col); margin-inline: auto; }
+  .box { position: relative; border-radius: 24px; border: 1px solid var(--line-2); background: rgba(17, 17, 26, .86);
+    backdrop-filter: blur(16px) saturate(1.3); -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    box-shadow: 0 22px 60px -30px rgba(0, 0, 0, .95), inset 0 1px 0 rgba(255, 255, 255, .05); transition: border-color .2s, box-shadow .2s; }
+  .box:focus-within { border-color: color-mix(in srgb, var(--pink) 50%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--pink) 11%, transparent), 0 22px 60px -30px rgba(0, 0, 0, .95), inset 0 1px 0 rgba(255, 255, 255, .05); }
+  .composer.drop { outline: 0; }
+  .composer.drop .box { border-color: var(--pink); border-style: dashed; }
+  #form { display: block; }
+  #input { display: block; width: 100%; min-height: 54px; max-height: 240px; padding: 16px 18px 6px; border: 0; border-radius: 24px 24px 0 0;
+    background: none; box-shadow: none; font: 15.5px/1.5 var(--font-body); }
+  #input:focus { border: 0; box-shadow: none; }
+  .box .attach-bar { margin: 0; padding: 12px 12px 0; }
+  .box .att-chip { background: var(--glass-2); }
+  .box-bar { display: flex; align-items: center; gap: 4px; padding: 4px 8px 8px; min-width: 0; }
+  .box-bar .round { width: 36px; height: 36px; border-radius: 12px; border: 0; background: none; color: var(--muted); box-shadow: none; }
+  .box-bar .round:hover { background: var(--glass-2); color: var(--fg); transform: none; }
+  .box-bar .round.side { width: 36px; }
+  .box-bar .pickers { flex: 1; min-width: 0; margin: 0 0 0 2px; gap: 2px; flex-wrap: wrap; }
+  .box-bar .pick-btn { height: 32px; border-color: transparent; background: none; padding: 0 9px 0 7px; }
+  .box-bar .pick-btn:hover, .box-bar .pick-btn[aria-expanded="true"] { border-color: var(--line); background: var(--glass-2); }
+  .box-bar .pick-btn.team-chip.on { border-color: color-mix(in srgb, var(--pink) 60%, transparent); background: color-mix(in srgb, var(--pink) 13%, transparent); }
+  .box-bar .pick-btn[data-level="ultra"] { border-color: rgba(255, 209, 102, .4); }
+  .box-bar .pick-btn[data-level="code"] { border-color: rgba(120, 200, 255, .35); }
+  #pickNote { display: none; }
+  #mic.on { color: #fff; background: var(--grad); }
+  #send { width: 38px; height: 38px; border-radius: 50%; margin-left: 2px; background: var(--grad); color: #fff; box-shadow: var(--glow); }
+  #send:hover { background: var(--grad); color: #fff; filter: brightness(1.08); transform: translateY(-1px); }
+  #send.stop { background: var(--panel-2); color: #ff7aa8; box-shadow: inset 0 0 0 1px var(--pink); }
+  #send svg.i { width: 18px; height: 18px; }
+  .screen-menu { left: 8px; bottom: calc(100% + 8px); }
+  .hint { text-align: center; margin: 8px auto 0; font-size: 11.5px; opacity: .8; }
+  .stop-note { margin-bottom: 10px; }
+
+  /* кнопка «к последнему сообщению» */
+  .to-bottom { position: absolute; left: 50%; bottom: calc(100% + 6px); z-index: 6; width: 38px; height: 38px; transform: translateX(-50%);
+    display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line-2); background: rgba(24, 24, 34, .94); color: var(--fg); cursor: pointer;
+    box-shadow: 0 12px 30px -10px rgba(0, 0, 0, .85); animation: rai-pop-in .25s var(--ease) both; }
+  .to-bottom:hover { border-color: color-mix(in srgb, var(--pink) 55%, transparent); }
+  .to-bottom[hidden] { display: none; }
+
+  /* ---- телефон и узкое окно ---- */
+  @media (max-width: 860px) {
+    .topbar { padding: 8px 10px; gap: 6px; min-height: 54px; }
+    .head-title { display: none; }
+    #newChatTop { display: inline-flex; }
+    #log { padding: 18px 14px 14px; gap: 22px; }
+    .msg.rai { padding-left: 0; }
+    .msg.rai .who .who-ava { position: static; width: 24px; height: 24px; border-radius: 8px; font-size: 12px; }
+    .msg.rai .bubble { padding: 0; font-size: 15.5px; }
+    .msg.user .bubble { max-width: 88%; }
+    .composer { padding: 2px 10px 10px; }
+    .box { border-radius: 22px; }
+    #input { padding: 14px 16px 4px; min-height: 50px; }
+    .box-bar { padding: 2px 6px 6px; }
+    #modelBtn .pk-name, #teamBtn .pk-name, .box-bar .chev, .usage-bar { display: none; }
+    .box-bar .pick-btn { padding: 0 8px; gap: 5px; }
+    .examples { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .examples button { min-height: 0; padding: 10px 12px; }
+    .examples small { display: none; }
+    .examples button:nth-child(n+7) { display: none; }
+    .neuro-tip small { display: none; }
+  }
+  /* узкий экран: под ответом — только значки, чтобы всё помещалось в одну строку */
+  @media (max-width: 560px) {
+    .msg.rai .actions .icon-btn:not(.rate) { font-size: 0; gap: 0; padding: 7px 9px; }
+    .msg.rai .actions .icon-btn svg.i { width: 17px; height: 17px; }
+    .msg.rai .actions .meta { margin-left: 4px; }
+  }
+  html[data-device="phone"] .box { backdrop-filter: none; -webkit-backdrop-filter: none; background: #13131c; }
+  html[data-device="phone"] #screenBtn { display: none; }
+  html[data-device="phone"] .box-bar .pickers { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  html[data-device="phone"] .box-bar .pickers::-webkit-scrollbar { display: none; }
+  html[data-device="phone"] .box-bar .pick { flex: none; }
+  @media (max-width: 420px) {
+    .box-bar .round.side { width: 34px; }
+    .box-bar .pick-btn { padding: 0 7px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .to-bottom, .side-more { animation: none; } }
 </style>
 <style id="slide-css">
   /* Цвета слайда — из темы презентации (--s-*), по умолчанию чёрно-красные */
@@ -821,22 +1065,42 @@
   <symbol id="i-think" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></symbol>
   <symbol id="i-deck" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M7 9h6M7 12h4"/></symbol>
   <symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-side" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></symbol>
+  <symbol id="i-new" viewBox="0 0 24 24"><path d="M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3z"/><path d="M12 14v6"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 8l-4 4 4 4M6 12h10"/></symbol>
 </svg>
 
 <div class="app">
   <aside id="sidebar" aria-label="Чаты">
-    <div class="brand"><div class="logo">R<span>ai</span></div><div class="byline">Rteam · свой ИИ</div></div>
+    <div class="brand"><div class="logo">R<span>ai</span></div><div class="byline">Rteam · свой ИИ</div>
+      <button id="sideHide" class="icon-btn" type="button" aria-label="Скрыть список чатов" title="Скрыть список чатов"><svg class="i"><use href="#i-side"/></svg></button></div>
     <button id="newChat" type="button"><svg class="i"><use href="#i-plus"/></svg>Новый чат</button>
+    <label class="side-search"><svg class="i"><use href="#i-search"/></svg>
+      <input id="chatSearch" type="search" placeholder="Поиск по чатам" aria-label="Поиск по чатам" autocomplete="off" spellcheck="false"><kbd>Ctrl K</kbd></label>
     <nav id="chatList"></nav>
-    <div class="side-foot"><div id="accountBox"></div><a class="back-link" id="studioLink" href="https://aistudio.rteam.info/">AI Studio — сайты по описанию →</a>
-      <a class="app-link" id="appLink" href="https://rai.rteam.info/" target="_blank" rel="noopener">💻 Приложение для Windows, macOS и Linux</a>
-      <script>if (window.RaiApp && window.RaiApp.isApp) document.getElementById("appLink").remove();  // уже в приложении</script>
-      <button class="notify-btn" id="notifyBtn" type="button" hidden aria-pressed="false">🔔 Уведомления: выкл</button>
-      <span id="storeNote">Чаты и проекты Code хранятся в этом браузере.</span>
-      <span class="learn-mini" id="learnMini" hidden></span>
-      <span class="legal-mini"><a href="https://rai.rteam.info/rules.php" target="_blank" rel="noopener">Правила</a> ·
-        <a href="https://rai.rteam.info/terms.php" target="_blank" rel="noopener">Соглашение</a> ·
-        <a href="https://rai.rteam.info/privacy.php" target="_blank" rel="noopener">Конфиденциальность</a></span></div>
+    <div class="side-foot">
+      <div class="side-links">
+        <a class="side-link" id="studioLink" href="https://aistudio.rteam.info/"><span class="sl-ic" aria-hidden="true">✨</span><span><b>AI Studio</b><small>сайты по описанию</small></span></a>
+        <a class="side-link" id="appLink" href="https://rai.rteam.info/" target="_blank" rel="noopener"><span class="sl-ic" aria-hidden="true">💻</span><span><b>Приложение</b><small>для Windows, macOS и Linux</small></span></a>
+        <script>if (window.RaiApp && window.RaiApp.isApp) document.getElementById("appLink").remove();  // уже в приложении</script>
+      </div>
+      <div class="side-more" id="sideMore" hidden>
+        <button class="notify-btn" id="notifyBtn" type="button" hidden aria-pressed="false">🔔 Уведомления: выкл</button>
+        <span id="storeNote">Чаты и проекты Code хранятся в этом браузере.</span>
+        <span class="learn-mini" id="learnMini" hidden></span>
+        <span class="legal-mini"><a href="https://rai.rteam.info/rules.php" target="_blank" rel="noopener">Правила</a> ·
+          <a href="https://rai.rteam.info/terms.php" target="_blank" rel="noopener">Соглашение</a> ·
+          <a href="https://rai.rteam.info/privacy.php" target="_blank" rel="noopener">Конфиденциальность</a></span>
+        <span id="logoutSlot"></span>
+      </div>
+      <div class="side-me"><div id="accountBox"></div>
+        <button id="moreBtn" class="icon-btn" type="button" aria-expanded="false" aria-controls="sideMore" aria-label="Ещё" title="Уведомления, правила, выход"><svg class="i"><use href="#i-more"/></svg></button></div>
+    </div>
   </aside>
   <div id="backdrop"></div>
 
@@ -848,16 +1112,15 @@
         <button type="button" role="tab" id="modeCode" aria-selected="false"><svg class="i"><use href="#i-code"/></svg>Code</button>
         <button type="button" role="tab" id="modeSlides" aria-selected="false"><svg class="i"><use href="#i-full"/></svg>Слайды</button>
       </div>
+      <div class="head-title" id="headTitle"><button id="chatTitle" type="button" title="Нажмите, чтобы переименовать">Новый чат</button></div>
       <span class="spacer"></span>
       <div class="status" id="status" data-state="loading" role="status" aria-live="polite">
         <span class="dot" aria-hidden="true"></span><span id="statusText">Подключение…</span>
       </div>
+      <button id="newChatTop" class="icon-btn" type="button" aria-label="Новый чат" title="Новый чат"><svg class="i"><use href="#i-new"/></svg></button>
     </div>
     <section id="chatView" aria-label="Чат">
-    <header>
-      <div class="bar">
-        <button id="chatTitle" type="button" title="Нажмите, чтобы переименовать">Новый чат</button>
-      </div>
+    <header hidden>
       <div class="versions" id="versions" role="group" aria-label="Версия Rai"></div>
       <p id="features"></p>
     </header>
@@ -876,24 +1139,25 @@
       </div>
     </div>
     <div class="composer" id="composer">
+      <button id="toBottom" class="to-bottom" type="button" hidden aria-label="К последнему сообщению" title="К последнему сообщению"><svg class="i"><use href="#i-arrow"/></svg></button>
       <p id="stopNote" class="stop-note" hidden role="status"></p>
       <p id="listening" hidden></p>
       <div id="recBar" class="rec-bar" hidden role="status"><span class="dot"></span>Идёт запись экрана <b id="recTime">00:00</b>
         <button class="btn red" id="recStop" type="button">Остановить</button></div>
-      <div id="attachBar" class="attach-bar" hidden></div>
+      <div class="box" id="box">
       <div id="screenMenu" class="screen-menu" hidden role="menu">
         <button type="button" id="shotBtn" role="menuitem"><svg class="i"><use href="#i-screen"/></svg>Снимок экрана</button>
         <button type="button" id="recBtn" role="menuitem"><svg class="i"><use href="#i-rec"/></svg>Запись экрана</button>
       </div>
+      <div id="attachBar" class="attach-bar" hidden></div>
       <form id="form" autocomplete="off">
-        <button id="attach" class="round side" type="button" aria-label="Прикрепить скриншот" title="Прикрепить скриншот или фото (можно вставить Ctrl+V)"><svg class="i"><use href="#i-clip"/></svg></button>
-        <input type="file" id="attachFile" multiple hidden>
-        <button id="screenBtn" class="round side" type="button" aria-label="Снимок или запись экрана" aria-haspopup="menu" title="Снимок или запись экрана"><svg class="i"><use href="#i-screen"/></svg></button>
         <label for="input" hidden>Сообщение для Rai</label>
         <textarea id="input" rows="1" placeholder="Спросите Rai…"></textarea>
-        <button id="mic" class="round" type="button" aria-label="Голосовой ввод" title="Голосовой ввод"><svg class="i"><use href="#i-mic"/></svg></button>
-        <button id="send" class="round" type="submit" aria-label="Отправить" title="Отправить (Enter)"><svg class="i"><use href="#i-send"/></svg></button>
       </form>
+      <div class="box-bar">
+        <button id="attach" class="round side" type="button" aria-label="Прикрепить скриншот" title="Прикрепить файл, скриншот или фото (можно вставить Ctrl+V)"><svg class="i"><use href="#i-clip"/></svg></button>
+        <input type="file" id="attachFile" multiple hidden>
+        <button id="screenBtn" class="round side" type="button" aria-label="Снимок или запись экрана" aria-haspopup="menu" title="Снимок или запись экрана"><svg class="i"><use href="#i-screen"/></svg></button>
       <div class="pickers" id="pickers">
         <div class="pick">
           <button type="button" class="pick-btn" id="modelBtn" aria-haspopup="menu" aria-expanded="false" title="Модель Rai">
@@ -913,7 +1177,11 @@
         </div>
         <span class="pick-note" id="pickNote"></span>
       </div>
-      <p class="hint">Enter — отправить, Shift+Enter — новая строка. Скрепка — любые файлы, картинки (или Ctrl+V), экран — снимок и запись.</p>
+        <button id="mic" class="round" type="button" aria-label="Голосовой ввод" title="Голосовой ввод"><svg class="i"><use href="#i-mic"/></svg></button>
+        <button id="send" class="round" type="submit" form="form" aria-label="Отправить" title="Отправить (Enter)"><svg class="i"><use href="#i-send"/></svg></button>
+      </div>
+      </div>
+      <p class="hint">Enter — отправить, Shift+Enter — новая строка · скрепка — файлы и картинки (или Ctrl+V) · Rai может ошибаться — важное проверяйте</p>
     </div>
     </section>
     <section id="codeView" aria-label="Code" hidden></section>
@@ -1112,7 +1380,8 @@
           items.push(lines[i].trim().replace(LIST, "")); i++;
         }
         const tag = ordered ? "ol" : "ul";
-        out.push(`<${tag}>` + items.map((x) => "<li>" + inline(x) + "</li>").join("") + `</${tag}>`);
+        const start = ordered ? parseInt(t, 10) : 1;   // «1. …» и «2. …» через пустую строку — нумерация продолжается
+        out.push(`<${tag}${start > 1 ? ` start="${start}"` : ""}>` + items.map((x) => "<li>" + inline(x) + "</li>").join("") + `</${tag}>`);
       } else if (!t) {
         flush(); i++;
       } else {
@@ -1303,17 +1572,69 @@
   }
   function versionName(id) { const v = VERSIONS.find((x) => x.id === id); return v ? v.name : id; }
 
+  // Список чатов как в ChatGPT: закреплённые сверху, дальше группы по дате; поиск — по названию и тексту сообщений
+  const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+  function groupOf(ts) {
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    const t = day.getTime();
+    if (ts >= t) return "Сегодня";
+    if (ts >= t - 864e5) return "Вчера";
+    if (ts >= t - 6 * 864e5) return "Последние 7 дней";
+    if (ts >= t - 29 * 864e5) return "Последние 30 дней";
+    const d = new Date(ts);
+    return MONTHS[d.getMonth()] + (d.getFullYear() === day.getFullYear() ? "" : " " + d.getFullYear());
+  }
+  const norm = (s) => String(s || "").toLowerCase().replace(/ё/g, "е");
+  let chatQuery = "";
+  function chatMatches(c, q) {
+    return norm(c.title).includes(q) || c.messages.some((m) => norm(m.text).includes(q));
+  }
+  function markTitle(title, q) {
+    const low = norm(title), i = q ? low.indexOf(q) : -1;
+    if (i < 0 || low.length !== title.length) return esc(title);
+    return esc(title.slice(0, i)) + "<mark>" + esc(title.slice(i, i + q.length)) + "</mark>" + esc(title.slice(i + q.length));
+  }
+  function togglePin(c) {
+    if (c.pinned) delete c.pinned; else c.pinned = true;
+    save(); renderSidebar();
+    toast(c.pinned ? "Чат закреплён — он всегда сверху" : "Чат откреплён");
+  }
   function renderSidebar() {
     const list = $("chatList");
     list.textContent = "";
-    for (const c of chats.slice().sort((a, b) => b.updated - a.updated)) {
+    const q = norm(chatQuery.trim());
+    const sorted = chats.slice().sort((a, b) => b.updated - a.updated).filter((c) => !q || chatMatches(c, q));
+    if (!sorted.length) {
+      list.innerHTML = `<div class="chat-empty">${q ? "Ничего не нашлось" : "Чатов пока нет"}</div>`;
+      return;
+    }
+    let group = null;
+    for (const c of sorted.filter((x) => x.pinned).concat(sorted.filter((x) => !x.pinned))) {
+      const g = c.pinned ? "Закреплённые" : groupOf(c.updated);
+      if (g !== group) {
+        group = g;
+        const h = document.createElement("div");
+        h.className = "chat-group";
+        h.textContent = g;
+        list.append(h);
+      }
       const item = document.createElement("div");
       item.className = "chat-item" + (c.id === currentId ? " active" : "");
-      item.innerHTML = `<button class="open" type="button"><span class="t">${esc(c.title)}</span>` +
-        `<span class="m">${esc(versionName(c.version).replace(/^Rai /, ""))} · ${esc(when(c.updated))}</span></button>` +
-        `<div class="acts"><button class="icon-btn ren" type="button" aria-label="Переименовать">${icon("edit")}</button>` +
-        `<button class="icon-btn del" type="button" aria-label="Удалить">${icon("trash")}</button></div>`;
+      const pinLabel = c.pinned ? "Открепить" : "Закрепить";
+      item.innerHTML = `<button class="open" type="button" title="${esc(c.title)} · ${esc(versionName(c.version))}">` +
+        (c.pinned ? `<svg class="i pin-ic" aria-hidden="true"><use href="#i-pin"/></svg>` : "") +
+        `<span class="t">${markTitle(c.title, q)}</span><span class="m">${esc(when(c.updated))}</span></button>` +
+        `<button class="icon-btn more" type="button" aria-label="Действия с чатом">${icon("more")}</button>` +
+        `<div class="acts"><button class="icon-btn pin${c.pinned ? " on" : ""}" type="button" aria-label="${pinLabel}" title="${pinLabel}">${icon("pin")}</button>` +
+        `<button class="icon-btn ren" type="button" aria-label="Переименовать" title="Переименовать">${icon("edit")}</button>` +
+        `<button class="icon-btn del" type="button" aria-label="Удалить" title="Удалить">${icon("trash")}</button></div>`;
       item.querySelector(".open").addEventListener("click", () => openChat(c.id));
+      item.querySelector(".more").addEventListener("click", () => {
+        list.querySelectorAll(".chat-item.reveal").forEach((x) => { if (x !== item) x.classList.remove("reveal"); });
+        item.classList.toggle("reveal");
+      });
+      item.querySelector(".pin").addEventListener("click", () => togglePin(c));
       item.querySelector(".ren").addEventListener("click", () => startRename(item, c));
       item.querySelector(".del").addEventListener("click", () => {
         item.innerHTML = `<div class="confirm"><span>Удалить «${esc(c.title)}»?</span><div>` +
@@ -1608,6 +1929,12 @@
     if (fest) emoji = fest.emoji;
     return {hello: emoji + " " + hello[seed % hello.length], ask: ask[Math.floor(seed / 7) % ask.length]};
   }
+  const EX_ICONS = [[/погод/i, "🌤️"], [/валют/i, "💱"], [/перевод/i, "🌐"], [/презентац/i, "📊"], [/запуск/i, "⚙️"], [/код/i, "💻"],
+                    [/рассужд/i, "🧠"], [/картин/i, "🎨"]];
+  function exampleIcon(note) {
+    const hit = EX_ICONS.find(([re]) => re.test(note));
+    return hit ? hit[1] : "✨";
+  }
   function renderWelcome() {
     const w = document.createElement("div");
     w.className = "inner welcome";
@@ -1643,15 +1970,17 @@
       tip.type = "button";
       tip.className = "neuro-tip";
       const lv = LEVELS.find((l) => l.id === currentLevel());
-      tip.innerHTML = `<b>🧠 Rai думает сам · ${esc(lv.name)}</b><small>Ищет в своих знаниях и в интернете, читает сайты, проверяет себя и пишет код — ` +
-        `без внешних нейросетей. Сколько думать — выберите внизу: Low, Medium, High, Extra, Code или Ultra.</small>`;
+      tip.title = "Rai ищет в своих знаниях и в интернете, читает сайты, проверяет себя и пишет код — без внешних нейросетей. " +
+        "Сколько думать — выберите: Low, Medium, High, Extra, Code или Ultra.";
+      tip.innerHTML = `<b>🧠 Rai думает сам · ${esc(lv.name)}</b><small>ищет, читает сайты, проверяет себя · сменить ▾</small>`;
       tip.addEventListener("click", (e) => { e.stopPropagation(); togglePicker("levelBtn", "levelMenu", renderLevelMenu); });
       w.insertBefore(tip, ex);
     }
     for (const [q, note] of festExamples.concat(EXAMPLES)) {
       const b = document.createElement("button");
       b.type = "button";
-      b.innerHTML = `<b>${esc(q)}</b><small>${esc(note)}</small>`;
+      const ic = festExamples.some((x) => x[0] === q) && fest ? fest.emoji : exampleIcon(note);
+      b.innerHTML = `<span class="ex-ic" aria-hidden="true">${esc(ic)}</span><span class="ex-tx"><b>${esc(q)}</b><small>${esc(note)}</small></span>`;
       b.addEventListener("click", () => ask(q));
       ex.append(b);
     }
@@ -1697,10 +2026,22 @@
       b.className = "bubble";
       b.textContent = m.text;
       wrap.append(b);
+      const ua = document.createElement("div");
+      ua.className = "u-acts";
+      ua.innerHTML = (m.ts ? `<time>${esc(clock(m.ts))}</time>` : "") +
+        `<button class="icon-btn u-copy" type="button" title="Копировать" aria-label="Копировать">${icon("copy")}</button>` +
+        `<button class="icon-btn u-edit" type="button" title="Изменить и отправить заново" aria-label="Изменить">${icon("edit")}</button>`;
+      ua.querySelector(".u-copy").addEventListener("click", () => copyRich(m.text, esc(m.text), b));
+      ua.querySelector(".u-edit").addEventListener("click", () => {
+        if (input.disabled) return;
+        input.value = m.text; autosize(); input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      });
+      wrap.append(ua);
       log.append(wrap);
       return wrap;
     }
-    wrap.innerHTML = `<div class="who"><span class="who-ava" aria-hidden="true">R</span>Rai</div><div class="bubble md"></div>`;
+    wrap.innerHTML = `<div class="who"><span class="who-ava" aria-hidden="true">R</span><b>Rai</b>${m.ts ? `<time>${esc(clock(m.ts))}</time>` : ""}</div><div class="bubble md"></div>`;
     const bubble = wrap.querySelector(".bubble");
     bubble.innerHTML = renderMarkdown(m.text);
     for (const a of m.attachments || []) {
@@ -2120,13 +2461,78 @@ document.addEventListener('pointerup',function(e){if(x0===null)return;var dx=e.c
     return new Blob(parts.concat(central, [end.buffer]), {type: "application/zip"});
   }
 
+  function clock(ts) { return new Date(ts).toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"}); }
+  function dayLabel(ts) {
+    const d = new Date(ts), now = new Date(), a = new Date(ts), b = new Date();
+    a.setHours(0, 0, 0, 0); b.setHours(0, 0, 0, 0);
+    const diff = Math.round((b - a) / 864e5);
+    if (diff === 0) return "Сегодня";
+    if (diff === 1) return "Вчера";
+    return d.toLocaleDateString("ru-RU", d.getFullYear() === now.getFullYear() ? {day: "numeric", month: "long"} : {day: "numeric", month: "long", year: "numeric"});
+  }
+  // Разделитель дня в ленте («Сегодня», «Вчера», «12 октября») — перед первым сообщением каждого дня
+  let lastDay = "";
+  function daySep(ts) {
+    const d = dayLabel(ts);
+    if (d === lastDay) return;
+    lastDay = d;
+    const sep = document.createElement("div");
+    sep.className = "inner day-sep";
+    sep.textContent = d;
+    log.append(sep);
+  }
+  // У последнего ответа действия видны всегда и есть «Ещё раз» — Rai ответит заново на тот же вопрос
+  function markLast() {
+    const all = log.querySelectorAll(".msg.rai:not(.pending)");
+    all.forEach((el) => { el.classList.remove("last"); const r = el.querySelector(".regen"); if (r) r.remove(); });
+    syncToBottom();
+    const last = all[all.length - 1], chat = current();
+    if (!last || !chat) return;
+    last.classList.add("last");
+    const m = chat.messages[chat.messages.length - 1], prev = chat.messages[chat.messages.length - 2];
+    if (!m || m.role === "user" || m.violation || !prev || prev.role !== "user" || busy || blockedReason(chat)) return;
+    if ((prev.files && prev.files.length) || (prev.images && prev.images.length) || prev.video) return;  // файлы и скриншоты второй раз не отправить
+    const acts = last.querySelector(".actions");
+    if (!acts) return;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "icon-btn regen";
+    b.title = "Ответить на этот вопрос заново";
+    b.innerHTML = icon("redo") + "Ещё раз";
+    b.addEventListener("click", regenerate);
+    acts.insertBefore(b, acts.querySelector(".rate, .meta"));
+  }
+  function regenerate() {
+    const chat = current();
+    if (busy || !chat) return;
+    const m = chat.messages[chat.messages.length - 1], prev = chat.messages[chat.messages.length - 2];
+    if (!m || m.role === "user" || !prev || prev.role !== "user") return;
+    chat.messages.pop();
+    const shown = log.querySelectorAll(".msg.rai:not(.pending)");
+    if (shown.length) shown[shown.length - 1].remove();
+    ask(prev.text, {regen: true});
+  }
+  // Кнопка «вниз» — когда ленту пролистали вверх
+  const toBottom = $("toBottom");
+  function syncToBottom() {
+    const far = log.scrollHeight - log.scrollTop - log.clientHeight > 240;
+    if (toBottom.hidden === far) toBottom.hidden = !far;
+  }
+  log.addEventListener("scroll", syncToBottom, {passive: true});
+  toBottom.addEventListener("click", () => log.scrollTo({top: log.scrollHeight, behavior: "smooth"}));
+
   function renderChat() {
     const chat = current();
     log.textContent = "";
+    lastDay = "";
     $("chatTitle").textContent = chat.title;
     if (!chat.messages.length) renderWelcome();
-    for (const m of chat.messages) renderMessage(m);
+    for (const m of chat.messages) {
+      if (m.ts) daySep(m.ts);
+      renderMessage(m);
+    }
     log.scrollTop = chat.messages.length ? log.scrollHeight : 0;  // новый чат — с приветствия, а не с конца подсказок
+    markLast();
     updateComposer();
   }
   function renderAll() { renderSidebar(); renderVersions(); renderChat(); }
@@ -2597,12 +3003,13 @@ def rai_code(action, code, lang, prompt):
     const chat = current();
     if (!chat.messages.length) {
       log.textContent = "";
+      lastDay = "";
       chat.title = smartTitle(text) || (text.length > 48 ? text.slice(0, 47) + "…" : text);
       chat.autoTitle = true;   // Rai сам подберёт тему чата после ответа; ручное переименование её закрепит
       $("chatTitle").textContent = chat.title;
     }
     const history = opts.regen ? historyOf({messages: chat.messages.slice(0, -1)}) : historyOf(chat);
-    const userMsg = {role: "user", text: text};
+    const userMsg = {role: "user", text: text, ts: Date.now()};
     const attached = shots.filter((x) => x.type === "file");
     if (attached.length) {
       userMsg.files = attached.map((f) => ({name: f.name, size: window.RaiFiles ? window.RaiFiles.size(f.size) : "", icon: fileIcon(f)}));
@@ -2619,13 +3026,14 @@ def rai_code(action, code, lang, prompt):
     if (!opts.regen) {
       chat.messages.push(userMsg);
       chat.updated = Date.now();
+      daySep(userMsg.ts);
       renderMessage(userMsg);
       input.value = "";
       autosize();
     }
     const pending = document.createElement("div");
     pending.className = "inner msg rai pending";
-    pending.innerHTML = `<div class="who">Rai</div><div class="bubble">` +
+    pending.innerHTML = `<div class="who"><span class="who-ava" aria-hidden="true">R</span><b>Rai</b></div><div class="bubble">` +
       (engineReady ? `<span class="penwrite" role="status" aria-label="Rai пишет ответ…"></span>` : "Rai ещё загружается, отвечу сразу после загрузки…") + `</div>`;
     log.append(pending);
     log.scrollTop = log.scrollHeight;
@@ -2769,6 +3177,7 @@ def rai_code(action, code, lang, prompt):
     pending.remove();
     delete reply.found;     // служебные поля ответа команды — в историю чата не пишем
     delete reply.summary;
+    reply.ts = Date.now();
     chat.messages.push(reply);
     chat.updated = Date.now();
     if (currentId === chat.id) renderMessage(reply);
@@ -2787,6 +3196,7 @@ def rai_code(action, code, lang, prompt):
     busy = false;
     sendBtn.disabled = false;
     log.scrollTop = log.scrollHeight;
+    if (currentId === chat.id) markLast();
     updateComposer();
     if (!blockedReason(chat)) input.focus();
   }
@@ -3013,7 +3423,39 @@ def rai_code(action, code, lang, prompt):
 
   // ---------------------------------------------------------------- события
   function closeMenu() { document.body.classList.remove("menu-open"); }
-  $("menuBtn").addEventListener("click", () => document.body.classList.add("menu-open"));
+  const narrow = () => matchMedia("(max-width: 860px)").matches;
+  function setSideHidden(on) {
+    document.body.classList.toggle("side-hidden", on);
+    try { localStorage.setItem("rai_side", on ? "hidden" : ""); } catch (e) { /* не страшно */ }
+  }
+  try { if (localStorage.getItem("rai_side") === "hidden") document.body.classList.add("side-hidden"); } catch (e) { /* без памяти браузера */ }
+  $("menuBtn").addEventListener("click", () => { if (narrow()) document.body.classList.add("menu-open"); else setSideHidden(false); });
+  $("sideHide").addEventListener("click", () => { if (narrow()) closeMenu(); else setSideHidden(true); });
+  $("newChatTop").addEventListener("click", newChat);
+  // «⋯» внизу панели: уведомления, правила, выход
+  $("moreBtn").addEventListener("click", () => {
+    const more = $("sideMore"), open = more.hidden;
+    more.hidden = !open;
+    $("moreBtn").setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => {
+    if (!$("sideMore").hidden && !e.target.closest("#sideMore, #moreBtn")) { $("sideMore").hidden = true; $("moreBtn").setAttribute("aria-expanded", "false"); }
+    if (!e.target.closest(".chat-item")) $("chatList").querySelectorAll(".chat-item.reveal").forEach((x) => x.classList.remove("reveal"));
+  });
+  // Поиск по чатам: по названию и тексту; Ctrl+K — сразу в поиск, Enter — открыть первый найденный, Esc — очистить
+  const search = $("chatSearch");
+  search.addEventListener("input", () => { chatQuery = search.value; renderSidebar(); });
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { search.value = ""; chatQuery = ""; renderSidebar(); search.blur(); }
+    if (e.key === "Enter") { e.preventDefault(); const first = $("chatList").querySelector(".chat-item .open"); if (first) first.click(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === "KeyK") {
+      e.preventDefault();
+      if (narrow()) document.body.classList.add("menu-open"); else setSideHidden(false);
+      search.focus(); search.select();
+    }
+  });
   $("backdrop").addEventListener("click", closeMenu);
   $("newChat").addEventListener("click", newChat);
   $("chatTitle").addEventListener("click", () => {
@@ -3050,6 +3492,7 @@ def rai_code(action, code, lang, prompt):
   let account = null, pushTimer = null, pulling = false, deletedIds = [];
   function renderAccount() {
     const box = $("accountBox");
+    $("logoutSlot").innerHTML = "";
     if (!account) { box.innerHTML = ""; return; }
     const u = account.user;
     try { if (u) localStorage.setItem("rai_signed_in", u.login); else localStorage.removeItem("rai_signed_in"); } catch (e) { /* без памяти браузера */ }
@@ -3058,8 +3501,8 @@ def rai_code(action, code, lang, prompt):
       box.className = "account";
       box.innerHTML = `<div class="avatar">${u.avatar && /^https:\/\//.test(u.avatar) ? `<img alt="" src="${esc(u.avatar)}" referrerpolicy="no-referrer">` : initial}</div>` +
         `<div class="who-am"><b>${esc(u.name || u.login)}</b><span>@${esc(u.login)}` +
-        (u.role && u.role.name ? ` · <i class="role-badge">${esc(u.role.icon || "")} ${esc(u.role.name)}</i>` : "") + `</span></div>` +
-        `<button class="icon-btn" type="button" id="logoutBtn">Выйти</button>`;
+        (u.role && u.role.name ? ` · <i class="role-badge">${esc(u.role.icon || "")} ${esc(u.role.name)}</i>` : "") + `</span></div>`;
+      $("logoutSlot").innerHTML = `<button class="icon-btn" type="button" id="logoutBtn">${icon("logout")}Выйти из аккаунта</button>`;
       $("logoutBtn").addEventListener("click", logout);
       $("storeNote").innerHTML = `Чаты сохраняются в аккаунте. <a href="${esc(account.account)}" style="color:inherit">Личный кабинет</a>`;
       if (account.studio) $("studioLink").href = account.studio;  // в студию — сразу с входом
@@ -3182,6 +3625,7 @@ def rai_code(action, code, lang, prompt):
       $(tab).setAttribute("aria-selected", String(name === mode));
     }
     document.title = MODES[mode][2];
+    document.body.dataset.mode = mode;
     try { localStorage.setItem("rai_mode", mode); } catch (e) { /* не страшно */ }
     const hash = mode === "chat" ? "" : "#" + mode;
     if (location.hash !== hash) history.replaceState(null, "", hash || location.pathname + location.search);
