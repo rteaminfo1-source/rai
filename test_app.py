@@ -631,7 +631,9 @@ class OnlineTest(unittest.TestCase):
         self.assertFalse(any("geocoding" in c for c in fake_net.calls))  # город из справочника — без лишнего запроса
 
     def test_programming_languages(self):
-        self.assertIn("```go", self.ask("hello world на go")["answer"])
+        hello = self.ask("hello world на go")          # программа на Go вложением: «Открыть в Code», как запустить
+        self.assertIn("go run main.go", hello["answer"])
+        self.assertIn('fmt.Println("Привет, мир!")', hello["attachments"][0]["code"])
         self.assertIn("**Rust**", self.ask("что такое rust")["answer"])
         self.assertIn("**C#**", self.ask("что такое c#")["answer"])
         self.assertIn("Языки программирования", self.ask("какие языки программирования ты знаешь")["answer"])
@@ -3486,7 +3488,244 @@ console.log(JSON.stringify({type: a.type, threads: a.threads, voters: a.tasks[0]
         self.assertIn("window.RaiTeam = {", script)
         self.assertNotIn('id="rai-kb"', script)
         self.assertNotIn('id="rai-vision"', script)
-        self.assertIn('<script src="team.js"></script>', open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"), encoding="utf-8").read())
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"), encoding="utf-8") as fh:
+            self.assertIn('<script src="team.js"></script>', fh.read())
+
+
+class StylesTest(unittest.TestCase):
+    """Rai Code: стили сайта словами («произведение искусства», неон, люкс…), правки в свободной форме с опечатками
+    и для любого HTML-файла, а не только собранного Rai."""
+
+    def test_style_words(self):
+        import webstyles
+        self.assertEqual(webstyles.detect("сделай произведение исскувства"), "art")     # с опечатками
+        self.assertEqual(webstyles.detect("в стиле неон"), "neon")
+        self.assertEqual(webstyles.detect("люкс"), "luxury")
+        self.assertEqual(webstyles.detect("брутализм"), "brutal")
+        self.assertTrue(webstyles.wants_design("сделай в index2 произведение исскувства"))
+        self.assertFalse(webstyles.wants_design("добавь раздел цены"))
+        self.assertEqual(webstyles.detect_font("шрифт с засечками"), "serif")
+        self.assertIs(webstyles.motion("добавь анимации"), True)
+        self.assertIs(webstyles.motion("убери анимации"), False)
+        self.assertEqual(webstyles.scale("шрифт крупнее"), 1.12)
+
+    def test_rai_site_style_and_reset(self):
+        import webgen
+        spec = webgen.new_spec("сайт кофейни Зерно")
+        self.assertTrue(webgen.is_edit("сделай в index2 произведение исскувства"))
+        art, done = webgen.edit_spec(spec, "сделай в index2 произведение исскувства")
+        self.assertIn("Арт", done)
+        page = webgen.render(art)
+        self.assertIn('data-style="art"', page)
+        self.assertEqual(webgen.spec_from_html(page)["style"], "art")         # стиль сохраняется в самой странице
+        back, done = webgen.edit_spec(art, "верни как было")
+        self.assertIsNone(back.get("style"))
+
+    def test_look_words_are_not_the_title(self):
+        """«сделай сайт красиво» — это просьба об оформлении: в заголовок «Красиво» не попадает, сайт получается красивым."""
+        import codeai
+        import webgen
+        spec = webgen.new_spec("сделай сайт красиво")
+        self.assertNotIn("расив", spec["title"])
+        self.assertEqual((spec["style"], spec.get("generic")), ("art", True))
+        self.assertIn("О чём сайт", codeai.run_action("generate", "", None, "сделай сайт красиво")["answer"])
+        for text in ("сделай сайт стильно и современно", "сделай мне сайт пожалуйста", "сделай сайт покрасивее", "сделай сайт в стиле неон"):
+            title = webgen.new_spec(text)["title"]
+            self.assertFalse(re.search(r"стильн|современ|пожалуйст|покрасив|стиле|неон", title.lower()), (text, title))
+        spec = webgen.new_spec("сделай сайт кофейни красиво")
+        self.assertEqual((spec["title"], spec["style"]), ("Кофейня", "art"))
+        self.assertEqual(webgen.new_spec("сделай красивый сайт для магазина «Красивые цветы»")["title"], "Красивые цветы")
+        # сайт уже есть — «сделай сайт красиво» оформляет его, а не собирает новый
+        state = {}
+        codeai.chat("сделай сайт кофейни «Зерно»", None, state)
+        r = codeai.chat("сделай сайт красиво", None, state)
+        self.assertIn("Сделано", r["answer"])
+        self.assertEqual((state["site"]["title"], state["site"]["style"]), ("Зерно", "art"))
+        codeai.chat("сделай сайт пекарни", None, state)
+        self.assertEqual(state["site"]["title"], "Пекарня")
+        # слова темы остаются: «современное искусство», «красивые места» — это о чём, а не как
+        self.assertEqual(webgen.new_spec("сделай сайт про современное искусство")["title"], "Современное искусство")
+        import creative
+        self.assertEqual(creative.slides_topic("сделай презентацию про космос красиво"), "космос")
+        self.assertEqual(creative.slides_topic("сделай красивую презентацию про кошек"), "кошек")
+        self.assertEqual(creative.slides_topic("сделай презентацию стильно и современно про python"), "python")
+        self.assertEqual(creative.slides_topic("презентация про красивые места России"), "красивые места России")
+
+    def test_any_html_page(self):
+        import codeai
+        plain = "<!DOCTYPE html><html><head><title>Тест</title></head><body><h1>Привет</h1><p>Текст</p></body></html>"
+        r = codeai.run_action("edit", plain, "html", "сделай произведение искусства")
+        self.assertTrue(r["changed"])
+        self.assertIn('<style id="rai-style"', r["code"])
+        self.assertIn("<h1>Привет</h1>", r["code"])                              # содержимое не трогаем
+        r = codeai.run_action("edit", r["code"], "html", "добавь анимации и цвет синий")
+        self.assertIn("rai-style", r["code"])
+        back = codeai.run_action("edit", r["code"], "html", "верни как было")
+        self.assertNotIn('id="rai-style"', back["code"])
+        self.assertIn("Не понял правку", codeai.run_action("edit", plain, "html", "абракадабра непонятная")["answer"])
+        self.assertNotIn("code", codeai.run_action("edit", "print(1)", "python", "сделай красиво"))
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_code_tab_routing(self):
+        """Во вкладке Code: «сделай в index2 произведение исскувства» — правка открытой страницы, а «сделай игру» — новая программа."""
+        import subprocess
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "code.js"), encoding="utf-8") as fh:
+            js = fh.read()
+        design = re.search(r"const DESIGN = (/.*/);", js).group(1)
+        build = re.search(r"const BUILD = (/.*/);", js).group(1)
+        body = (f"const D = {design}, B = {build};"
+                "const t = (s) => [D.test(s), B.test(s)];"
+                "console.log(JSON.stringify([t('сделай в index2 произведение исскувства'), t('в стиле неон'), t('шрифт крупнее'),"
+                "t('сделай игру змейка'), t('напиши сайт кофейни'), t('добавь раздел цены')]));")
+        r = subprocess.run(["node", "-e", body], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [[True, False], [True, False], [True, False], [False, True], [False, True],
+                                                [False, False]])
+        # «сделай сайт красиво» при открытой странице — правка её вида, «сделай сайт кофейни» — новый сайт
+        grab = lambda name: js[js.index(f"const {name} = new RegExp("):js.index(', "g");', js.index(f"const {name} = new RegExp(")) + 7]
+        start = js.index("function lookOnly(low)")
+        fn = js[start:js.index("\n  }", start) + 4]
+        body = (grab("LOOK_RE") + ";" + grab("ONLY_RE") + ";const project = {files: [{name: 'index.html'}, {name: 'index2.html'}]};" + fn +
+                ";console.log(JSON.stringify(['сделай сайт красиво', 'сделай красивый сайт', 'сделай сайт в стиле неон',"
+                "'сделай сайт в index2 красиво', 'сделай сайт кофейни красиво', 'сделай сайт кофейни', 'сделай игру змейка'].map(lookOnly)));")
+        r = subprocess.run(["node", "-e", body], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [True, True, True, True, False, False, False])
+
+
+class PolyglotTest(unittest.TestCase):
+    """Rai пишет программы на 27 языках сам, без интернета: 50 задач × 27 языков, выбор языка и задачи по просьбе,
+    настоящий запуск там, где есть компилятор."""
+
+    FAST = {"python": (None, ["python3", "{f}"]), "javascript": (None, ["node", "{f}"]),
+            "c": (["gcc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-o", "main", "{f}", "-lm"], ["./main"]),
+            "php": (None, ["php", "{f}"]), "ruby": (None, ["ruby", "{f}"]), "lua": (None, ["lua5.4", "{f}"]),
+            "perl": (None, ["perl", "{f}"]), "bash": (None, ["bash", "{f}"]), "pascal": (["fpc", "-omain", "{f}"], ["./main"]),
+            "fortran": (["gfortran", "-o", "main", "{f}"], ["./main"])}
+
+    def test_every_task_in_every_language(self):
+        import polyglot
+        self.assertGreaterEqual(len(polyglot.LANGS), 27)
+        self.assertEqual(len(polyglot.TASKS), 50)
+        self.assertEqual(sorted(polyglot.ORDER), sorted(polyglot.TASKS))
+        for lang in polyglot.LANGS:
+            for task in polyglot.ORDER:
+                res = polyglot.program(task, lang)
+                self.assertGreater(len(res["code"]), 10, (lang, task))
+                self.assertIn(polyglot.RUN_HINT[lang].split()[0], res["about"])
+        for task in polyglot.ORDER:                  # Python — эталон: сам Python проверяет синтаксис
+            compile(polyglot.program(task, "python")["code"], task, "exec")
+        for task, tk in polyglot.TASKS.items():       # имена не заняты ни в одном языке (как base в C#)
+            names = {n[1] for n in polyglot.walk(tk["main"] + tk["funcs"]) if n[0] in ("var", "let", "input", "for", "rand", "func")}
+            names |= {p for f in tk["funcs"] for p, _ in f[2]}
+            self.assertFalse(names & polyglot.RESERVED, (task, names & polyglot.RESERVED))
+
+    def test_language_and_task_from_request(self):
+        import polyglot
+        cases = {"калькулятор на rust": ("rust", "calc"), "fizzbuzz на расте": ("rust", "fizzbuzz"),
+                 "напиши на котлине факториал": ("kotlin", "factorial"), "сумма двух чисел на си шарпе": ("csharp", "sum"),
+                 "палиндром на плюсах": ("cpp", "palindrome"), "напиши на голанге угадай число": ("go", "guess"),
+                 "таблица умножения на паскале": ("pascal", "table"), "НОД на питоне": ("python", "gcd"),
+                 "реши квадратное уравнение на swift": ("swift", "quadratic"), "калькулятор на си": ("c", "calc"),
+                 "переведи число в двоичную систему на vb.net": ("vbnet", "binary"),
+                 "максимум и минимум массива на powershell": ("powershell", "minmax")}
+        for text, (lang, task) in cases.items():
+            self.assertEqual((polyglot.find_lang(text), polyglot.find_task(text)), (lang, task), text)
+        for text in ("растение", "скала у моря", "найди нод двух чисел"):
+            self.assertNotIn(polyglot.find_lang(text), ("rust", "scala", "javascript"), text)
+
+    def test_code_tab_and_chat(self):
+        import codeai
+        r = codeai.run_action("generate", "", None, "напиши калькулятор на rust")
+        self.assertEqual((r["lang"], r["filename"]), ("rust", "main.rs"))
+        self.assertIn("fn main()", r["code"])
+        self.assertIn("rustc main.rs", r["answer"])
+        self.assertEqual(codeai.run_action("generate", "", None, "сортировка пузырьком на java")["filename"], "Main.java")
+        self.assertEqual(codeai.run_action("generate", "", None, "калькулятор на c++")["lang"], "cpp")      # готовая из каталога
+        self.assertIn("пока нет", codeai.run_action("generate", "", None, "змейка на rust")["answer"])        # игра — в браузере
+        self.assertIn("Haskell я пока не пишу", codeai.run_action("generate", "", None, "простые числа на haskell")["answer"])
+        skeleton = codeai.run_action("generate", "", None, "напиши парсер логов на rust")
+        self.assertEqual(skeleton["lang"], "rust")
+        self.assertIn("fn main()", skeleton["code"])
+        self.assertEqual(codeai.chat("fizzbuzz на расте")["lang"], "rust")
+        self.assertEqual(codeai.chat("НОД двух чисел на паскале")["lang"], "pascal")
+
+    def test_explain_any_language(self):
+        """«Объясни» для кода на любом языке: функции, циклы с границами, условия, ввод и вывод — построчно."""
+        import codeai
+        import polyglot
+        checks = {("go", "isprime"): ["объявляет функцию **isPrime** (n int)", "проверяет условие: n < 2", "go run main.go"],
+                  ("rust", "fizzbuzz"): ["цикл: **i** идёт от 1 до 101 (не включая)", "иначе, если i % 3 == 0"],
+                  ("pascal", "table"): ["цикл: **i** идёт от 1 до 10 включительно", "читает строку"],
+                  ("lua", "fizzbuzz"): ["цикл: **i** идёт от 1 до 100 включительно", "выводит на экран: \"Fizz\""],
+                  ("bash", "isprime"): ["объявляет функцию **is_prime**", "проверяет условие: n < 2", "спрашивает «Введите число:»"],
+                  ("c", "isprime"): ["если !fgets(line, sizeof line, stdin) — return 0", "главная функция"],
+                  ("kotlin", "bubble"): ["цикл: **i** идёт от 0 до (n - 1) (не включая)"],
+                  ("vbnet", "linsearch"): ["досрочно выходит из цикла", "цикл: **i** идёт от 0 до nums.Length - 1 включительно"]}
+        for (lang, task), parts in checks.items():
+            text = codeai.run_action("explain", polyglot.program(task, lang)["code"], None)["answer"]
+            for part in parts:
+                self.assertIn(part, text, f"{lang}/{task}")
+            self.assertNotIn("объявляет функцию **if", text)
+
+    def test_chat_answers_without_internet(self):
+        tmp = tempfile.TemporaryDirectory()
+        brain = Brain(learned_path=os.path.join(tmp.name, "l.json"))
+        quasar = VERSIONS["pro-quasar"]
+        with mock.patch.object(Brain, "_web", side_effect=AssertionError("в интернет ходить не нужно")):
+            r = brain.answer(quasar, "напиши fizzbuzz на расте")
+        self.assertEqual(r["intent"], "code")
+        self.assertEqual(r["attachments"][0]["lang"], "rust")
+        # задача + язык программирования — это программа, а не калькулятор ИМТ и не переводчик
+        r = brain.answer(quasar, "посчитай имт на kotlin")
+        self.assertEqual((r["intent"], r["attachments"][0]["lang"]), ("code", "kotlin"))
+        self.assertEqual(brain.answer(quasar, "переведи секунды в часы и минуты на python")["intent"], "code")
+        self.assertEqual(brain.answer(quasar, "имт рост 175 вес 70")["intent"], "tool")
+        self.assertNotEqual(brain.answer(quasar, "переведи 100 км в мили")["intent"], "code")
+        self.assertEqual(brain.answer(quasar, "что такое rust")["intent"], "proglang")
+        tmp.cleanup()
+
+    def test_run_with_real_compilers(self):
+        """Собрать и запустить программы там, где компилятор установлен, и сверить вывод с Python."""
+        import shutil
+        import subprocess
+        import polyglot
+        env = dict(os.environ, LC_ALL="C.UTF-8", LANG="C.UTF-8")
+
+        def run(lang, task):
+            build, cmd = self.FAST[lang]
+            res = polyglot.program(task, lang)
+            with tempfile.TemporaryDirectory() as d:
+                with open(os.path.join(d, res["filename"]), "w", encoding="utf-8") as fh:
+                    fh.write(res["code"])
+                if build:
+                    b = subprocess.run([x.format(f=res["filename"]) for x in build], cwd=d, capture_output=True, text=True, env=env,
+                                       timeout=120)
+                    self.assertEqual(b.returncode, 0, f"{lang}/{task}: {b.stdout[-800:]}{b.stderr[-800:]}")
+                stdin = "".join(f"{i}\n" for i in range(1, 101)) if task == "guess" else polyglot.TASKS[task]["stdin"]
+                r = subprocess.run([x.format(f=res["filename"]) for x in cmd], cwd=d, input=stdin, capture_output=True, text=True,
+                                   env=env, timeout=60)
+                self.assertEqual(r.returncode, 0, f"{lang}/{task}: {r.stderr[-800:]}")
+            out = r.stdout
+            for prompt in sorted({n[3] for n in polyglot.walk(polyglot.TASKS[task]["main"]) if n[0] == "input"}, key=len, reverse=True):
+                out = out.replace(prompt, "\n").replace(prompt.rstrip(), "\n")
+            return [line.strip() for line in out.splitlines() if line.strip()]
+
+        expected = {task: run("python", task) for task in polyglot.ORDER}
+        for task, t in polyglot.TASKS.items():
+            if t["expect"]:
+                self.assertEqual(expected[task], t["expect"], task)
+        for lang, (build, cmd) in self.FAST.items():
+            if lang == "python" or not shutil.which((build or cmd)[0]):
+                continue
+            for task in polyglot.ORDER:
+                out = run(lang, task)
+                if task == "guess":
+                    self.assertRegex(out[-1], r"^Угадали за \d+ попыток!$", f"{lang}/{task}")
+                elif task == "dice":
+                    self.assertRegex(out[-1], r"^Выпало: [1-6]$", f"{lang}/{task}")
+                else:
+                    self.assertEqual(out, expected[task], f"{lang}/{task}")
 
 if __name__ == "__main__":
     unittest.main()

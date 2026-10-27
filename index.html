@@ -953,7 +953,7 @@
   if (params.get("py")) CFG.pyBase = params.get("py");
 
   const PY_FILES = ["meds.py", "mind.py", "deep.py", "sense.py", "codemind.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "tokens.py", "toolbox.py", "facts.py", "games.py", "powertools.py", "explain.py", "lexicon.py", "fixer.py", "creative.py",
-                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "model3d.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"];
+                    "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webstyles.py", "webgen.py", "polyglot.py", "codeexplain.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "model3d.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"];
   const STORE_KEY = "rai_chats_v1";
 
   // Пока движок не загрузился — показываем версии из этого списка.
@@ -1045,11 +1045,19 @@
   }
   const FENCE = {py: "python", python: "python", js: "javascript", javascript: "javascript", ts: "typescript", typescript: "typescript",
     html: "html", css: "css", php: "php", json: "json", cpp: "cpp", "c++": "cpp", c: "c", java: "java", cs: "csharp", csharp: "csharp",
-    "c#": "csharp", go: "go", rust: "rust", rs: "rust", sql: "sql", bash: "bash", sh: "bash", shell: "bash", kotlin: "kotlin", kt: "kotlin"};
+    "c#": "csharp", go: "go", rust: "rust", rs: "rust", sql: "sql", bash: "bash", sh: "bash", shell: "bash", kotlin: "kotlin", kt: "kotlin",
+    swift: "swift", ruby: "ruby", rb: "ruby", lua: "lua", dart: "dart", scala: "scala", groovy: "groovy", r: "r", julia: "julia",
+    jl: "julia", perl: "perl", pl: "perl", pascal: "pascal", pas: "pascal", delphi: "pascal", vb: "vbnet", vbnet: "vbnet",
+    "vb.net": "vbnet", powershell: "powershell", ps1: "powershell", pwsh: "powershell", fortran: "fortran", f90: "fortran",
+    nim: "nim", crystal: "crystal", cr: "crystal"};
   const EXT_OF = {python: "py", javascript: "js", typescript: "ts", html: "html", css: "css", php: "php", json: "json", cpp: "cpp",
-    c: "c", java: "java", csharp: "cs", go: "go", rust: "rs", sql: "sql", bash: "sh", kotlin: "kt"};
+    c: "c", java: "java", csharp: "cs", go: "go", rust: "rs", sql: "sql", bash: "sh", kotlin: "kt", swift: "swift", ruby: "rb",
+    lua: "lua", dart: "dart", scala: "scala", groovy: "groovy", r: "R", julia: "jl", perl: "pl", pascal: "pas", vbnet: "vb",
+    powershell: "ps1", fortran: "f90", nim: "nim", crystal: "cr"};
   const LANG_NAME = {python: "Python", javascript: "JavaScript", typescript: "TypeScript", html: "HTML", css: "CSS", php: "PHP",
-    json: "JSON", cpp: "C++", c: "C", java: "Java", csharp: "C#", go: "Go", rust: "Rust", sql: "SQL", bash: "Bash", kotlin: "Kotlin"};
+    json: "JSON", cpp: "C++", c: "C", java: "Java", csharp: "C#", go: "Go", rust: "Rust", sql: "SQL", bash: "Bash", kotlin: "Kotlin",
+    swift: "Swift", ruby: "Ruby", lua: "Lua", dart: "Dart", scala: "Scala", groovy: "Groovy", r: "R", julia: "Julia", perl: "Perl",
+    pascal: "Pascal", vbnet: "Visual Basic .NET", powershell: "PowerShell", fortran: "Fortran", nim: "Nim", crystal: "Crystal"};
   function hl(code, lang) {
     return window.RaiCode ? window.RaiCode.highlight(code, lang) : esc(code);
   }

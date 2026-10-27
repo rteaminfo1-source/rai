@@ -30,7 +30,7 @@ $fest = festive_current();
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rai — свой ИИ-помощник</title>
-<meta name="description" content="Rai — ИИ-помощник команды Rteam: свой движок прямо в браузере, команда до 1000 моделей, код на 17 языках, презентации, погода, перевод и анализ соцсетей. Приложение для Windows, macOS и Linux. Бесплатно и по подписке.">
+<meta name="description" content="Rai — ИИ-помощник команды Rteam: свой движок прямо в браузере, команда до 1000 моделей, программы на 27 языках, презентации, погода, перевод и анализ соцсетей. Приложение для Windows, macOS и Linux. Бесплатно и по подписке.">
 <meta name="theme-color" content="#07070b">
 <meta property="og:title" content="Rai — свой ИИ-помощник">
 <meta property="og:description" content="Свой ИИ в браузере: до 1000 моделей отвечают вместе, код, презентации, перевод и анализ соцсетей. Начните бесплатно.">
@@ -319,7 +319,7 @@ footer .sp { margin-left: auto; }
         <span class="badge fade festive-pill"><b><?= h($fest['emoji']) ?></b> <?= $fest['kind'] === 'holiday' ? 'Праздничное оформление' : 'Тема недели' ?>: <?= h($fest['name']) ?></span>
         <span class="badge fade"><b>Новое</b> Rai думает сам, видит картинки и пишет код по запросу</span>
         <h1><span class="line"><span>Ваш умный</span></span><span class="line"><span>помощник —</span></span><span class="line"><span class="grad-text">Rai</span></span></h1>
-        <p class="lead fade d1">Отвечает на вопросы, пишет и исправляет код на 17 языках, делает презентации, переводит, знает погоду
+        <p class="lead fade d1">Отвечает на вопросы, пишет и исправляет программы на 27 языках, делает презентации, переводит, знает погоду
           в любом посёлке и разбирает TikTok, YouTube и Telegram по ссылке. Работает прямо в браузере — или в приложении для Windows, macOS и Linux.</p>
         <div class="cta fade d2">
           <a class="btn primary big" href="<?= CHAT_URL ?>">Начать бесплатно <span class="arrow">→</span></a>
@@ -340,14 +340,14 @@ footer .sp { margin-left: auto; }
       </div>
     </div>
     <div class="marquee" aria-hidden="true"><div class="track">
-      <?php $items = ['До 1000 моделей сразу', 'Код на 17 языках', 'Презентации и PPTX', 'Погода в любом посёлке', 'Курсы валют', 'Перевод', 'Анализ TikTok и YouTube', 'Стихи', 'Мемы', 'Картинки', 'Даты и единицы', 'AI Studio — сайты'];
+      <?php $items = ['До 1000 моделей сразу', 'Программы на 27 языках', 'Презентации и PPTX', 'Погода в любом посёлке', 'Курсы валют', 'Перевод', 'Анализ TikTok и YouTube', 'Стихи', 'Мемы', 'Картинки', 'Даты и единицы', 'AI Studio — сайты'];
       for ($i = 0; $i < 2; $i++) foreach ($items as $it) echo '<span>' . h($it) . '</span>'; ?>
     </div></div>
   </div>
 
   <section aria-label="Rai в цифрах">
     <div class="wrap stats">
-      <div class="stat reveal"><b data-count="17">0</b><span>языков программирования с примерами</span></div>
+      <div class="stat reveal"><b data-count="27">0</b><span>языков программирования — Rai пишет на них сам</span></div>
       <div class="stat reveal" style="--d:.08s"><b data-count="1000">0</b><span>моделей Rai в одной команде</span></div>
       <div class="stat reveal" style="--d:.16s"><b data-count="100" data-suffix="%">0</b><span>работает в браузере, без установки</span></div>
       <div class="stat reveal" style="--d:.24s"><b>0 ₽</b><span>чтобы начать — бесплатный тариф навсегда</span></div>
@@ -369,7 +369,7 @@ footer .sp { margin-left: auto; }
         <article class="f wide reveal" style="--d:.08s">
           <div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg></div>
           <h3>Rai Code</h3>
-          <p>Пишет, запускает и сам исправляет программы. Сайты и игры — одним файлом.</p>
+          <p>Пишет, запускает и сам исправляет программы на 27 языках — от Python и C++ до Rust, Kotlin и Pascal — без интернета. Объясняет любой код построчно. Сайты и игры — одним файлом, стиль меняется словами: «сделай произведение искусства».</p>
           <div class="code" aria-hidden="true"><span class="k">def</span> <span class="n">greet</span>(name):<br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">return</span> <span class="s">f"Привет, {name}!"</span> <span class="c"># ✓ проверено</span></div>
         </article>
         <article class="f wide reveal" style="--d:.16s">

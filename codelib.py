@@ -5,26 +5,22 @@
 
 import re
 
+import polyglot
+
 LANG_WORDS = [
     ("html", r"\bhtml\b|веб-?страниц|страниц[уа]|сайт|в браузере|лендинг"),
-    ("javascript", r"javascript|джаваскрипт|\bjs\b|node|нод"),
-    ("typescript", r"typescript|\bts\b"),
-    ("php", r"\bphp\b|пхп"),
-    ("cpp", r"c\+\+|cpp|си плюс плюс|плюсах"),
-    ("csharp", r"c#|си шарп|csharp"),
-    ("java", r"\bjava\b|джав[аеу]"),
-    ("python", r"python|питон|пайтон|\bpy\b"),
 ]
 
 EXT = {"python": "py", "javascript": "js", "html": "html", "php": "php", "cpp": "cpp", "java": "java", "csharp": "cs"}
 
 
 def lang_from_text(text):
+    """Язык из просьбы: HTML (сайт, страница) или любой из 27 языков программирования («на расте», «на котлине»)."""
     low = (text or "").lower()
     for lang, pattern in LANG_WORDS:
         if re.search(pattern, low):
             return lang
-    return None
+    return polyglot.find_lang(low)
 
 
 T = {}
@@ -1406,7 +1402,16 @@ def generate(prompt, lang=None):
     (codemind) → небольшие функции по образцу (funcgen)."""
     import codemind
     key = find_task(prompt)
+    if key == "timer" and polyglot.find_task(prompt) == "hms":
+        key = None                       # «переведи секунды в часы и минуты» — перевод, а не секундомер
     explicit = lang_from_text(prompt)
+    # Язык, на котором в каталоге этой программы нет (Rust, Go, Kotlin, Swift, Pascal… — всего 27 языков):
+    # Rai пишет её сам по описанию задачи, без интернета (polyglot)
+    want = explicit or (lang if lang in polyglot.LANGS else None)
+    if want and want not in ("python", "javascript", "html") and (not key or want not in T[key]["codes"]):
+        made = polyglot.generate(prompt, want)
+        if made:
+            return made
     smart = None
     if (not key or key in ALGO_KEYS) and explicit in (None, "python", "javascript", "typescript"):
         smart = codemind.generate(prompt, explicit or lang)
@@ -1432,12 +1437,32 @@ def generate(prompt, lang=None):
         fallback = "html" if "html" in codes else "python" if "python" in codes else next(iter(codes))
         names = {"python": "Python", "javascript": "JavaScript", "html": "HTML", "php": "PHP", "cpp": "C++",
                  "java": "Java", "csharp": "C#"}
-        note = f"\n\nНа {names.get(wanted, wanted)} этой программы у меня пока нет — сделал на {names[fallback]}."
+        name = names.get(wanted) or (polyglot.LANGS[wanted].name if wanted in polyglot.LANGS else wanted)
+        why = " (игре с графикой там нужны сторонние библиотеки)" if fallback == "html" else ""
+        note = f"\n\nНа {name} этой программы у меня пока нет{why} — сделал на {names[fallback]}."
         wanted = fallback
+    elif not explicit:
+        other = _unsupported_lang(prompt)
+        if other:
+            note = (f"\n\nНа {other} я пока не пишу — вот на {names_of(wanted)}. Могу на любом из 27 языков: "
+                    f"{', '.join(polyglot.names()[:12])} и других.")
     # main.py, а не json.py/csv.py — иначе файл перекроет стандартный модуль Python
     filename = {"html": "index.html", "java": "Main.java", "php": "index.php"}.get(wanted, f"main.{EXT.get(wanted, 'txt')}")
     return {"code": codes[wanted], "lang": wanted, "filename": filename, "title": t["title"],
             "about": f"**{t['title']}** — {t['about']}{note}"}
+
+
+def names_of(lang):
+    return {"html": "HTML"}.get(lang) or (polyglot.LANGS[lang].name if lang in polyglot.LANGS else lang)
+
+
+def _unsupported_lang(prompt):
+    """Язык из справочника, на котором Rai программы не пишет («на haskell»): его название или None."""
+    import proglangs
+    found = proglangs.find_language(prompt or "")
+    if found and found[0] not in ("HTML", "CSS", "SQL") and not polyglot.find_lang(found[0]):
+        return found[0]
+    return None
 
 
 def help_text():

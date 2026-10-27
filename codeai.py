@@ -12,25 +12,36 @@ import re
 from html.parser import HTMLParser
 
 import codelib
+import codeexplain
 import codemind
 import moderation
+import polyglot
 import webgen
+import webstyles
 
 LANG_NAMES = {
     "python": "Python", "javascript": "JavaScript", "html": "HTML", "css": "CSS", "php": "PHP", "json": "JSON",
     "cpp": "C++", "c": "C", "java": "Java", "csharp": "C#", "go": "Go", "rust": "Rust", "sql": "SQL",
-    "bash": "Bash", "typescript": "TypeScript", "kotlin": "Kotlin", "text": "текст",
+    "bash": "Bash", "typescript": "TypeScript", "kotlin": "Kotlin", "swift": "Swift", "ruby": "Ruby", "lua": "Lua",
+    "dart": "Dart", "scala": "Scala", "groovy": "Groovy", "r": "R", "julia": "Julia", "perl": "Perl", "pascal": "Pascal",
+    "vbnet": "Visual Basic .NET", "powershell": "PowerShell", "fortran": "Fortran", "nim": "Nim", "crystal": "Crystal",
+    "text": "текст",
 }
 EXTENSIONS = {
     "py": "python", "js": "javascript", "mjs": "javascript", "ts": "typescript", "html": "html", "htm": "html",
     "css": "css", "php": "php", "json": "json", "cpp": "cpp", "cc": "cpp", "hpp": "cpp", "c": "c", "h": "c",
     "java": "java", "cs": "csharp", "go": "go", "rs": "rust", "sql": "sql", "sh": "bash", "kt": "kotlin",
+    "swift": "swift", "rb": "ruby", "lua": "lua", "dart": "dart", "scala": "scala", "groovy": "groovy", "r": "r",
+    "jl": "julia", "pl": "perl", "pas": "pascal", "dpr": "pascal", "vb": "vbnet", "ps1": "powershell", "f90": "fortran",
+    "f95": "fortran", "f": "fortran", "nim": "nim", "cr": "crystal",
 }
 
 
 EXT_OF = {"python": "py", "javascript": "js", "html": "html", "css": "css", "php": "php", "json": "json", "cpp": "cpp",
           "c": "c", "java": "java", "csharp": "cs", "go": "go", "rust": "rs", "sql": "sql", "bash": "sh",
-          "typescript": "ts", "kotlin": "kt", "text": "txt"}
+          "typescript": "ts", "kotlin": "kt", "swift": "swift", "ruby": "rb", "lua": "lua", "dart": "dart",
+          "scala": "scala", "groovy": "groovy", "r": "R", "julia": "jl", "perl": "pl", "pascal": "pas", "vbnet": "vb",
+          "powershell": "ps1", "fortran": "f90", "nim": "nim", "crystal": "cr", "text": "txt"}
 
 
 def lang_from_filename(name):
@@ -38,11 +49,44 @@ def lang_from_filename(name):
     return EXTENSIONS.get(ext, "text")
 
 
+_STRONG_SIGNS = [
+    ("bash", r"\A#!/(?:usr/)?bin/(?:env )?(?:ba)?sh"),
+    ("pascal", r"^\s*program \w+;|^\s*\{\$mode|^\s*begin\s*$"),
+    ("nim", r"^\s*proc \w+\(|^\s*import strutils|^\s*for \w+ in .+ \.\.<? .+:\s*$|\bstdout\.flushFile\b"),
+    ("vbnet", r"^\s*(?:Module \w+|Sub Main\(\)|End (?:Sub|Module|Function)|Dim \w+ As )"),
+    ("typescript", r"\b(?:function \w+|const \w+|let \w+)\s*(?:\([^)]*\b\w+:\s*(?:number|string|boolean)|:\s*(?:number|string|boolean|any)\b)"),
+    ("crystal", r"\b\d+_i64\b|\)\s*:\s*(?:Int32|Int64|Float64|Bool|String)\s*$|\w+ : (?:Int32|Int64|Float64|String)\b|STDOUT\.flush"),
+    ("groovy", r"^\s*println\s+[\"']|@Field\b|\.intdiv\(|^\s*(?:int|long|double|String|boolean)(?:\[\])?\s+\w+\s*=\s*[^;]*$"),
+]
+
+# Характерные строки языков, которые иначе приняли бы за JavaScript или Python
+_LANG_SIGNS = [
+    ("kotlin", r"^\s*fun main\(|\bprintln\(\"[^\"]*\$\{|\breadLine\(\)!!"),
+    ("swift", r"^\s*import Foundation\b|\bprint\([^)]*terminator:|\bfunc \w+\(_ "),
+    ("dart", r"^\s*void main\(\)\s*\{|import 'dart:"),
+    ("scala", r"^\s*object \w+ (?:extends App\s*)?\{|\bdef main\(args: Array\[String\]\)"),
+    ("pascal", r"^\s*program \w+;|^\s*begin\s*$|\bwriteln\s*\(", ),
+    ("vbnet", r"^\s*Module \w+|^\s*Sub Main\(\)|^\s*Dim \w+ As \w+"),
+    ("fortran", r"^\s*program \w+\s*$|^\s*implicit none\b"),
+    ("powershell", r"\bWrite-Host\b|\bRead-Host\b|^\s*function [A-Z]\w*-\w+"),
+    ("perl", r"^\s*use strict;|^\s*my [$@%]\w+"),
+    ("lua", r"^\s*local function \w+|^\s*local \w+ = |\bio\.write\(|^\s*(?:if|elseif)\s+[^;]+\s+then\s*$|"
+            r"^\s*for \w+ = [^,]+, .+ do\s*$|\w\s*~=\s*\w|\"\s*\.\.\s*\w"),
+    ("ruby", r"^\s*puts\b|^\s*require ['\"]|\.each do \|"),
+    ("r", r"<-\s*function\(|\bcat\([^)]*sep\s*=|^\s*\w+\s*<-\s*"),
+    ("julia", r"^\s*function \w+\(.*\)\s*$|\bprintln\(\"|^\s*using \w+"),
+    ("bash", r"\bread -r|^\s*fi\s*$|^\s*done\s*$|\$\(\("),
+]
+
+
 def detect_lang(code, hint=None):
     """Определить язык кода по подсказке и по самому тексту."""
     if hint and hint in LANG_NAMES and hint != "text":
         return hint
     c = code or ""
+    for lang, pattern in _STRONG_SIGNS:            # языки, чьи строки иначе приняли бы за C#, JavaScript, Ruby, Python
+        if re.search(pattern, c, re.M):
+            return lang
     if re.search(r"<\?php", c):
         return "php"
     if re.search(r"<!DOCTYPE html|<html|<body|<div[\s>]|<p>|<h1", c, re.I):
@@ -57,6 +101,9 @@ def detect_lang(code, hint=None):
         return "go"
     if re.search(r"fn main\(\)|println!\(", c):
         return "rust"
+    for lang, pattern in _LANG_SIGNS:
+        if re.search(pattern, c, re.M):
+            return lang
     if re.search(r"\b(const|let|var)\s+\w+\s*=|console\.log|function\s+\w*\s*\(|=>|document\.", c):
         return "javascript"
     if re.search(r"^\s*(def |class |import |from \w+ import |print\(|if __name__)", c, re.M) or re.search(r":\s*$", c, re.M):
@@ -808,7 +855,14 @@ def explain_generic(code, lang):
 
 def explain(code, lang=None):
     lang = detect_lang(code, lang)
-    return explain_python(code) if lang == "python" else explain_generic(code, lang)
+    if lang == "python":
+        return explain_python(code)
+    if lang not in ("html", "css", "json", "sql", "text"):
+        # 27 языков: функции, циклы с границами, условия, ввод, вывод, переменные — построчно (codeexplain)
+        text = codeexplain.explain(code, LANG_NAMES.get(lang, lang), polyglot.RUN_HINT.get(lang, ""), lang)
+        if text:
+            return text
+    return explain_generic(code, lang)
 
 
 # ================================================================== отчёты
@@ -887,10 +941,16 @@ def wants_site(text):
 
 
 def is_build_request(text):
-    """«Сделай сайт кофейни», «напиши игру тетрис», «создай приложение погоды» — просьба написать код."""
+    """«Сделай сайт кофейни», «напиши игру тетрис», «создай приложение погоды» — просьба написать код.
+
+    И «посчитай ИМТ на kotlin», «переведи секунды в часы на python»: знакомая задача + язык программирования —
+    это заказ программы, а не калькулятор и не переводчик."""
     low = (text or "").lower().replace("ё", "е")
     if _NOT_CODE.search(low) and not _STRONG_SITE.search(low):
         return False
+    if polyglot.find_lang(low) and (polyglot.find_task(low) or codelib.find_task(low)) and not \
+            re.search(r"^\s*(?:а\s+)?(?:что такое|что это|кто такой|зачем|почему|чем отличается|сравни)", low):
+        return True
     return bool(_BUILD_VERB.search(low) and _BUILD_NOUN.search(low)) or bool(re.match(r"^\s*(?:сайт|лендинг|игра)\s", low))
 
 
@@ -1108,6 +1168,9 @@ def scaffold(prompt, lang=None):
         inc = "#include <iostream>\nusing namespace std;\n" if lang == "cpp" else "#include <stdio.h>\n"
         body = ('    cout << "Заготовка Rai Code" << endl;\n' if lang == "cpp" else '    printf("Заготовка Rai Code\\n");\n')
         code = f"// {task}\n{inc}\nint main() {{\n    // TODO: здесь логика задачи\n{body}    return 0;\n}}\n"
+    elif lang in polyglot.LANGS:
+        made = polyglot.skeleton(task, lang)
+        code, name = made["code"], made["filename"]
     else:
         code = f"# {task}\n# TODO: здесь логика задачи «{task}»\n"
     about = (f"Собрал рабочий **каркас** под «{task}» на {LANG_NAMES.get(lang, lang)} — он уже запускается. "
@@ -1126,14 +1189,24 @@ def run_action(action, code, lang=None, prompt=""):
     if action == "edit" or (action == "generate" and code and webgen.spec_from_html(code) and webgen.is_edit(prompt)):
         spec = webgen.spec_from_html(code)
         if not spec:
-            return {"answer": "Править словами умею сайты, которые собрал сам. Опишите новый сайт — соберу.", "lang": "html"}
+            # Любая другая страница: стиль, тема, цвет, анимации, шрифт и название — одним блоком <style id="rai-style">
+            if not re.search(r"<(?:html|head|body|div|section|main|h1|p|canvas|button)\b", code or "", re.I):
+                return {"answer": "Оформление словами меняю у страниц HTML. С этим кодом могу: проверить, исправить, "
+                                  "объяснить, добавить комментарии — или напишите, что дописать.", "lang": detect_lang(code, lang)}
+            page, done = webgen.restyle_html(code, prompt)
+            if not done:
+                return {"answer": "Не понял правку. " + webgen.STYLE_HELP, "lang": "html"}
+            return {"answer": f"Сделано: {done}.\n\nВсё новое оформление — в одном блоке `<style id=\"rai-style\">` в начале "
+                              "страницы: его можно поправить руками или удалить. Правьте дальше словами: «цвет синий», "
+                              "«добавь анимации», «верни как было».", "code": page, "lang": "html", "changed": True}
         spec, done = webgen.edit_spec(spec, prompt)
         if not done:
             return {"answer": "Не понял правку. " + webgen.EDIT_HELP, "lang": "html"}
         return dict(site_result(spec, f"Сделано: {done}.\n\n{webgen.summary(spec)}"), changed=True)
     if action == "generate" and wants_site(prompt):
         spec = webgen.new_spec(prompt)
-        return site_result(spec, webgen.summary(spec) + "\n\n" + webgen.EDIT_HELP)
+        return site_result(spec, webgen.summary(spec) + (webgen.GENERIC_HELP if spec.get("generic") else "") + "\n\n" +
+                           webgen.EDIT_HELP)
     if action == "generate":
         code = ""
     lang = detect_lang(code, lang) if code else (lang or "python")
@@ -1171,6 +1244,10 @@ def run_action(action, code, lang=None, prompt=""):
         if built:
             return {"answer": built["about"], "code": built["code"], "lang": built["lang"],
                     "filename": built["filename"], "title": built.get("title", "")}
+        made = polyglot.generate(prompt, lang if lang in polyglot.LANGS else "python")   # 50 классических задач на 27 языках
+        if made:
+            return {"answer": made["about"], "code": made["code"], "lang": made["lang"], "filename": made["filename"],
+                    "title": made["title"]}
         return scaffold(prompt, lang)             # всегда даём рабочий каркас, а не «не знаю»
     return {"answer": "Не понял, что сделать с кодом. Могу: проверить, исправить, объяснить, прокомментировать, написать.",
             "lang": lang}
@@ -1190,7 +1267,9 @@ def chat(text, version=None, state=None):
         bad = moderation.forbidden_build(text)
         if bad:
             return {"answer": bad["answer"], "lang": "html", "forbidden": bad["category"]}
-    if not code and state.get("site") and webgen.is_edit(text) and not wants_site(text):
+    # Сайт уже есть, а просьба только про вид («сделай сайт красиво», «сделай красивый сайт», «в стиле неон») —
+    # оформляем этот сайт, а не собираем новый с названием «Красиво»
+    if not code and state.get("site") and ((webgen.is_edit(text) and not wants_site(text)) or webstyles.style_only(text)):
         spec, done = webgen.edit_spec(state["site"], text)
         if done:
             state["site"] = spec
@@ -1198,7 +1277,8 @@ def chat(text, version=None, state=None):
     if not code and wants_site(text) and (is_build_request(text) or action == "generate"):
         spec = webgen.new_spec(text)
         state["site"] = spec
-        return site_result(spec, webgen.summary(spec) + "\n\nОткройте «Просмотр» или вкладку Code. " + webgen.EDIT_HELP)
+        return site_result(spec, webgen.summary(spec) + (webgen.GENERIC_HELP if spec.get("generic") else "") +
+                           "\n\nОткройте «Просмотр» или вкладку Code. " + webgen.EDIT_HELP)
     if code:
         action = action if action in ("fix", "explain", "comment", "check") else "check"
         result = run_action(action, code, lang)
@@ -1207,11 +1287,14 @@ def chat(text, version=None, state=None):
         return result
     if re.search(r"^\s*(а\s+)?(что такое|что это|кто такой|зачем|почему|для чего|чем отличается|сравни)", (text or "").lower()):
         return None  # вопрос о понятии, а не просьба написать код
-    if action is None and codelib.find_task(text) and codelib.lang_from_text(text) and len(text) < 80:
-        action = "generate"  # «калькулятор на c++»
+    if action is None and (codelib.find_task(text) or polyglot.find_task(text)) and codelib.lang_from_text(text) and len(text) < 80:
+        action = "generate"  # «калькулятор на c++», «fizzbuzz на расте»
     if (action is None or action == "check") and (is_build_request(text) or known_program(text)):
         action = "generate"
-    if action == "generate" and (codelib.find_task(text) or codelib.funcgen.generate(text)) or action == "generate" and re.search(r"код|программ|скрипт|функци|игр|бот|сайт|страниц|калькулятор|hello|приложени|класс\b|алгоритм|сортировк|парсер|сервер|таймер|html|python|питон|javascript|js\b|php|c\+\+|java\b", (text or "").lower()):
+    if action == "generate" and (codelib.find_task(text) or polyglot.find_task(text) or codelib.funcgen.generate(text)) or \
+            action == "generate" and (polyglot.find_lang(text) or re.search(
+                r"код|программ|скрипт|функци|игр|бот|сайт|страниц|калькулятор|hello|приложени|класс\b|алгоритм|сортировк|"
+                r"парсер|сервер|таймер|html", (text or "").lower())):
         result = run_action("generate", "", codelib.lang_from_text(text) or "python", text)
         return result if result.get("code") else None
     return None

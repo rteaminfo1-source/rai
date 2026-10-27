@@ -8,6 +8,8 @@
 import math
 import random
 import re
+
+import webstyles
 import zlib
 from xml.sax.saxutils import escape
 
@@ -470,8 +472,10 @@ def _lum(hex_):
 
 
 def slides_topic(text: str) -> str:
-    """Тема презентации без служебных слов и без цветов («про космос в синих тонах» -> «космос»)."""
-    words = re.findall(r"#[0-9a-fA-F]{3,6}|[\w-]+|[«»\"',.:;!?]", text or "")
+    """Тема презентации без служебных слов, цветов и слов об оформлении («про космос в синих тонах» -> «космос»,
+    «красивую презентацию про кошек» -> «кошек», «про космос красиво» -> «космос»)."""
+    text = webstyles.strip_look(text or "")[0]
+    words = re.findall(r"#[0-9a-fA-F]{3,6}|[\w-]+|[«»\"',.:;!?]", text)
     drop = [False] * len(words)
     for i, w in enumerate(words):
         low = w.lower().replace("ё", "е")

@@ -8,18 +8,37 @@
   const EXT = {
     py: "python", js: "javascript", mjs: "javascript", cjs: "javascript", ts: "typescript", html: "html", htm: "html",
     css: "css", php: "php", json: "json", cpp: "cpp", cc: "cpp", hpp: "cpp", c: "c", h: "c", java: "java", cs: "csharp",
-    go: "go", rs: "rust", sql: "sql", sh: "bash", kt: "kotlin", md: "text", txt: "text", csv: "text"
+    go: "go", rs: "rust", sql: "sql", sh: "bash", kt: "kotlin", swift: "swift", rb: "ruby", lua: "lua", dart: "dart",
+    scala: "scala", groovy: "groovy", r: "r", jl: "julia", pl: "perl", pas: "pascal", dpr: "pascal", vb: "vbnet",
+    ps1: "powershell", f90: "fortran", f95: "fortran", nim: "nim", cr: "crystal", md: "text", txt: "text", csv: "text"
   };
   const NAMES = {
     python: "Python", javascript: "JavaScript", typescript: "TypeScript", html: "HTML", css: "CSS", php: "PHP", json: "JSON",
-    cpp: "C++", c: "C", java: "Java", csharp: "C#", go: "Go", rust: "Rust", sql: "SQL", bash: "Bash", kotlin: "Kotlin", text: "Текст"
+    cpp: "C++", c: "C", java: "Java", csharp: "C#", go: "Go", rust: "Rust", sql: "SQL", bash: "Bash", kotlin: "Kotlin",
+    swift: "Swift", ruby: "Ruby", lua: "Lua", dart: "Dart", scala: "Scala", groovy: "Groovy", r: "R", julia: "Julia",
+    perl: "Perl", pascal: "Pascal", vbnet: "Visual Basic .NET", powershell: "PowerShell", fortran: "Fortran", nim: "Nim",
+    crystal: "Crystal", text: "Текст"
   };
   const FAMILY = {
     python: "python", javascript: "js", typescript: "js", json: "json", css: "css", php: "php", sql: "sql", bash: "bash",
-    c: "c", cpp: "c", java: "c", csharp: "c", go: "c", rust: "c", kotlin: "c"
+    c: "c", cpp: "c", java: "c", csharp: "c", go: "c", rust: "c", kotlin: "c", swift: "c", dart: "c", scala: "c", groovy: "c",
+    ruby: "script", crystal: "script", perl: "script", r: "script", julia: "script", nim: "script", powershell: "script",
+    lua: "lua", pascal: "pascal", vbnet: "vb", fortran: "fortran"
+  };
+  // Как запустить на компьютере то, что не запускается в браузере
+  const HOWTO = {
+    typescript: "npx tsx main.ts", c: "gcc main.c -o main -lm && ./main", cpp: "g++ main.cpp -o main && ./main",
+    java: "java Main.java", csharp: "dotnet new console, вставить код в Program.cs, dotnet run", go: "go run main.go",
+    rust: "rustc main.rs && ./main", kotlin: "kotlinc Main.kt -include-runtime -d main.jar && java -jar main.jar",
+    swift: "swift main.swift", php: "php main.php", ruby: "ruby main.rb", lua: "lua main.lua", dart: "dart run main.dart",
+    scala: "scala Main.scala", groovy: "groovy main.groovy", r: "Rscript main.R (или RStudio)", julia: "julia main.jl",
+    perl: "perl main.pl", pascal: "fpc main.pas && ./main (или Lazarus, PascalABC.NET)",
+    vbnet: "dotnet new console -lang VB, вставить код в Program.vb, dotnet run", powershell: "pwsh main.ps1",
+    fortran: "gfortran main.f90 -o main && ./main", nim: "nim c -r main.nim", crystal: "crystal run main.cr", bash: "bash main.sh"
   };
   const langOf = (name) => EXT[((String(name).match(/\.([a-z0-9]+)$/i) || [])[1] || "").toLowerCase()] || "text";
-  const unitOf = (lang) => (["html", "css", "javascript", "typescript", "json"].includes(lang) ? 2 : 4);
+  const unitOf = (lang) => (["html", "css", "javascript", "typescript", "json", "ruby", "crystal", "lua", "nim", "dart", "scala",
+                             "r", "pascal"].includes(lang) ? 2 : 4);
 
   // ================================================================ подсветка
   const WORDS = (s) => new Set(s.split(" "));
@@ -30,14 +49,23 @@
     php: WORDS("abstract and array as break callable case catch class clone const continue declare default do echo else elseif empty endfor endforeach endif endswitch endwhile extends final finally fn for foreach function global if implements include include_once instanceof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield true false null"),
     sql: WORDS("select from where insert into values update set delete create table drop alter add primary key foreign references not null unique default index join left right inner outer full on as and or in is like between order by group having limit offset distinct union all exists case when then else end integer int varchar text real boolean date autoincrement"),
     bash: WORDS("if then else elif fi for while do done case esac in function return exit local export source"),
-    css: WORDS("important"), json: WORDS("true false null")
+    css: WORDS("important"), json: WORDS("true false null"),
+    script: WORDS("def end if elsif else unless while until for in do loop break next return then case when begin rescue ensure yield class module require true false nil my sub use foreach last say function local repeat elseif proc let var import echo and or not div mod TRUE FALSE NULL NA const using struct mutable"),
+    lua: WORDS("and break do else elseif end false for function goto if in local nil not or repeat return then true until while"),
+    pascal: WORDS("program begin end var const type function procedure if then else while do for to downto repeat until uses and or not div mod in of array record integer int64 string boolean double real char true false exit break result"),
+    vb: WORDS("module sub function end if then else elseif while for to next step dim as integer long double string boolean return exit and or not andalso orelse mod new true false imports nothing is do loop"),
+    fortran: WORDS("program end implicit none integer real character logical function subroutine contains if then else do while exit return print read write call intent in out len kind result")
   };
   const BUILTIN = {
     python: WORDS("print input len range int str float list dict set tuple bool type open abs min max sum sorted reversed enumerate zip map filter round isinstance super self object Exception ValueError TypeError KeyError IndexError any all chr ord divmod pow hex bin format repr id iter next"),
     js: WORDS("console document window Math JSON Array Object String Number Boolean Promise Date Map Set RegExp Error parseInt parseFloat setTimeout setInterval clearInterval clearTimeout fetch alert prompt localStorage require module exports process"),
     c: WORDS("printf scanf puts cout cin endl std vector string System out println main String Console WriteLine fmt Println Printf len make append"),
     php: WORDS("strlen count explode implode str_replace substr strpos json_encode json_decode array_map array_filter in_array htmlspecialchars date time rand file_get_contents file_put_contents"),
-    sql: WORDS("count sum avg min max"), bash: WORDS("echo read cd ls mkdir rm cp mv cat grep sudo pwd"), css: WORDS(""), json: WORDS("")
+    sql: WORDS("count sum avg min max"), bash: WORDS("echo read cd ls mkdir rm cp mv cat grep sudo pwd"), css: WORDS(""), json: WORDS(""),
+    script: WORDS("puts print gets println readline parse format sprintf cat paste length rand sqrt Write-Host Read-Host"),
+    lua: WORDS("print io math string table tonumber tostring pairs ipairs require"),
+    pascal: WORDS("writeln write readln read length inc dec random randomize sqrt"),
+    vb: WORDS("console writeline readline math cdbl cint"), fortran: WORDS("sqrt mod size trim abs")
   };
   const END = "(?![\\s\\S])";
   const STR = String.raw`"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?`;
@@ -58,6 +86,12 @@
     css: [[BLOCK, "c"], [STR, "s"], [String.raw`@[\w-]+`, "d"], [String.raw`#[\da-fA-F]{3,8}\b`, "n"],
           [String.raw`--[\w-]+|[a-zA-Z-]+(?=\s*:[^;{}]*[;}])`, "p"], [NUM, "n"], ["!important", "k"]],
     json: [[String.raw`"(?:\\.|[^"\\\n])*"(?=\s*:)`, "p"], [STR, "s"], [String.raw`-?` + NUM, "n"], [IDENT, "w"]],
+    script: [["#.*", "c"], [STR, "s"], [String.raw`[$@%][A-Za-z_]\w*`, "d"], [NUM, "n"], [String.raw`[A-Za-z_][\w-]*[?!]?`, "w"]],
+    lua: [[String.raw`--\[\[[\s\S]*?(?:\]\]|${END})|--.*`, "c"], [STR, "s"], [NUM, "n"], [IDENT, "w"]],
+    pascal: [[String.raw`\{[\s\S]*?(?:\}|${END})|\(\*[\s\S]*?(?:\*\)|${END})|\/\/.*`, "c"], [String.raw`'(?:''|[^'\n])*'?`, "s"],
+             [NUM, "n"], [IDENT, "w"]],
+    vb: [["'.*", "c"], [String.raw`"(?:""|[^"\n])*"?`, "s"], [NUM, "n"], [IDENT, "w"]],
+    fortran: [["!.*", "c"], [STR, "s"], [NUM, "n"], [IDENT, "w"]],
     tag: [[String.raw`<\/?[\w:-]+|\/?>`, "t"], [STR, "s"], [String.raw`[^\s=<>"'\/]+(?=\s*=)`, "a"]]
   };
   const RE = {};
@@ -77,7 +111,7 @@
       while (m[g] === undefined) g++;
       let cls = rules[g - 1][1];
       if (cls === "w") {
-        const w = fam === "sql" ? m[0].toLowerCase() : m[0];
+        const w = ["sql", "pascal", "vb", "fortran"].includes(fam) ? m[0].toLowerCase() : m[0];
         cls = kw.has(w) ? "k" : bi.has(w) ? "b" : /^\s*\(/.test(src.slice(re.lastIndex, re.lastIndex + 8)) ? "f" : "";
       }
       out += cls ? `<span class="hl-${cls}">${esc(m[0])}</span>` : esc(m[0]);
@@ -396,7 +430,9 @@
   }
   const PAIRS = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'", "`": "`"};
   const COMMENT = {python: "#", bash: "#", sql: "--", php: "//", javascript: "//", typescript: "//", c: "//", cpp: "//",
-                   java: "//", csharp: "//", go: "//", rust: "//", kotlin: "//"};
+                   java: "//", csharp: "//", go: "//", rust: "//", kotlin: "//", swift: "//", dart: "//", scala: "//", groovy: "//",
+                   ruby: "#", crystal: "#", perl: "#", r: "#", julia: "#", nim: "#", powershell: "#", lua: "--", pascal: "//",
+                   vbnet: "'", fortran: "!"};
 
   function onKey(e) {
     const ta = el.ta, v = ta.value, s = ta.selectionStart, en = ta.selectionEnd;
@@ -969,7 +1005,7 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     showPane("out");
     out(`Запуск прямо в браузере есть для Python, JavaScript и HTML/CSS.\n` +
         `${NAMES[l] || l} здесь можно писать, проверять и объяснять (вкладка «ИИ-помощник»), а запускать — у себя на компьютере: ` +
-        `скачайте файл кнопкой «Файл».\n`, "hint");
+        `скачайте файл кнопкой «Файл»` + (HOWTO[l] ? ` и выполните:\n  ${HOWTO[l]}\n` : ".\n"), "hint");
   }
   function stop(silent) {
     if (!running) { setRunning(false); return; }
@@ -1003,11 +1039,55 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
     if (/коммент/.test(low)) return "comment";
     if (/объясн|что делает|как работает|разбери|поясни/.test(low)) return "explain";
     if (/провер|найди ошиб|есть ли ошиб|почему не работает|\bбаг/.test(low)) return "check";
-    // Открыт сайт, собранный Rai: «добавь раздел цены», «сделай синим» правят его
-    if (lang() === "html" && active().text.includes('id="rai-site"') && SITE_EDIT.test(low) && !/сделай (?:новый )?сайт|создай сайт/.test(low)) return "edit";
+    // Открыта страница: «сделай произведение искусства», «в стиле неон», «добавь анимации», «цвет синий» правят её.
+    // У сайта, собранного Rai, ещё и содержимое: «добавь раздел цены», «убери отзывы», «переименуй…».
+    // «Сделай сайт красиво», «сделай красивый сайт», «сайт в стиле неон» — тоже про вид открытой страницы, а не новый сайт «Красиво».
+    if (lang() === "html" && (!BUILD.test(low) || lookOnly(low))) {
+      const own = active().text.includes('id="rai-site"');
+      if (DESIGN.test(low) || lookOnly(low) || (own && SITE_EDIT.test(low))) return "edit";
+    }
     return "generate";
   }
+  // Слова о том, КАК сделать (красиво, стильно, в стиле неон…), и служебные слова просьбы
+  const LOOK_RE = new RegExp("(^|[^a-zа-яё0-9_-])(?:(?:ещ[её]|более|очень)\\s+|по-?)?(?:красив[а-яё]*|покрасивее|прекрасн[а-яё]*|" +
+    "великолепн[а-яё]*|стильн[а-яё]*|современн[а-яё]*|модн[а-яё]*|крут(?:о|ой|ая|ое|ые|ым|ую)|покруче|круче|классн[а-яё]*|" +
+    "шикарн[а-яё]*|эффектн[а-яё]*|ярк(?:о|ий|ая|ое|ие|им|ую)|ярче|поярче|лучше|получше|необычн[а-яё]*|оригинальн[а-яё]*|" +
+    "креативн[а-яё]*|дизайнерск[а-яё]*|премиальн[а-яё]*|роскошн[а-яё]*|аккуратн[а-яё]*|минималистичн[а-яё]*|лаконичн[а-яё]*|" +
+    "атмосферн[а-яё]*|сочн[а-яё]*|прикольн[а-яё]*|симпатичн[а-яё]*|wow|вау|супер|топов[а-яё]*|идеальн[а-яё]*|уникальн[а-яё]*|" +
+    "профессиональн[а-яё]*|качественн[а-яё]*|потрясающ[а-яё]*|невероятн[а-яё]*|эпичн[а-яё]*|восхитительн[а-яё]*|" +
+    "офигенн[а-яё]*|бомбическ[а-яё]*|в\\s+стиле\\s+[a-zа-яё-]+|в\\s+[a-zа-яё-]+\\s+стиле|в\\s+духе\\s+[a-zа-яё-]+|" +
+    "как\\s+у\\s+[a-zа-яё-]+|с\\s+анимаци[а-яё]*|анимированн[а-яё]*|ис{1,2}к{1,2}у?с{0,2}т?в[а-яё]*|шедевр[а-яё]*|" +
+    "произведени[а-яё]*|неон[а-яё]*|киберпанк[а-яё]*|люкс[а-яё]*|премиум|минимал[а-яё]*|ретро|винтаж[а-яё]*|пастел[а-яё]*|" +
+    "стекл[а-яё]*|брутал[а-яё]*)(?=$|[^a-zа-яё0-9_-])", "g");
+  const ONLY_RE = new RegExp("(^|[^a-zа-яё0-9_-])(?:а|теперь|сделай|сделать|сделайте|переделай|переделать|оформи|оформить|можешь|" +
+    "можно|хочу|нужен|нужна|нужно|сайт[а-яё]*|страниц[а-яё]*|лендинг[а-яё]*|дизайн[а-яё]*|оформлени[а-яё]*|вид|стиль|этот|эту|" +
+    "это|мой|мою|наш|нашу|весь|всю|его|её|ее|мне|нам|чтобы|чтоб|был|была|было|стал|стала|стало|выглядел[а-яё]*|и|да|в|с|на|" +
+    "по|же|бы|ну|давай|ещ[её]|чуть|немного|пожалуйста|плиз|просто|файл[а-яё]*)(?=$|[^a-zа-яё0-9_-])", "g");
+  function lookOnly(low) {
+    let text = low;
+    const names = [];                                       // «сделай сайт в index2 красиво» — имя файла не тема
+    for (const f of project.files) names.push(f.name.toLowerCase(), f.name.toLowerCase().replace(/\.[^.]+$/, ""));
+    for (const w of names.sort((a, b) => b.length - a.length)) if (w.length >= 3) text = text.split(w).join(" ");
+    const rest = text.replace(LOOK_RE, "$1 ");
+    if (rest === text) return false;                        // слов про оформление нет
+    return !rest.replace(ONLY_RE, "$1 ").replace(/[\s,.!?:;«»"'-]+/g, "");
+  }
   const SITE_EDIT = /^\s*(?:а\s+)?(?:теперь\s+)?(?:добавь|убери|удали|скрой|переименуй|назови|измени|поменяй|замени|сделай|цвет|другие картинки|новые картинки|слоган|почт|телефон)/;
+  const DESIGN = /ис{1,2}к{1,2}у?с{0,2}т?в|шедевр|красив|прекрасн|великолепн|\bвау\b|стил|дизайн|оформ|неон|киберпанк|футурист|люкс|премиум|элегантн|минимал|\bapple\b|ретро|винтаж|пастел|нежн|стекл|брутал|анимац|оживи|живее|шрифт|крупнее|мельче|т[её]мн|светл|\bцвет|верни как было|современн|модн|лучше|ярче|покруче|круче|эффектн|шикарн/;
+  // «сделай игру», «напиши сайт кофейни» — это новая программа, а не правка открытой страницы
+  const BUILD = /(?:сделай|создай|напиши|собери|сгенерируй)\s+(?:нов\S*\s+|ещ[её]\s+)?(?:сайт|игр|приложени|программ|бот|калькулятор|страниц[уы]\s+(?:для|про|о)\b)/;
+  // «сделай в index2 …», «в style.css поменяй …» — правим названный файл, а не тот, что сейчас открыт
+  function fileFromPrompt(text) {
+    const low = String(text || "").toLowerCase();
+    const safe = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const hit = (w) => w.length >= 3 && new RegExp("(^|[^\\wа-яё.])" + safe(w) + "(?![\\wа-яё])").test(low);
+    let best = null;
+    for (const f of project.files) {
+      const name = f.name.toLowerCase(), base = name.replace(/\.[^.]+$/, "");
+      if ((hit(name) || (base !== name && hit(base))) && (!best || name.length > best.name.length)) best = f;
+    }
+    return best;
+  }
   function applyCode(target, code) {
     const file = project.files.find((x) => x.name === target);
     if (!file) return false;
@@ -1029,7 +1109,9 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
   };
   const LANG_EXT = {python: "py", py: "py", javascript: "js", js: "js", typescript: "ts", ts: "ts", html: "html", css: "css", php: "php",
     json: "json", cpp: "cpp", "c++": "cpp", c: "c", java: "java", csharp: "cs", cs: "cs", go: "go", rust: "rs", rs: "rs", sql: "sql",
-    bash: "sh", sh: "sh", kotlin: "kt", kt: "kt", swift: "swift", ruby: "rb", lua: "lua", dart: "dart"};
+    bash: "sh", sh: "sh", kotlin: "kt", kt: "kt", swift: "swift", ruby: "rb", lua: "lua", dart: "dart", scala: "scala",
+    groovy: "groovy", r: "R", julia: "jl", perl: "pl", pascal: "pas", vbnet: "vb", powershell: "ps1", fortran: "f90",
+    nim: "nim", crystal: "cr"};
   const CHANGE_WORDS = /измени|добав|исправ|переделай|убери|удали|поменяй|допиши|улучши|сделай(?! новую| новый)|перепиши|замени|ускорь|оптимизируй/;
   function neuroFileName(block) {
     const l = (block.lang || "").toLowerCase();
@@ -1259,6 +1341,8 @@ addEventListener("error",function(e){s("err",[e.message+(e.lineno?" (строк�
       const text = aiInput.value.trim();
       if (!text) return;
       aiInput.value = "";
+      const named = fileFromPrompt(text);
+      if (named && named.name !== project.active) openTab(named.name);   // «сделай в index2 …» — сначала открываем index2
       ai(actionOf(text), text);
     };
     el.cAiForm.addEventListener("submit", (e) => { e.preventDefault(); send(); });

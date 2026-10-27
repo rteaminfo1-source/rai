@@ -16,6 +16,7 @@ import re
 import zlib
 
 import creative
+import webstyles   # стили оформления: «Арт», неон, люкс, минимализм…
 
 # ------------------------------------------------------------------ словари
 
@@ -96,6 +97,7 @@ COLORS = {
 }
 
 PALETTES = {"light": ("#faf8f5", "#1d1a17", "#ffffff"), "dark": ("#0c0c0e", "#f2f0f0", "#17171a")}
+_DEFAULT_ACCENTS = {"#e10600", "#ff2a2a"} | {s["accent"] for s in webstyles.STYLES.values() if s["accent"]}
 
 _SITE_WORDS = re.compile(r"сайт|лендинг|landing|веб-?страниц|страничк|страниц[уаы]\b|визитк|портфолио|website|web ?page|homepage")
 _EDIT_RE = re.compile(r"^\s*(?:а\s+)?(?:теперь\s+)?(?:добавь|добавить|убери|удали|скрой|переименуй|назови|измени|поменяй|замени|"
@@ -109,9 +111,23 @@ def is_site_request(text):
     return bool(_SITE_WORDS.search(low))
 
 
+_MOTION_EDIT_RE = re.compile(r"(добавь|убери|включи|отключи|выключи|сделай)\s+(\w+\s+){0,2}(анимац|эффект)|оживи|живее|с анимаци")
+_FILE_RE = re.compile(r"\s*\b(?:в|во|на|для|у)?\s*(?:файле?\s+|странице\s+)?[\w\-]+\.(?:html?|php|css|js)\b|"
+                      r"\s*\b(?:в|во|на|для)\s+index\d*\b|\bindex\d+\b", re.I)
+
+
 def is_edit(text):
-    """Похоже на правку уже сделанного сайта: «добавь раздел цены», «сделай синим»."""
-    return bool(_EDIT_RE.search((text or "").lower().replace("ё", "е")))
+    """Похоже на правку уже сделанного сайта: «добавь раздел цены», «сделай синим», «сделай произведение искусства»."""
+    low = _strip_files(text).lower().replace("ё", "е")
+    if _EDIT_RE.search(low):
+        return True
+    return bool((webstyles.wants_design(low) and webstyles.detect(low)) or _MOTION_EDIT_RE.search(low)
+                or webstyles.detect_font(low) or webstyles.scale(low))
+
+
+def _strip_files(text):
+    """«сделай в index2 …», «в файле index.html поменяй …» — имя файла правке не мешает (файл выбирает Rai Code)."""
+    return re.sub(r"\s{2,}", " ", _FILE_RE.sub(" ", text or "")).strip()
 
 
 # ------------------------------------------------------------------ разбор описания
@@ -151,11 +167,14 @@ _STOP = {"в", "во", "с", "со", "для", "и", "на", "про", "о", "о
          "темных", "светлых", "синих", "красных", "тонах", "цвете", "стиле", "меню", "разделами", "контактами", "отзывами"}
 
 
-def extract_name(prompt):
-    """Название: из «кавычек», «под названием X», «кофейни Зерно», «группы Ночные Волки»."""
+def extract_name(prompt, cleaned=None):
+    """Название: из «кавычек», «под названием X», «кофейни Зерно», «группы Ночные Волки».
+
+    cleaned — тот же запрос без слов об оформлении («красиво», «в стиле неон»): они названием не бывают."""
     m = re.search(r"[«\"“]([^»\"”]{2,60})[»\"”]", prompt)
     if m:
         return m.group(1).strip()
+    prompt = cleaned if cleaned is not None else prompt
     m = re.search(r"(?:под названием|называется|с названием|название)\s*:?\s*([\w\-.&' ]{2,40}?)(?=[,.;!]|\s+(?:в|с|для|и)\s|$)", prompt, re.I)
     if m:
         return _cap(m.group(1).strip())
@@ -416,8 +435,10 @@ def _sentences(text):
 def new_spec(prompt, facts=None, owner=""):
     prompt = (prompt or "").strip()[:2000]
     low = _low(prompt)
-    type_ = detect_type(low)
-    topic = extract_topic(prompt) if type_ in (None, "blog") else None
+    # «сделай сайт красиво», «…стильно и современно», «…в стиле неон», «…пожалуйста» — это КАК сделать, а не О ЧЁМ сайт
+    cleaned, look = webstyles.strip_look(_strip_files(prompt))
+    type_ = said_type = detect_type(low)
+    topic = extract_topic(cleaned) if type_ in (None, "blog") else None
     if topic and facts is None and KNOWLEDGE:
         try:
             facts = KNOWLEDGE(topic)
@@ -430,15 +451,16 @@ def new_spec(prompt, facts=None, owner=""):
     if not type_:
         type_ = "info" if info else ("personal" if topic else "business")
     words, default_title, tagline, kinds = TYPES.get(type_, (None, "", "", []))
-    name = extract_name(prompt)
+    name = extract_name(prompt, cleaned)
     if not name and topic:
         name = _cap(topic)
     if not name:
-        name = extract_subject(prompt)   # «сайт для тренера по теннису» -> «Тренер по теннису», а не «Фитнес-клуб»
+        name = extract_subject(cleaned)   # «сайт для тренера по теннису» -> «Тренер по теннису», а не «Фитнес-клуб»
     if not name and type_ == "personal":
-        m = re.search(r"\bпро\s+((?:мо|наш)\w+\s+[\w\- ]{2,40}?)(?:[.,!?;]|\s+(?:в|с|со|и)\s|$)", prompt, re.I)
+        m = re.search(r"\bпро\s+((?:мо|наш)\w+\s+[\w\- ]{2,40}?)(?:[.,!?;]|\s+(?:в|с|со|и)\s|$)", cleaned, re.I)
         if m:
             name = "Про " + m.group(1).strip()
+    generic = not name and not said_type   # о чём сайт — не сказано: «сделай сайт красиво»
     name = name or default_title or "Мой сайт"
 
     dark = _has(low, ("темн", "черн", "ночн", "dark"))
@@ -452,6 +474,19 @@ def new_spec(prompt, facts=None, owner=""):
         "theme": "dark" if dark else "light", "accent": accent or ("#ff2a2a" if dark else "#e10600"),
         "seed": zlib.crc32((name + prompt).encode("utf-8")), "sections": [], "contacts": {}, "prompt": prompt,
     }
+    # стиль: явное название («в стиле неон», «произведение искусства») или слова об оформлении («красиво», «стильно»)
+    style = webstyles.detect(prompt, strict=True) or (webstyles.detect(look) if look else None)
+    if generic:
+        spec["generic"] = True
+    if style and style != "classic":
+        look = webstyles.STYLES[style]
+        spec["style"] = style
+        if look["theme"] and not _has(low, ("темн", "черн", "ночн", "светл", "бел", "dark", "light")):
+            spec["theme"] = look["theme"]
+        if look["accent"] and not accent:
+            spec["accent"] = look["accent"]
+    if webstyles.motion(prompt):
+        spec["motion"] = True
     m = re.search(r"(?:слоган|девиз)\s*:?\s*[«\"]?([^»\".\n]{3,80})", prompt, re.I)
     if m:
         spec["tagline"] = m.group(1).strip()
@@ -511,7 +546,7 @@ def _find(spec, name):
 def edit_spec(spec, instruction):
     """Правка словами. Возвращает (spec, «что сделано») или (spec, None), если не понял."""
     spec = json.loads(json.dumps(spec))
-    text = (instruction or "").strip()[:1000]
+    text = _strip_files((instruction or "").strip()[:1000])
     low = _low(text)
     done = []
 
@@ -540,7 +575,9 @@ def edit_spec(spec, instruction):
             done.append(f"не нашёл раздел «{m.group(1).strip()}»")
     else:
         m = re.search(r"(?:добавь|добавить|создай|нужен|нужна|нужны|сделай)\s+(?:ещё\s+)?(?:раздел\w*|блок\w*|секци\w*)?\s*:?\s*(.+)$", text, re.I)
-        if m and re.search(r"раздел|блок|секци|отзыв|цен|галере|меню|команд|вопрос|контакт|заявк|форм|услуг|навык|проект|курс|расписан|преимуществ|товар|каталог", _low(m.group(1)) + " " + low):
+        if m and re.search(r"раздел|блок|секци|отзыв|цен|галере|фото|картин|изображ|меню|команд|вопрос|контакт|заявк|форм|услуг|"
+                           r"навык|проект|курс|расписан|преимуществ|товар|каталог", _low(m.group(1)) + " " + low) \
+                and not (webstyles.wants_design(text) and webstyles.detect(text) and not re.search(r"раздел|блок|секци", low)):
             for part in re.split(r"\s*(?:,|\sи\s)\s*", m.group(1)):
                 part = part.strip(" .«»\"'")
                 if not part or part.startswith(("почт", "телефон", "адрес")):
@@ -567,6 +604,7 @@ def edit_spec(spec, instruction):
                 else:
                     done.append(f"не нашёл раздел «{m.group(1).strip()}»")
 
+    color = None
     if not re.search(r"раздел|название|слоган|переименуй", low):
         if _has(low, ("темн", "черн", "ночн")):
             spec["theme"] = "dark"
@@ -578,6 +616,32 @@ def edit_spec(spec, instruction):
         if color:
             spec["accent"] = color
             done.append("новый цвет")
+    # ---- вид сайта: стиль («произведение искусства», «неон», «как у Apple»), анимации, шрифт, размер текста
+    style = webstyles.detect(text) if webstyles.wants_design(text) else None
+    if style:
+        info = webstyles.STYLES[style]
+        if style == "classic":
+            for key in ("style", "motion", "font", "zoom"):   # «верни как было» — без стиля, анимаций и своего шрифта
+                spec.pop(key, None)
+        else:
+            spec["style"] = style
+            if info["theme"] and not _has(low, ("темн", "черн", "ночн", "светл", "бел")):
+                spec["theme"] = info["theme"]
+            if info["accent"] and not color and spec.get("accent") in _DEFAULT_ACCENTS | {None}:
+                spec["accent"] = info["accent"]
+        done.append(f"стиль «{info['label']}»")
+    mv = webstyles.motion(text)
+    if mv is not None and (mv is False or _MOTION_EDIT_RE.search(low) or not done):
+        spec["motion"] = mv
+        done.append("анимации" if mv else "без анимаций")
+    font = webstyles.detect_font(text)
+    if font:
+        spec["font"] = font
+        done.append("новый шрифт")
+    zoom = webstyles.scale(text)
+    if zoom:
+        spec["zoom"] = round(min(1.4, max(0.8, float(spec.get("zoom") or 1) * zoom)), 2)
+        done.append("текст крупнее" if zoom > 1 else "текст мельче")
     if _has(low, ("другой дизайн", "по-другому", "перемешай", "новые картинки", "другие картинки")):
         spec["seed"] = random.randint(1, 2 ** 31)
         done.append("новые картинки")
@@ -636,7 +700,9 @@ def _e(s):
 
 def render(spec, made_by="Rai"):
     """Готовая страница. Спецификация лежит внутри (<script id="rai-site">), чтобы сайт можно было править дальше."""
-    dark = spec.get("theme") == "dark"
+    style = spec.get("style") if spec.get("style") in webstyles.SITE_CSS else "classic"
+    forced = webstyles.STYLES[style]["theme"] if style != "classic" else None
+    dark = (forced or spec.get("theme")) == "dark"
     bg, fg, surface = PALETTES["dark" if dark else "light"]
     accent = spec.get("accent") if re.fullmatch(r"#[0-9a-fA-F]{6}", spec.get("accent") or "") else "#e10600"
     if abs(_lum(accent) - _lum(bg)) < 0.2:  # акцент должен читаться на фоне
@@ -654,7 +720,7 @@ def render(spec, made_by="Rai"):
     for i, s in enumerate(spec.get("sections") or []):
         sid, kind, items = f"s{i + 1}", s.get("kind"), s.get("items") or []
         nav.append(f'<a href="#{sid}">{_e(s.get("title"))}</a>')
-        out = [f'<section id="{sid}" class="sec sec-{_e(kind)}"><div class="wrap"><h2 class="rv">{_e(s.get("title"))}</h2>']
+        out = [f'<section id="{sid}" class="sec sec-{_e(kind)}"><div class="wrap"><h2 class="rv" data-n="{i + 1:02d}">{_e(s.get("title"))}</h2>']
         if kind in ("about", "text"):
             out.append(f'<p class="lead rv">{_e(s.get("text")).replace(chr(10), "<br>")}</p>')
         elif kind == "skills":
@@ -722,6 +788,12 @@ def render(spec, made_by="Rai"):
     hdr = "rgba(12,12,14,.86)" if dark else "rgba(250,248,245,.9)"
     data = json.dumps(spec, ensure_ascii=False).replace("</", "<\\/").replace("<!--", "<\\u0021--")
     year = datetime.date.today().year
+    motion = bool(spec.get("motion"))
+    fonts = "&family=".join(["Unbounded:wght@700;800", "Onest:wght@400;500;700"] + webstyles.font_params(style, spec.get("font")))
+    style_css = webstyles.site_css(style, accent, motion, spec.get("font"), spec.get("zoom"))
+    deco, band = webstyles.decor(style, spec.get("title") or "", spec.get("tagline") or "",
+                                 [s.get("title") or "" for s in spec.get("sections") or []])
+    motion_js = f"<script>{webstyles.MOTION_JS}</script>" if motion or style == "art" else ""
     return f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -731,7 +803,7 @@ def render(spec, made_by="Rai"):
 <meta name="description" content="{_e(spec.get("tagline"))}">
 <meta name="generator" content="{_e(made_by)} Rteam">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Onest:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={fonts}&display=swap">
 <style>
 :root{{--bg:{bg};--fg:{fg};--muted:{muted};--line:{line};--surface:{surface};--accent:{accent};--ink:{ink}}}
 *{{box-sizing:border-box}}html{{scroll-behavior:smooth}}
@@ -783,15 +855,16 @@ footer{{padding:36px 0;color:var(--muted);font-size:14px}}footer .wrap{{display:
 @media (max-width:760px){{#menu{{display:block}}nav{{display:none;position:absolute;left:0;right:0;top:64px;background:var(--bg);flex-direction:column;padding:16px 20px;border-bottom:1px solid var(--line)}}
 nav.open{{display:flex}}.steps li{{flex-direction:column;gap:6px}}.sec{{padding:60px 0}}.hero .wrap{{padding:80px 20px 70px}}}}
 @media (prefers-reduced-motion:reduce){{html{{scroll-behavior:auto}}.rv{{opacity:1;transform:none;transition:none}}.hero>img{{animation:none}}}}
+{style_css}
 </style>
 </head>
-<body>
+<body data-style="{style}" data-motion="{1 if motion else 0}">{deco}
 <header><div class="wrap"><a class="logo" href="#top">{title}<span>.</span></a>
 <button id="menu" type="button" aria-label="Меню" aria-expanded="false">Меню</button><nav id="nav">{"".join(nav)}</nav></div></header>
 <main id="top">
 <section class="hero"><img alt="" src="{hero}"><div class="wrap"><h1>{title}</h1><p>{_e(spec.get("tagline"))}</p>
 <a class="btn" href="{cta}">{cta_label}</a> <a class="btn ghost" href="{first}">Подробнее</a></div></section>
-{"".join(body)}
+{band}{"".join(body)}
 </main>
 <footer><div class="wrap"><span>© {year} {title}</span><span>Сайт создан ИИ {_e(made_by)} · Rteam</span></div></footer>
 <button class="up" type="button" aria-label="Наверх">↑</button>
@@ -814,6 +887,7 @@ if(mail){{location.href="mailto:"+mail+"?subject="+encodeURIComponent("Заяв�
 else note.textContent="Заявка заполнена. Чтобы заявки приходили, добавьте на сайт почту.";}}}});
 }})();
 </script>
+{motion_js}
 </body>
 </html>
 """
@@ -831,11 +905,30 @@ def spec_from_html(html):
     return spec if isinstance(spec, dict) and isinstance(spec.get("sections"), list) else None
 
 
+def restyle_html(html, instruction):
+    """Правка оформления ЛЮБОЙ страницы словами (стиль, тема, цвет, анимации, шрифт, название): (html, сделано) или (html, None)."""
+    text = _strip_files((instruction or "").strip()[:1000])
+    low = _low(text)
+    theme = "dark" if _has(low, ("темн", "черн", "ночн")) else "light" if _has(low, ("светл", "бел")) else None
+    color = extract_color(re.sub(r"(темн|черн|светл|бел)\w*", "", low))
+    return webstyles.restyle(html, text, {"color": color, "theme": theme})
+
+
 def summary(spec):
     names = ", ".join(s["title"] for s in spec["sections"])
     theme = "тёмная" if spec.get("theme") == "dark" else "светлая"
-    return f"**Сайт «{spec['title']}»** — разделы: {names}. Тема {theme}, цвет {spec.get('accent')}."
+    style = webstyles.STYLES.get(spec.get("style") or "classic", webstyles.STYLES["classic"])["label"]
+    look = f"Стиль «{style}», тема {theme}" if spec.get("style") else f"Тема {theme}"
+    return (f"**Сайт «{spec['title']}»** — разделы: {names}. {look}, цвет {spec.get('accent')}"
+            + (", с анимациями" if spec.get("motion") else "") + ".")
 
 
-EDIT_HELP = ("Правьте словами: «добавь раздел цены», «убери отзывы», «сделай тёмным», «цвет синий», "
-             "«переименуй в «Кофе & Ко»», «измени раздел о нас на: …», «добавь почту name@mail.ru».")
+GENERIC_HELP = ("\n\nО чём сайт, из просьбы не понятно — сделал красивую заготовку. Напишите тему: «сайт кофейни «Зерно»», "
+                "«сайт фотографа Анны», «сайт про космос» — и я соберу сайт с нужными разделами. Или правьте эту: "
+                "«назови «Моя студия»», «добавь раздел цены».")
+EDIT_HELP = ("Правьте словами: «сделай произведение искусства», «в стиле неон / люкс / минимализм / ретро / пастель / стекло», "
+             "«добавь анимации», «шрифт с засечками», «текст крупнее», «добавь раздел цены», «убери отзывы», «сделай тёмным», "
+             "«цвет синий», «переименуй в «Кофе & Ко»», «измени раздел о нас на: …», «добавь почту name@mail.ru».")
+STYLE_HELP = ("Для любой страницы понимаю: «сделай произведение искусства», «в стиле неон / люкс / минимализм / ретро / "
+              "пастель / стекло / брутализм», «сделай тёмным», «цвет синий», «добавь анимации», «шрифт с засечками», "
+              "«текст крупнее», «назови «Моя страница»», «верни как было».")
