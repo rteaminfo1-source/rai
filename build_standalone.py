@@ -14,8 +14,15 @@ import os
 import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FILES = ["meds.py", "mind.py", "deep.py", "sense.py", "codemind.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "tokens.py", "toolbox.py", "facts.py", "games.py", "powertools.py", "lexicon.py", "fixer.py", "creative.py",
+FILES = ["meds.py", "mind.py", "deep.py", "sense.py", "codemind.py", "versions.py", "nlp.py", "skills.py", "net.py", "cities.py", "online.py", "proglangs.py", "syntax.py", "talk.py", "tokens.py", "toolbox.py", "facts.py", "games.py", "powertools.py", "explain.py", "lexicon.py", "fixer.py", "creative.py",
          "codeai.py", "codelib.py", "codeapps.py", "funcgen.py", "webgen.py", "social.py", "memes.py", "encyclopedia.py", "places.py", "sight.py", "compare.py", "model3d.py", "moderation.py", "files.py", "learning.py", "brain.py", "knowledge.json", "glossary.json"]
+
+
+def before_body_end(html, tag):
+    """Вставить перед ПОСЛЕДНИМ </body>: в скриптах страницы тоже бывает «</body>» (окно наблюдения команды
+    рисует свою страницу из строки), и вставка в первое попавшееся ломала бы такой скрипт."""
+    i = html.rfind("</body>")
+    return html[:i] + tag + html[i:] if i >= 0 else html + tag
 
 
 def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
@@ -27,7 +34,7 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
         html = html.replace('<link rel="stylesheet" href="code.css">', "<style>\n" + f.read() + "</style>", 1)
     with open(os.path.join(BASE_DIR, "slides.css"), encoding="utf-8") as f:
         html = html.replace('<link rel="stylesheet" href="slides.css">', "<style>\n" + f.read() + "</style>", 1)
-    for name in ("tokens.js", "festive.js", "code.js", "slides.js", "screen.js", "vision.js", "files.js", "neuro.js", "model3d.js", "pptx.js"):
+    for name in ("tokens.js", "festive.js", "code.js", "slides.js", "screen.js", "vision.js", "files.js", "model3d.js", "pptx.js", "team.js"):
         with open(os.path.join(BASE_DIR, name), encoding="utf-8") as f:
             js = f.read()
         # «<!--» внутри <script> переводит HTML-парсер в особый режим, и тег может не закрыться
@@ -59,12 +66,12 @@ def build(pyodide=None, fragment=False, stdlib=None, cdn=False):
         with open(vision_path, encoding="utf-8") as f:
             vis = f.read().replace("</", "<\\/")
         tag = f'<script type="application/json" id="rai-vision">{vis}</script>\n'
-        html = html.replace("</body>", tag + "</body>", 1) if "</body>" in html else html + tag
+        html = before_body_end(html, tag)
     if not cdn and os.path.exists(kb_path):
         with open(kb_path, encoding="utf-8") as f:
             kb = f.read().replace("</", "<\\/").replace("<!--", "<\\u0021--")
         tag = f'<script type="application/json" id="rai-kb">{kb}</script>\n'
-        html = html.replace("</body>", tag + "</body>", 1) if "</body>" in html else html + tag
+        html = before_body_end(html, tag)
 
     if cdn:
         # Хостинг только с PHP и HTML: рядом нет папок pyodide/ и ocr/ — Python и распознавание текста берём с CDN

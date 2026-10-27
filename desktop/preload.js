@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("RaiApp", {
   isApp: true,
+  popups: true,   // отдельные окна страницы (наблюдение за командой моделей) открываются внутри приложения
   // Python (Pyodide) из самого приложения: чат на сайте запускается без скачивания и без CDN
   pyodide: "rai://app/pyodide/",
   info: () => ipcRenderer.invoke("rai-info"),

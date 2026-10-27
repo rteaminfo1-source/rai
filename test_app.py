@@ -665,7 +665,8 @@ class HttpTest(unittest.TestCase):
         html = build_standalone.build()
         self.assertNotIn('src="code.js"', html)
         self.assertIn("window.RaiCode", html)
-        self.assertIn("window.RaiNeuro", html)  # нейросеть в браузере встроена в страницу
+        self.assertNotIn("window.RaiNeuro", html)  # Rai Нейро из чата убрана: отвечает только свой движок Rai
+        self.assertIn("window.RaiTeam", html)       # команда моделей — встроена
         self.assertIn("window.RaiPptx", html)  # экспорт в PowerPoint тоже
         scripts = re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.S)
         # «<!--» внутри <script> ломает разбор страницы
@@ -1551,7 +1552,8 @@ class QuestionTest(unittest.TestCase):
 
     def test_brain_routing(self):
         r = self.brain.answer(SUN, "как работает интернет", session_id="q")
-        self.assertEqual(r["intent"], "encyclopedia")       # а не «как искать ошибку в коде»
+        self.assertEqual(r["intent"], "explain")            # объяснение устройства, а не «как искать ошибку в коде»
+        self.assertIn("пакеты", r["answer"])
         r = self.brain.answer(SUN, "когда родился Гагарин", session_id="q")
         self.assertIn("9 марта 1934", r["answer"])           # день рождения, а не дата полёта из справочника
         self.assertEqual(self.brain.answer(SUN, "почему не работает код", session_id="q")["intent"], "debug")
@@ -1796,7 +1798,7 @@ class HostingTest(unittest.TestCase):
             with open(os.path.join(rai, "chat.html"), encoding="utf-8") as fh:
                 page = fh.read()
             self.assertIn("ai.php", page)
-            self.assertIn("window.RaiNeuro", page)
+            self.assertNotIn("window.RaiNeuro", page)   # в чате Rai Нейро больше нет (она осталась только в AI Studio)
             self.assertIn("limits.php", page)
             # энциклопедия на хостинге — отдельный kb.php (кэшируется браузером), а не внутри chat.html
             self.assertIn('window.RAI_KB_URL = "kb.php"', page)
@@ -2721,16 +2723,23 @@ class MindTest(unittest.TestCase):
 
     def test_brain_uses_mind_with_levels(self):
         import brain as brain_mod
+        # обычный вопрос «почему…» — точное готовое объяснение (explain.py), мгновенно и без интернета
         r = self.brain.answer(SUN, "почему небо голубое", session_id="m", level="low")
-        self.assertEqual(r["intent"], "mind")                      # в глубоких знаниях статья целиком — Rai Разум
+        self.assertEqual(r["intent"], "explain")
+        self.assertIn("рассеяния", r["answer"])
+        # просьба подумать — Rai Разум разбирает статью из глубоких знаний и показывает ход мыслей
+        r = self.brain.answer(SUN, "подумай, почему небо голубое", session_id="m", level="low")
+        self.assertEqual(r["intent"], "mind")
         self.assertEqual(r["attachments"][0]["type"], "trace")
         self.assertEqual(r["attachments"][0]["title"], "Как Rai думал")
         r = self.brain.answer(SUN, "объясни подробно как работает интернет", session_id="m", level="low")
         self.assertEqual(r["intent"], "mind")
         self.assertIn("пакетами", r["answer"])
-        # без глубоких знаний — короткий ответ энциклопедии, как раньше
+        # без глубоких знаний обычный вопрос «как работает…» — готовое объяснение
         self.deep._manifest = None
-        self.assertEqual(self.brain.answer(SUN, "как работает интернет", session_id="m")["intent"], "encyclopedia")
+        r = self.brain.answer(SUN, "как работает интернет", session_id="m")
+        self.assertEqual(r["intent"], "explain")
+        self.assertIn("пакеты", r["answer"])
         brain_mod.PROFILE["level"] = "code"            # уровень из страницы (профиль)
         r = self.brain.answer(PLUS, "посчитай сумму чётных чисел от 1 до 100", session_id="m")
         self.assertEqual(r["intent"], "code")
@@ -3331,6 +3340,153 @@ echo json_encode($out, JSON_UNESCAPED_UNICODE);
         self.assertFalse(out["again"])                              # повторно не начисляем
         self.assertEqual(out["used"], 1)                            # промокод засчитан один раз
         self.assertEqual(out["plan"], "plus")
+
+
+class ExplainTest(unittest.TestCase):
+    """Объяснения (explain.py): «почему небо голубое», «как работает холодильник» — точный ответ без интернета,
+    а обычные просьбы и расчёты не перехватываются."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.brain = Brain(learned_path=os.path.join(self.tmp.name, "e.json"))
+        self.q = VERSIONS["pro-quasar"]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def ask(self, text):
+        return self.brain.answer(self.q, text, session_id="ex" + str(abs(hash(text))))
+
+    def test_many_explanations(self):
+        import explain
+        self.assertGreaterEqual(explain.count(), 150)
+
+    def test_answers(self):
+        import explain
+        for text, part in [("почему небо голубое", "рассеяния"), ("Почему небо синее?", "рассеяния"),
+                           ("почему закат красный", "горизонт"), ("почему небо на марсе красное", "Марсе"),
+                           ("как образуется радуга", "каплями"), ("почему звёзды мерцают", "атмосферы"),
+                           ("почему у луны фазы", "освещена"), ("почему бывает зима и лето", "наклона"),
+                           ("почему море солёное", "соли"), ("почему лёд не тонет", "9%"),
+                           ("почему в горах вода кипит при меньшей температуре", "давление"),
+                           ("как работает холодильник", "хладагент"), ("как работает микроволновка", "2,45"),
+                           ("как летают самолёты", "подъёмная сила"), ("как ракета летает в космосе", "импульса"),
+                           ("почему корабль не тонет", "Архимеда"), ("как работает интернет", "пакеты"),
+                           ("как работает gps", "спутник"), ("как работает нейросеть", "веса"),
+                           ("зачем нужен сон", "памяти"), ("почему мы зеваем", "охлаждает"), ("почему кошки мурлычут", "гортани"),
+                           ("почему зебры полосатые", "мух"), ("почему трава зелёная", "хлорофилл"),
+                           ("почему листья желтеют осенью", "каротиноид"), ("почему хлеб черствеет", "крахмала"),
+                           ("как не плакать когда режешь лук", "охладить"), ("почему бьёт током от свитера", "статическое"),
+                           ("почему нельзя делить на ноль", "0"), ("почему минус на минус даёт плюс", "разворот"),
+                           ("почему болит голова", "103"), ("почему високосный год", "365,2422")]:
+            got = explain.answer(text)
+            self.assertIsNotNone(got, text)
+            self.assertIn(part, got, text)
+
+    def test_not_hijacked(self):
+        import explain
+        for text in ["небо голубое", "какого цвета небо", "как почистить сенсорный экран", "сколько весит земной шар",
+                     "какая погода, будет дождь?", "как приготовить попкорн", "какая сегодня фаза луны", "привет",
+                     "напиши стих про небо", "почему мыло щиплет глаза", "сделай сайт кофейни"]:
+            self.assertIsNone(explain.answer(text), text)
+
+    def test_routing(self):
+        for text in ["почему небо голубое", "как работает холодильник", "объясни, почему небо голубое", "зачем нужен сон"]:
+            r = self.ask(text)
+            self.assertEqual(r["intent"], "explain", text)
+        for text, intent in [("15% от 200", "tool"), ("какая сегодня фаза луны", "tool"), ("привет", "greeting"),
+                             ("сколько воды пить в день при весе 70 кг", "tool"), ("почему мне грустно", "support")]:
+            self.assertEqual(self.ask(text)["intent"], intent, text)
+        self.assertEqual(self.ask("сделай сайт про то, почему небо голубое")["intent"], "code")
+
+
+class TeamTest(unittest.TestCase):
+    """Команда моделей (team.js): разбор списка задач, голосование (кто не нашёл ответа — не голосует),
+    отчёт для окна наблюдения; сборка страницы не ломает модуль."""
+
+    def node(self, body):
+        import subprocess
+        base = os.path.dirname(os.path.abspath(__file__))
+        prelude = ("global.window = global; global.navigator = global.navigator || {hardwareConcurrency: 8};"
+                   "global.document = {getElementById: () => null, createElement: () => ({}), head: {append() {}}};"
+                   "require(process.argv[1]); const T = window.RaiTeam, I = T._internals;"
+                   "T.init({versions: () => [{id: 'pro'}, {id: 'pro-quasar'}], levels: [{id: 'low', name: 'Low'}, {id: 'high', name: 'High'}],"
+                   "levelAllowed: () => true, currentLevel: () => 'high', chatVersion: () => 'pro', device: 'pc'});")
+        r = subprocess.run(["node", "-e", prelude + body, os.path.join(base, "team.js")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_tasks_and_voting(self):
+        out = self.node(r"""
+const tasks = I.splitTasks("1) 2+2\n2) столица Франции\n3) 15% от 200");
+const none = I.splitTasks("привет");
+const questions = I.splitTasks("что такое кот?\nкто такой Пушкин?\nгде Париж?");
+// 1000 моделей «не нашли», одна ответила: ответ побеждает, «не знаю» не голосует против него
+const task = {clusters: [], byKey: new Map(), abst: 0};
+const m = {version: "pro-quasar", level: "high"};
+let abst = 0;
+for (let i = 0; i < 1000; i++) if (I.judge(m, {answer: "Пока не нашёл уверенного ответа — не хочу выдумывать.", intent: null}).kind === "abst") abst++;
+const ok = I.judge(m, {answer: "Небо голубое из-за рассеяния света", intent: "explain"});
+I.place(task, {}, {answer: "Небо голубое из-за рассеяния света"}, ok.w, m);
+// похожие ответы — одна группа, другой ответ — своя группа
+const t2 = {clusters: [], byKey: new Map()};
+for (let i = 0; i < 7; i++) I.place(t2, {}, {answer: "**15.0% от 200 = 30**"}, 1, m);
+for (let i = 0; i < 2; i++) I.place(t2, {}, {answer: "Ответ: 15% от 200 это 30"}, 1, m);
+I.place(t2, {}, {answer: "Совсем другое мнение про погоду"}, 1, m);
+// план: 5 моделей на 2 задачи — каждой задаче свой совет; 3 модели на 7 задач — модели берут по нескольку
+const run1 = {tasks: [{total: 0}, {total: 0}], models: [1, 2, 3, 4, 5], jobs: []}; I.plan(run1);
+const run2 = {tasks: Array.from({length: 7}, () => ({total: 0})), models: [1, 2, 3], jobs: []}; I.plan(run2);
+console.log(JSON.stringify({tasks, none, questions, abst, leader: I.leader(task).text, groups: t2.clusters.length, top: I.leader(t2).n,
+  plan1: run1.tasks.map((t) => t.total), plan2: run2.jobs.length, maxThreads: T.state().maxThreads}));
+""")
+        self.assertEqual(out["tasks"], ["2+2", "столица Франции", "15% от 200"])
+        self.assertIsNone(out["none"])
+        self.assertEqual(len(out["questions"]), 3)
+        self.assertEqual(out["abst"], 1000)
+        self.assertIn("рассеяния", out["leader"])
+        self.assertEqual(out["groups"], 3)
+        self.assertEqual(out["top"], 7)
+        self.assertEqual(out["plan1"], [3, 2])
+        self.assertEqual(out["plan2"], 7)
+        self.assertLessEqual(out["maxThreads"], 16)
+
+    @unittest.skipUnless(__import__("shutil").which("node"), "нет Node.js")
+    def test_summary_roundtrip(self):
+        out = self.node(r"""
+const models = Array.from({length: 4}, (_, i) => ({i, name: "Rai-" + (i + 1), version: i % 2 ? "pro" : "pro-quasar", level: "high"}));
+const run = {question: "почему небо голубое", mode: "council", models, tasks: [{q: "почему небо голубое", clusters: [], byKey: new Map(), abst: 0, err: 0, done: 0, total: 0}],
+             jobs: [], end: 900, work: 2400, first: 10, lastEnd: 880, fallback: false, stopped: false};
+I.plan(run);
+run.jobs.forEach((j, k) => { j.thread = k % 2; j.t0 = 10 + k * 100; j.t1 = j.t0 + 600; j.ms = 600; j.state = k === 3 ? "abst" : "done"; });
+for (const j of run.jobs.slice(0, 3)) I.place(run.tasks[0], j, {answer: "Из-за рассеяния солнечного света"}, 1, models[j.m]);
+run.tasks[0].abst = 1; run.tasks[0].done = 4;
+const a = I.summary(run);
+const vm = I.fromSummary(JSON.parse(JSON.stringify(a)));
+console.log(JSON.stringify({type: a.type, threads: a.threads, voters: a.tasks[0].voters, clusters: a.tasks[0].clusters.length,
+  states: vm.jobs.map((j) => j.state), lanes: vm.lanes, models: vm.models.map((m) => m.version), size: JSON.stringify(a).length}));
+""")
+        self.assertEqual(out["type"], "team")
+        self.assertEqual(out["threads"], 2)
+        self.assertEqual(out["voters"], 3)
+        self.assertEqual(out["clusters"], 1)
+        self.assertEqual(out["states"], ["done", "done", "done", "abst"])
+        self.assertEqual(out["lanes"], 2)
+        self.assertEqual(out["models"], ["pro-quasar", "pro", "pro-quasar", "pro"])
+        self.assertLess(out["size"], 2000)
+
+    def test_build_keeps_team_script_whole(self):
+        """База знаний вставляется перед ПОСЛЕДНИМ </body>: внутри team.js есть строка «</body>» (окно наблюдения)."""
+        import build_standalone
+        html = build_standalone.before_body_end("<script>x='</body>'</script><p>a</p></body></html>", "<i>KB</i>")
+        self.assertEqual(html, "<script>x='</body>'</script><p>a</p><i>KB</i></body></html>")
+        page = build_standalone.build()
+        start = page.index("/* Команда моделей Rai")
+        script = page[start:page.index("</script>", start)]
+        self.assertIn("window.RaiTeam = {", script)
+        self.assertNotIn('id="rai-kb"', script)
+        self.assertNotIn('id="rai-vision"', script)
+        self.assertIn('<script src="team.js"></script>', open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"), encoding="utf-8").read())
 
 if __name__ == "__main__":
     unittest.main()

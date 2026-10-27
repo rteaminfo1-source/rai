@@ -305,6 +305,11 @@ function createWindow() {
   // Чужие ссылки — в обычном браузере, Google-вход — в отдельном окне
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/accounts\.google\.com/.test(url)) return { action: "allow" };
+    // Окно наблюдения за командой моделей: страница сама рисует его в пустом окне (about:blank)
+    if (!url || url === "about:blank") {
+      return { action: "allow", overrideBrowserWindowOptions: { width: 1240, height: 840, title: "Rai — команда моделей",
+        backgroundColor: "#07070b", autoHideMenuBar: true, icon: ICON } };
+    }
     if (!isOwn(url)) { shell.openExternal(url); return { action: "deny" }; }
     return { action: "allow" };
   });

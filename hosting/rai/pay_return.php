@@ -25,7 +25,7 @@ page_head($paid ? 'Оплата прошла — Rai' : 'Оплата — Rai', 
     <?php if ($paid): ?>
       <h1>Rai <?= h($p['name']) ?> подключён</h1>
       <p>Спасибо! Подписка действует <b><?= until_text($plan['until']) ?></b>.
-        <?= $p['neuro_day'] ? 'Нейросеть: ' . $p['neuro_day'] . ' сообщений в день.' : 'Нейросеть — без ограничений.' ?></p>
+        <?= $p['neuro_day'] ? 'Нейросеть AI Studio: ' . $p['neuro_day'] . ' сообщений в день.' : 'Нейросеть AI Studio — без ограничений.' ?></p>
       <a class="btn big" href="<?= CHAT_URL ?>">Открыть Rai</a>
     <?php elseif ($wait): ?>
       <h1>Ждём подтверждение оплаты</h1>

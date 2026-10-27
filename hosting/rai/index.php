@@ -30,10 +30,10 @@ $fest = festive_current();
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rai — свой ИИ-помощник</title>
-<meta name="description" content="Rai — ИИ-помощник команды Rteam: нейросеть прямо в браузере, код на 17 языках, презентации, погода, перевод и анализ соцсетей. Приложение для Windows, macOS и Linux. Бесплатно и по подписке.">
+<meta name="description" content="Rai — ИИ-помощник команды Rteam: свой движок прямо в браузере, команда до 1000 моделей, код на 17 языках, презентации, погода, перевод и анализ соцсетей. Приложение для Windows, macOS и Linux. Бесплатно и по подписке.">
 <meta name="theme-color" content="#07070b">
 <meta property="og:title" content="Rai — свой ИИ-помощник">
-<meta property="og:description" content="Нейросеть в браузере, код, презентации, перевод и анализ соцсетей. Начните бесплатно.">
+<meta property="og:description" content="Свой ИИ в браузере: до 1000 моделей отвечают вместе, код, презентации, перевод и анализ соцсетей. Начните бесплатно.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23e10600'/%3E%3Ctext x='16' y='23' font-size='19' font-family='Arial' font-weight='900' text-anchor='middle' fill='white'%3ER%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Onest:wght@400;500;600;700&display=swap">
@@ -325,22 +325,22 @@ footer .sp { margin-left: auto; }
           <a class="btn primary big" href="<?= CHAT_URL ?>">Начать бесплатно <span class="arrow">→</span></a>
           <a class="btn big" href="#pricing">Тарифы</a>
         </div>
-        <div class="trust fade d3"><span>Без карты</span><span><?= (int)$free['neuro_day'] ?> сообщений нейросети в день бесплатно</span><span>Без автосписаний</span></div>
+        <div class="trust fade d3"><span>Без карты</span><span>Ничего не нужно скачивать</span><span>Без автосписаний</span></div>
       </div>
       <div class="demo fade d2">
         <div class="demo-card" id="tilt">
           <div class="demo-in">
-            <div class="demo-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><b>Rai</b><em>Rai Нейро в сети</em></div>
+            <div class="demo-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><b>Rai</b><em>Rai в сети</em></div>
             <div class="msgs" id="msgs" aria-live="polite"></div>
             <div class="demo-input"><span>Спросите что угодно…</span><i>↑</i></div>
           </div>
         </div>
-        <div class="chip-float one">⚡ Ответ за секунды<small>нейросеть работает у вас</small></div>
+        <div class="chip-float one">⚡ Ответ за секунды<small>движок Rai работает у вас</small></div>
         <div class="chip-float two">🔒 Приватно<small>вопросы не уходят в чужие API</small></div>
       </div>
     </div>
     <div class="marquee" aria-hidden="true"><div class="track">
-      <?php $items = ['Нейросеть в браузере', 'Код на 17 языках', 'Презентации и PPTX', 'Погода в любом посёлке', 'Курсы валют', 'Перевод', 'Анализ TikTok и YouTube', 'Стихи', 'Мемы', 'Картинки', 'Даты и единицы', 'AI Studio — сайты'];
+      <?php $items = ['До 1000 моделей сразу', 'Код на 17 языках', 'Презентации и PPTX', 'Погода в любом посёлке', 'Курсы валют', 'Перевод', 'Анализ TikTok и YouTube', 'Стихи', 'Мемы', 'Картинки', 'Даты и единицы', 'AI Studio — сайты'];
       for ($i = 0; $i < 2; $i++) foreach ($items as $it) echo '<span>' . h($it) . '</span>'; ?>
     </div></div>
   </div>
@@ -348,7 +348,7 @@ footer .sp { margin-left: auto; }
   <section aria-label="Rai в цифрах">
     <div class="wrap stats">
       <div class="stat reveal"><b data-count="17">0</b><span>языков программирования с примерами</span></div>
-      <div class="stat reveal" style="--d:.08s"><b data-count="5">0</b><span>моделей нейросети — от Лайт до Макс</span></div>
+      <div class="stat reveal" style="--d:.08s"><b data-count="1000">0</b><span>моделей Rai в одной команде</span></div>
       <div class="stat reveal" style="--d:.16s"><b data-count="100" data-suffix="%">0</b><span>работает в браузере, без установки</span></div>
       <div class="stat reveal" style="--d:.24s"><b>0 ₽</b><span>чтобы начать — бесплатный тариф навсегда</span></div>
     </div>
@@ -362,8 +362,8 @@ footer .sp { margin-left: auto; }
         <article class="f wide tall reveal">
           <span class="tag">Своя</span>
           <div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><path d="M12 3a4 4 0 0 0-4 4v1a4 4 0 0 0-3 6.5A4 4 0 0 0 9 21h.5M12 3a4 4 0 0 1 4 4v1a4 4 0 0 1 3 6.5A4 4 0 0 1 15 21h-.5M12 3v18"/></svg></div>
-          <h3>Rai Нейро — нейросеть прямо у вас</h3>
-          <p>Пять моделей: от быстрой Лайт до мощной Макс и Код. Думает над сложными задачами, ищет в интернете, проверяет расчёты кодом и помнит, что вы рассказывали.</p>
+          <h3>Команда моделей — до 1000 Rai сразу</h3>
+          <p>Модели Rai отвечают параллельно — в нескольких потоках вашего компьютера — и голосуют за лучший ответ. Как думает каждая, видно в отдельном окне. Ничего не нужно скачивать: всё уже внутри Rai.</p>
           <div class="bars" aria-hidden="true"><i style="height:30%"></i><i style="height:48%;transition-delay:.08s"></i><i style="height:62%;transition-delay:.16s"></i><i style="height:84%;transition-delay:.24s"></i><i style="height:100%;transition-delay:.32s"></i></div>
         </article>
         <article class="f wide reveal" style="--d:.08s">
@@ -399,7 +399,7 @@ footer .sp { margin-left: auto; }
       <div class="center reveal"><span class="kicker">Как это работает</span><h2>Три шага до ответа</h2>
         <p class="sub">Никаких установок и ключей — откройте сайт и спрашивайте.</p></div>
       <div class="steps">
-        <div class="step reveal"><h3>Откройте Rai</h3><p>Чат работает сразу. Нейросеть загрузится в фоне и запомнится браузером.</p></div>
+        <div class="step reveal"><h3>Откройте Rai</h3><p>Чат работает сразу — ничего не нужно скачивать и устанавливать.</p></div>
         <div class="step reveal" style="--d:.1s"><h3>Спросите что угодно</h3><p>Текстом или голосом. Прикрепите скриншот — Rai прочитает, что на нём.</p></div>
         <div class="step reveal" style="--d:.2s"><h3>Получите результат</h3><p>Ответ, код, презентацию или картинку — скачайте или продолжите разговор.</p></div>
       </div>
@@ -416,7 +416,7 @@ footer .sp { margin-left: auto; }
           <ul class="dl-points">
             <li><span><b>Обновляется само</b> — новые функции появляются сразу, а новые версии приложения ставятся сами</span></li>
             <li><span><b>Работает без интернета</b> — движок Rai и Python уже внутри</span></li>
-            <li><span><b>Быстрее браузера</b> — Python не скачивается, нейросеть работает на видеокарте</span></li>
+            <li><span><b>Быстрее браузера</b> — Python и знания Rai уже внутри, ничего не скачивается</span></li>
           </ul>
           <div class="cta">
             <a class="btn primary big" id="dl-main" href="download.php?os=win">Скачать для Windows <span class="arrow">↓</span></a>
@@ -441,7 +441,7 @@ footer .sp { margin-left: auto; }
   <section id="pricing">
     <div class="wrap center">
       <div class="reveal"><span class="kicker">Тарифы</span><h2>Выберите <span class="grad-text">свой Rai</span></h2>
-        <p class="sub">Движок Rai бесплатен всегда. Подписка добавляет сообщения нейросети, модели посильнее и режим «Думать глубже».</p></div>
+        <p class="sub">Движок Rai бесплатен всегда. Подписка открывает уровни размышления Extra, Code и Ultra и больше токенов в день.</p></div>
       <?php if ($sale): ?><p class="sale-banner reveal">🏷 <b><?= h($sale['title'] ?: 'Скидка') ?>: −<?= (int)$sale['percent'] ?>%</b><?= !empty($sale['until']) ? ' · до ' . h(ru_date($sale['until'])) : '' ?></p><?php endif; ?>
       <div class="toggle reveal" role="group" aria-label="Срок подписки">
         <span class="pill" id="pill"></span>
@@ -472,7 +472,7 @@ footer .sp { margin-left: auto; }
       <p class="note reveal">Оплата через Platega: СБП и банковские карты<?= $stars_on ? ' — или звёздами Telegram ⭐' : '' ?>. Подписка не продлевается сама — никаких скрытых списаний.
         <?php if ($stars_on): ?><br>⭐ При оплате звёздами Telegram к цене добавляется <b><?= stars_commission() ?>% — это комиссия Telegram</b>
         (1 ⭐ ≈ <?= h(str_replace('.', ',', (string)stars_rate())) ?> ₽). Скидки, акции и промокоды действуют и при оплате звёздами.<?php endif; ?>
-        Без входа нейросеть отвечает <?= guest_limit() ?> раз в день.</p>
+</p>
     </div>
   </section>
 
@@ -480,10 +480,10 @@ footer .sp { margin-left: auto; }
     <div class="wrap">
       <div class="center reveal"><span class="kicker">Вопросы</span><h2>Часто спрашивают</h2></div>
       <div class="faq">
-        <details class="reveal"><summary>Что такое Rai Нейро?</summary><div class="ans">Своя нейросеть Rai на открытой модели Qwen. Она загружается в браузер и работает на вашей видеокарте или процессоре — вопросы не отправляются в чужие сервисы.</div></details>
-        <details class="reveal"><summary>Нужно ли что-то устанавливать?</summary><div class="ans">Нет. Откройте rai.rteam.info в Chrome, Edge или Safari. Первая загрузка модели занимает от минуты, потом она берётся из памяти браузера. Если удобнее отдельное окно — <a href="#download" style="color:var(--pink)">скачайте приложение</a> для Windows, macOS или Linux.</div></details>
+        <details class="reveal"><summary>Что такое команда моделей?</summary><div class="ans">До 1000 моделей Rai отвечают на вопрос одновременно — в нескольких потоках вашего компьютера. Похожие ответы объединяются, модели голосуют, и вы получаете лучший ответ. Как они работают, видно прямо в чате и в отдельном окне. Включается кнопкой «👥 Команда» под полем ввода.</div></details>
+        <details class="reveal"><summary>Нужно ли что-то устанавливать?</summary><div class="ans">Нет. Откройте rai.rteam.info в Chrome, Edge или Safari. Первый запуск занимает несколько секунд, дальше Rai открывается из памяти браузера. Если удобнее отдельное окно — <a href="#download" style="color:var(--pink)">скачайте приложение</a> для Windows, macOS или Linux.</div></details>
         <details class="reveal"><summary>Как обновляется приложение?</summary><div class="ans">Само. Чат внутри приложения — это сайт Rai, поэтому новые функции появляются сразу. А новые версии самого приложения оно находит на GitHub (или на нашем сервере, если GitHub недоступен), скачивает и ставит при следующем запуске — на Windows и Linux без вопросов, на macOS предложит скачать. Без интернета приложение открывает встроенный Rai.</div></details>
-        <details class="reveal"><summary>Что будет, когда закончатся сообщения нейросети?</summary><div class="ans">Rai продолжит отвечать своим движком: погода, курсы, перевод, код, презентации, расчёты — всё работает. Лимит нейросети обновляется каждый день в полночь (по Москве).</div></details>
+        <details class="reveal"><summary>Что будет, когда закончатся токены на сегодня?</summary><div class="ans">Rai продолжит отвечать: погода, курсы, перевод, код, презентации, расчёты — всё работает. Счётчик токенов обновляется каждый день в полночь (по Москве); если их часто не хватает — подойдёт тариф побольше.</div></details>
         <details class="reveal"><summary>Как оплатить и когда включится подписка?</summary><div class="ans">Выберите тариф, войдите или зарегистрируйтесь и оплатите через Platega — СБП или картой. Подписка включается сразу после оплаты.</div></details>
         <details class="reveal"><summary>Подписка продлевается автоматически?</summary><div class="ans">Нет. Вы платите за месяц или год, и всё. Продлить можно в любой момент — новое время добавится к оставшемуся.</div></details>
         <?php if ($stars_on): ?><details class="reveal"><summary>Можно ли оплатить звёздами Telegram?</summary><div class="ans">Да. На странице оплаты нажмите «Оплатить Telegram Stars» — откроется наш бот и выставит счёт в звёздах, подписка включится сразу. Цена в звёздах = цена в рублях (уже со скидкой и промокодом) + <?= stars_commission() ?>% комиссии Telegram, по курсу 1 ⭐ ≈ <?= h(str_replace('.', ',', (string)stars_rate())) ?> ₽.</div></details><?php endif; ?>

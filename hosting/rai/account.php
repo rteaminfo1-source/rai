@@ -38,7 +38,7 @@ page_head('Личный кабинет — Rai', $user);
     <div>
       <p class="kicker">Подписка</p>
       <h2 id="h-plan">Rai <?= h($mp['name']) ?><?= $mine['until'] ? ' · ' . until_text($mine['until']) : '' ?></h2>
-      <p class="muted small">Нейросеть сегодня: <?= $lim['limit'] ? $lim['used'] . ' из ' . $lim['limit'] . ' сообщений' : 'без ограничений' ?></p>
+      <p class="muted small">Нейросеть AI Studio сегодня: <?= $lim['limit'] ? $lim['used'] . ' из ' . $lim['limit'] . ' сообщений' : 'без ограничений' ?></p>
       <?php if ($lim['limit']): ?><div class="meter" aria-hidden="true"><i style="width: <?= min(100, round($lim['used'] * 100 / max(1, $lim['limit']))) ?>%"></i></div><?php endif; ?>
     </div>
     <a class="btn" href="./#pricing"><?= $mine['key'] === 'free' ? 'Выбрать тариф' : 'Продлить или сменить' ?></a>

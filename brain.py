@@ -18,6 +18,11 @@ import threading
 import time
 from collections import OrderedDict
 
+# Сотни функций Rai проверяют сотни регулярных выражений на каждый вопрос. Стандартный кэш Python — 512 шаблонов:
+# он переполнялся, и шаблоны компилировались заново на каждый ответ (в 7 раз медленнее). Держим их все в памяти.
+if getattr(re, "_MAXCACHE", 0) < 4096:
+    re._MAXCACHE = 4096
+
 import codeai
 import codelib
 import codemind
@@ -45,6 +50,7 @@ import toolbox
 import facts  # noqa: F401 — регистрирует справочник в toolbox
 import games
 import powertools  # noqa: F401 — ещё 170+ точных функций (регистрируются в toolbox)
+import explain     # объяснения: «почему небо голубое», «как работает холодильник»
 import fixer
 import encyclopedia
 import files
@@ -551,6 +557,7 @@ class Brain:
                 return self._known(known, attachments), "encyclopedia"
 
         # ---- «подумай…», «исследуй…», «объясни подробно…» — Rai Разум: план, поиск, чтение, проверка
+        # (не справился — ниже ответит готовое точное объяснение explain, если оно есть)
         if not codeai.is_build_request(text) and not codeai.extract_code(text)[0] and mind.explicit(text):
             thought = self._think(version, text, attachments, min_conf=0.35)
             if thought:
@@ -615,6 +622,13 @@ class Brain:
                     return result["answer"], "code"
                 if building:
                     return codelib.help_text(), "code"
+
+        # ---- объяснения: «почему небо голубое», «как работает холодильник», «зачем нужен сон» — точный короткий
+        # ответ без интернета (explain.py); раньше такие вопросы без сети оставались без ответа
+        if not codeai.extract_code(text)[0]:
+            explained = explain.answer(text)
+            if explained:
+                return explained, "explain"
 
         # ---- навыки с интернетом
         # «переведи 100 км в мили» — это конвертер, а не переводчик
