@@ -60,6 +60,12 @@ _ARCHIVE_RE = re.compile(r"(сделай|собери|скачай|создай|
                          r"^\s*(архив|zip)(?:\s+чата)?\s*[.!?]*$", re.I)
 # Темы-реплики: отвечают, только когда весь вопрос про них (иначе «что посмотреть вечером» = «добрый вечер»).
 _SMALL_TALK = {"greeting", "how_are_you", "thanks", "bye", "ok", "compliment", "insult", "bot_feelings"}
+# Светская беседа в стиле «взрослого» диалога: уточняющий вопрос вместо шаблонного ответа.
+_FOLLOWUP_RE = re.compile(
+    r"\b(?:почему|зачем|как дела|что нового|чем займ[её]шься|расскажи о себе|кто ты|ты кто|откуда ты|"
+    r"тебе нравится|как тебе|что думаешь|скучно тебе|ты живой|ты человек|ты робот|любим\w*|настроени\w*)\b",
+    re.I,
+)
 _DEFINE_RE = re.compile(
     r"^\s*(?:а\s+)?(?:что такое|что это(?: такое)?|кто такой|кто такая|кто такие|что значит|что означает|"
     r"что такое это|расскажи (?:про|о|об)|что ты знаешь (?:про|о|об)|что знаешь (?:про|о|об)|объясни(?: что такое)?)"
@@ -317,6 +323,17 @@ class Brain:
             if not version.memory:
                 return "Запоминать факты умеет только Rai Pro Sun.", "memory"
             return self._memory(text, session), "memory"
+
+        # ---- живой диалог: короткие вопросы «про меня» в продолжение беседы (Pro Plus / Pro Sun)
+        # Работает, только если реплика почти целиком про Rai («а ты кто?», «почему?»),
+        # и не уводит темы с точными ответами («как тебя зовут» — это запрос имени).
+        if version.context and len(text) <= 80 and _FOLLOWUP_RE.search(text) \
+                and not self.search(version, text, limit=1) \
+                and not talk.is_poem_request(text) and not talk.is_recommend_request(text) \
+                and not social.is_link_request(text) and not codeai.is_build_request(text):
+            reply = self._followup(version, text, session, attachments)
+            if reply:
+                return reply, "small_talk"
 
         # ---- ссылка на TikTok, YouTube, Telegram, Instagram, VK, X или сайт — разбор аккаунта, видео, страницы
         if social.is_link_request(text) and not codeai.is_build_request(text):
@@ -828,12 +845,51 @@ class Brain:
                         "answers": [re.sub(r"^\*\*.+?\*\*\s*(\([^)]*\)\s*)?[—-]\s*", "", text)]})
         return out
 
+    def _followup(self, version, text, session, attachments):
+        """Живая реакция на короткий вопрос «про Rai» в разговоре (только версии с контекстом)."""
+        low = text.lower().replace("ё", "е")
+        name = session.get("name")
+        # «почему ты …?» — спрашивают о прошлом ответе: честно уточняем, о чём именно речь.
+        if re.search(r"^(?:а\s+)?(?:почему|зачем)", low.strip()):
+            last = session.get("last_intent")
+            title = self.intents[last].get("title") if last in self.intents else None
+            if title:
+                return (f"Хороший вопрос, {name}" if name else "Хороший вопрос") + \
+                       f"! Мы обсуждали тему «{title}». Уточните, что именно вас смущает, — и я объясню подробнее."
+            return "Уточните, пожалуйста: почему что именно? Напишите полный вопрос — разберёмся вместе."
+        candidates = []
+        if re.search(r"как дела|что нового|чем занимаешься|как настроение", low):
+            candidates.append("how_are_you")
+        if re.search(r"кто ты|ты кто|расскажи о себе|откуда ты|как тебя зовут|твое имя", low):
+            candidates.extend(["who_are_you", "abilities"])
+        if re.search(r"ты живой|ты человек|ты робот|у тебя есть чувства|тебе нравится|что думаешь", low):
+            candidates.append("bot_feelings")
+        if not candidates:
+            return None
+        for intent_id in candidates:
+            intent = self.intents.get(intent_id)
+            if intent:
+                answer = self._pick(intent, session)
+                if version.context:
+                    session["last_intent"] = intent_id
+                return answer
+        return None
+
     def _pick(self, intent, session):
-        """Случайный вариант ответа, по возможности не тот же, что в прошлый раз."""
+        """Случайный вариант ответа, по возможности не тот же, что в прошлый раз.
+
+        Темы светской беседы (привет, как дела, спасибо…) берут живые реплики из talk:
+        с обращением по имени, разнообразием и учётом времени суток — так общаться приятнее.
+        """
+        name = session.get("name")
+        if intent["id"] in _SMALL_TALK:
+            human = talk.time_greeting(name) if intent["id"] == "greeting" else talk.small_talk(intent["id"], name)
+            if human:
+                session["last_answer"] = None
+                return human
         options = [a for a in intent["answers"] if a != session.get("last_answer")] or intent["answers"]
         choice = random.choice(options)
         session["last_answer"] = choice
-        name = session.get("name")
         return choice.replace("{name}", f", {name}" if name else "")
 
     def _render(self, intent, version, session):
